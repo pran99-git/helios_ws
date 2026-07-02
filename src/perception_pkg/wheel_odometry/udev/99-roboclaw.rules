@@ -1,0 +1,17 @@
+# Stable device names for the two RoboClaw 2x15A controllers on the A4WD3.
+#
+# Both units are identical (idVendor 03eb / idProduct 2404) and expose NO unique
+# USB serial number, so they cannot be told apart by serial. They are instead
+# matched by the physical USB port they are plugged into (KERNELS == hub port):
+#
+#   left  controller -> physical port 1-4.4  -> /dev/roboclaw_left
+#   right controller -> physical port 1-4.3  -> /dev/roboclaw_right
+#
+# CONSEQUENCE: keep each RoboClaw in its current socket (and the USB hub in the
+# same Jetson port). If you move a RoboClaw to a different socket, update the
+# KERNELS value below (find it with:  udevadm info -n /dev/ttyACM0 | grep DEVPATH).
+#
+# MODE 0666 also makes the port accessible without dialout-group membership.
+
+SUBSYSTEM=="tty", ATTRS{idVendor}=="03eb", ATTRS{idProduct}=="2404", KERNELS=="1-4.4", SYMLINK+="roboclaw_left", MODE="0666"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="03eb", ATTRS{idProduct}=="2404", KERNELS=="1-4.3", SYMLINK+="roboclaw_right", MODE="0666"

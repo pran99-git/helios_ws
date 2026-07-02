@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<!--
+  Helios rover (Lynxmotion A4WD3 Mecanum) — top-level xacro.
+  Rough primitives model. Composes base.xacro (chassis + wheels) and
+  sensors.xacro (ZED + LiDAR mount frames).
+-->
+<robot name="helios" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:include filename="$(find helios_description)/urdf/base.xacro"/>
+  <xacro:include filename="$(find helios_description)/urdf/sensors.xacro"/>
+
+</robot>

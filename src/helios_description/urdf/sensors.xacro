@@ -1,0 +1,51 @@
+<?xml version="1.0"?>
+<!--
+  Sensor mount frames: ZED 2i camera and Hokuyo UST-10LX LiDAR.
+
+  ALL origins below are ROUGH PLACEHOLDERS. Measure the real mount offsets from
+  the rover center (base_link) on your CAD / rover and update the <origin> of
+  each *_mount_joint. xyz in meters, rpy in radians (REP-103: x fwd, y left, z up).
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ===================== ZED 2i ===================== -->
+  <!-- 'zed_camera_link' is the ZED wrapper's root camera frame. This joint
+       attaches it to the rover. NOTE: make sure the ZED wrapper is NOT also
+       publishing a base_link -> zed_camera_link transform (otherwise the frame
+       gets two parents). In the wrapper config set publish_tf so it only
+       publishes the camera's *internal* frames, and let this URDF own the mount. -->
+  <link name="zed_camera_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.04 0.180 0.030"/>   <!-- ZED 2i ~175 mm wide -->
+      </geometry>
+      <material name="sensor_blue"/>
+    </visual>
+  </link>
+  <joint name="zed_mount_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="zed_camera_link"/>
+    <!-- TODO: measure. Placeholder: front edge, raised. -->
+    <origin xyz="0.140 0.0 0.03925" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ===================== Hokuyo UST-10LX ===================== -->
+  <!-- Frame name 'laser' matches urg_node2's frame_id, so /scan lands here. -->
+  <link name="laser">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.020" length="0.0685"/>   <!-- UST-10LX ~50 mm dia -->
+      </geometry>
+      <material name="sensor_blue"/>
+    </visual>
+  </link>
+  <joint name="laser_mount_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="laser"/>
+    <!-- TODO: measure. Placeholder: front-center, on top. -->
+    <origin xyz="0.140 0.0 0.07925" rpy="0 0 0"/>
+  </joint>
+
+</robot>

@@ -1,0 +1,51 @@
+wheel_odometry:
+  ros__parameters:
+    # === Lynxmotion A4WD3 Mecanum rover ======================================
+
+    # --- RoboClaw connection (two controllers, two separate USB ports) -------
+    # Stable names from udev/99-roboclaw.rules (keyed on physical USB port).
+    # roboclaw_left = port that enumerates as ttyACM0 (LEFT controller),
+    # roboclaw_right = ttyACM1 (RIGHT controller). 
+    #Falls back to ttyACM* if the udev rule is not installed.
+    left_port: '/dev/roboclaw_left'    # RoboClaw driving the two LEFT wheels
+    right_port: '/dev/roboclaw_right'  # RoboClaw driving the two RIGHT wheels
+    left_address: 128            # 0x80
+    right_address: 128           # 0x80
+    baud: 115200                 # match the RoboClaw config (often 38400 or 115200)
+    serial_timeout: 0.1
+
+    # --- Wheel sign inversion ------------------------------------------------
+    # Fixed wiring (hardcoded in the node):
+    #   LEFT  controller (ACM0): front_left = M2, rear_left = M1
+    #   RIGHT controller (ACM1): front_right = M1, rear_right = M2
+    # Flip a flag if that wheel reads negative when driven forward.
+    # On this rover all four already read positive forward -> all false.
+    invert_front_left: false
+    invert_front_right: false
+    invert_rear_left: false
+    invert_rear_right: false
+
+    # --- Geometry / encoders -------------------------------------------------
+    wheel_radius: 0.076          # 152 mm mecanum wheel diameter / 2
+
+    # Wheel-CENTER distances measured on the rover (Lynxmotion does not publish
+    # them). They scale the rotation term; fine-tune via rotate-in-place test.
+    wheelbase: 0.220             # front<->rear wheel center distance (m)
+    track_width: 0.330           # left<->right wheel center distance (m)
+
+    # Counts per WHEEL revolution = encoder_PPR(12) * 4(quadrature) * gear_ratio.
+    #   This rover: 51:1 gearbox -> 12 * 4 * 51 = 2448.
+    # Fine-tune by calibration: drive a measured 1 m and compare reported distance.
+    counts_per_rev: 2448.0
+
+    # --- ROS interface -------------------------------------------------------
+    publish_rate: 30.0           # Hz
+    odom_frame_id: 'odom'
+    base_frame_id: 'base_link'
+    odom_topic: 'wheel/odometry'
+    publish_tf: true
+
+    # Covariance diagonals: [x, y, z, roll, pitch, yaw].
+    # y is now observable (mecanum can strafe), so it gets a real value.
+    pose_covariance_diagonal: [0.01, 0.01, 1.0e6, 1.0e6, 1.0e6, 0.05]
+    twist_covariance_diagonal: [0.01, 0.01, 1.0e6, 1.0e6, 1.0e6, 0.05]
