@@ -16,12 +16,21 @@
        publishes the camera's *internal* frames, and let this URDF own the mount. -->
   <link name="zed_camera_link">
     <visual>
+      <!-- mesh_rpy/mesh_scale from base.xacro (shared CAD-frame convention).
+           TODO: verify visually — camera may need yaw += pi if it's facing
+           backwards (mesh forward-axis sign was inferred, not measured). -->
+      <origin xyz="-0.02128 -0.08888 -0.01547" rpy="${mesh_rpy}"/>
+      <geometry>
+        <mesh filename="package://helios_description/meshes/ZED2i.STL" scale="${mesh_scale}"/>
+      </geometry>
+      <material name="sensor_blue"/>
+    </visual>
+    <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
         <box size="0.04 0.180 0.030"/>   <!-- ZED 2i ~175 mm wide -->
       </geometry>
-      <material name="sensor_blue"/>
-    </visual>
+    </collision>
   </link>
   <joint name="zed_mount_joint" type="fixed">
     <parent link="base_link"/>
@@ -34,12 +43,18 @@
   <!-- Frame name 'laser' matches urg_node2's frame_id, so /scan lands here. -->
   <link name="laser">
     <visual>
+      <origin xyz="-0.03163 -0.02500 -0.03500" rpy="${mesh_rpy}"/>
+      <geometry>
+        <mesh filename="package://helios_description/meshes/Hokuyo-UST-10LX-Lidar.STL" scale="${mesh_scale}"/>
+      </geometry>
+      <material name="sensor_blue"/>
+    </visual>
+    <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
         <cylinder radius="0.020" length="0.0685"/>   <!-- UST-10LX ~50 mm dia -->
       </geometry>
-      <material name="sensor_blue"/>
-    </visual>
+    </collision>
   </link>
   <joint name="laser_mount_joint" type="fixed">
     <parent link="base_link"/>
