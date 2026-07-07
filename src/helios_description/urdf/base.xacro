@@ -12,22 +12,18 @@
   <xacro:property name="half_wheelbase" value="0.110"/>   <!-- wheelbase 0.220 / 2 (front<->rear) -->
   <xacro:property name="half_track"     value="0.165"/>   <!-- track 0.330 / 2 (left<->right) -->
 
-  <!-- Chassis collision box (rough; A4WD3 frame ~ 0.32 x 0.24 x 0.10). Kept as a
-       primitive per meshes/README.md even though visual now uses the CAD mesh. -->
+  <!-- Chassis collision box (rough; A4WD3 frame ~ 0.32 x 0.24 x 0.10). -->
   <xacro:property name="chassis_length" value="0.320"/>
   <xacro:property name="chassis_width"  value="0.240"/>
   <xacro:property name="chassis_height" value="0.0785"/>
 
-  <!-- CAD meshes (meshes/*.STL) were exported in millimeters with a Y-up,
-       Z-forward convention (verified consistently across chassis/wheel/lidar/
-       zed bounding boxes: mesh_y -> robot up, mesh_z -> robot forward,
+  <!-- CAD meshes (meshes/*.STL) were exported in millimeters with a Y-up,Z-forward convention        
+      zed bounding boxes: mesh_y -> robot up, mesh_z -> robot forward,
        mesh_x -> robot left). mesh_scale converts mm -> m; mesh_rpy is the
        fixed rotation that maps the CAD frame into REP-103 (x fwd, y left,
        z up). mesh_*_xyz below re-center each mesh's bounding-box centroid on
-       its link origin (computed from the STL bounding boxes, not measured).
-       TODO: this is a best-effort derivation from bbox dimensions matching
-       known hardware specs — confirm visually in RViz and nudge if a mesh
-       looks rotated/flipped. -->
+       its link origin.
+       -->
   <xacro:property name="mesh_scale" value="0.001 0.001 0.001"/>
   <xacro:property name="mesh_rpy"   value="${pi/2} 0 ${pi/2}"/>
   <xacro:property name="chassis_mesh_xyz" value="-0.16552 -0.13383 -0.03827"/>
@@ -73,11 +69,7 @@
   <!-- ===================== Wheel macro ===================== -->
   <!-- mesh_file/mesh_xyz select one of the two A4WD3 mecanum wheel meshes.
        Mecanum wheels are handed: rollers on diagonal corners mirror each
-       other so the X-roller pattern lets the drivetrain strafe. Assigned
-       here as the standard diagonal pairing (A: front_left/rear_right,
-       B: front_right/rear_left) — TODO: verify against the A4WD3 assembly
-       manual / look at the physical rover and swap mesh_file per-corner
-       below if the rollers look mirrored in RViz. -->
+       other so the X-roller pattern lets the drivetrain strafe.-->
   <xacro:macro name="wheel" params="name x y mesh_file mesh_xyz">
     <link name="${name}_wheel">
       <visual>
@@ -109,12 +101,12 @@
 
   <!-- Corner names match the wheel_odometry node. -->
   <xacro:wheel name="front_left"  x="${half_wheelbase}"  y="${half_track}"
-               mesh_file="A4WD3-W-ME-A.STL" mesh_xyz="${wheelA_mesh_xyz}"/>
+               mesh_file="A4WD3-W-ME-B.STL" mesh_xyz="${wheelA_mesh_xyz}"/>
   <xacro:wheel name="front_right" x="${half_wheelbase}"  y="${-half_track}"
-               mesh_file="A4WD3-W-ME-B.STL" mesh_xyz="${wheelB_mesh_xyz}"/>
+               mesh_file="A4WD3-W-ME-A.STL" mesh_xyz="${wheelB_mesh_xyz}"/>
   <xacro:wheel name="rear_left"   x="${-half_wheelbase}" y="${half_track}"
-               mesh_file="A4WD3-W-ME-B.STL" mesh_xyz="${wheelB_mesh_xyz}"/>
+               mesh_file="A4WD3-W-ME-A.STL" mesh_xyz="${wheelB_mesh_xyz}"/>
   <xacro:wheel name="rear_right"  x="${-half_wheelbase}" y="${-half_track}"
-               mesh_file="A4WD3-W-ME-A.STL" mesh_xyz="${wheelA_mesh_xyz}"/>
+               mesh_file="A4WD3-W-ME-B.STL" mesh_xyz="${wheelA_mesh_xyz}"/>
 
 </robot>
