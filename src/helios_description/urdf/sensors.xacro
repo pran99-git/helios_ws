@@ -18,8 +18,11 @@
        publishes the camera's *internal* frames, and let this URDF own the mount. -->
   <link name="zed_camera_link">
     <visual>
-      <!-- mesh_rpy/mesh_scale from base.xacro (shared CAD-frame convention). -->
-      <origin xyz="-0.02128 -0.08888 -0.01547" rpy="${mesh_rpy}"/>
+      <!-- ZED2i.STL has its own native axis convention (not the shared
+           mesh_rpy). Raw mesh's widest axis (175mm, lens-to-lens span) needs
+           to land on robot_y (left/right), not robot_x (forward) - this yaw
+           does that. xyz recentered for this rotation (see mesh bbox). -->
+      <origin xyz="0.01547 -0.08888 -0.02128" rpy="0 0 ${pi/2}"/>
       <geometry>
         <mesh filename="package://helios_description/meshes/ZED2i.STL" scale="${mesh_scale}"/>
       </geometry>
@@ -28,7 +31,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <box size="0.04 0.180 0.030"/>   <!-- ZED 2i ~175 mm wide -->
+        <box size="0.04 0.17525 0.030"/>   <!-- ZED 2i ~175 mm wide -->
       </geometry>
     </collision>
   </link>
@@ -36,7 +39,7 @@
     <parent link="base_link"/>
     <child link="zed_camera_link"/>
     <!-- Placeholder: top plate, leading edge, centerline. -->
-    <origin xyz="0.101 0.0 0.050" rpy="0 -1.5708 0"/>
+    <origin xyz="0.101 0.0 0.050" rpy="0 0 0"/> 
   </joint>
 
   <!-- ===================== Hokuyo UST-10LX ===================== -->
