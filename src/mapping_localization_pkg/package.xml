@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>mapping_localization_pkg</name>
+  <version>0.1.0</version>
+  <description>
+    Mapping and localization approaches for the Helios A4WD3 mecanum rover,
+    beyond the 2D slam_toolbox pipeline in sensor_fusion. Currently: RTAB-Map
+    (RGB-D + LiDAR registration, GTSAM pose-graph optimization) for 3D mapping
+    and localization, fed by the ZED 2i, Hokuyo UST-10LX, and the existing
+    EKF-fused odometry. Each technique lives in its own top-level folder.
+  </description>
+  <maintainer email="upadhyp1@uci.edu">pran</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>rtabmap_ros</exec_depend>
+  <exec_depend>rtabmap_launch</exec_depend>
+  <!-- Consumes topics from these; expects sensor_fusion/bringup.launch.py
+       already running rather than launching them itself. -->
+  <exec_depend>zed_wrapper</exec_depend>
+  <exec_depend>urg_node2</exec_depend>
+  <exec_depend>sensor_fusion</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
