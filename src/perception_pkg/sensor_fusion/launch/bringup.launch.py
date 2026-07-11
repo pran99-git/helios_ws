@@ -1,11 +1,10 @@
 """Full Helios bring-up: description + drivers + wheel odometry + fusion.
 
-TF ownership (REP-105), with the gotchas handled:
+TF ownership (REP-105):
   base_link -> sensors/wheels : robot_state_publisher (URDF)
   odom -> base_link           : robot_localization EKF  (ONLY publisher)
   map -> odom                 : slam_toolbox
 
-Gotcha handling:
   * wheel_odometry is launched with publish_tf:=false (EKF owns odom->base_link).
   * the ZED wrapper is launched with publish_tf:=false (no odom/map TF from it);
     it still publishes its /odom and /imu TOPICS, which the EKF consumes.

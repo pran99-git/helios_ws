@@ -5,9 +5,7 @@
   <version>0.1.0</version>
   <description>
     URDF/xacro description for the Lynxmotion A4WD3 mecanum "Helios" rover.
-    Rough primitives model (chassis box + 4 wheels) with TODO sensor mount
-    frames for the ZED 2i camera and Hokuyo UST-10LX LiDAR. Provides the
-    base_link TF tree for sensor fusion and visualization.
+    Provides the base_link TF tree for sensor fusion and visualization.
   </description>
   <maintainer email="upadhyp1@uci.edu">pran</maintainer>
   <license>Apache-2.0</license>

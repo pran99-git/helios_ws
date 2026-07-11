@@ -1,6 +1,6 @@
 # perception_pkg
 
-Perception stack for the Helios robot, running on an NVIDIA Jetson Orin (JetPack).
+Perception stack for the Helios robot..
 It bundles two sensor subsystems:
 
 - **LiDAR** — Hokuyo **UST-10LX** 2D scanner over Ethernet (`urg_node2` driver)
@@ -14,7 +14,7 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
-> Source `install/setup.bash` in **every** new terminal before launching a node.
+> source `install/setup.bash` in **every** new terminal before launching a node.
 
 ---
 
@@ -22,13 +22,6 @@ source install/setup.bash
 
 The Hokuyo UST-10LX talks over Ethernet on the `192.168.0.0/24` subnet. The sensor
 defaults to `192.168.0.10`; the Jetson's wired interface must be on the same subnet.
-
-- Bring up the wired interface and give it a static address on the LiDAR's subnet:
-  ```bash
-  sudo ifconfig end0 192.168.0.15 netmask 255.255.255.0 up
-  ```
-  This sets up the initial contact between the Jetson (JetPack) and the Hokuyo UST-10LX.
-  (`end0` is the Jetson's wired NIC — adjust if yours is named differently; check with `ip a`.)
 
 - Verify the sensor is reachable before launching ROS:
   ```bash
@@ -69,8 +62,7 @@ The driver is a **lifecycle node** that auto-starts (configures → activates) o
 # SETUP Camera
 
 - Install the **ZED SDK** matching this JetPack/CUDA version and confirm the camera is
-  detected (the SDK's `ZED_Diagnostic` / `ZED_Explorer` tools). A captured diagnostic run
-  is saved at `Camera/ZED_Diagnostic_Results.json`.
+  detected (the SDK's `ZED_Diagnostic` / `ZED_Explorer` tools).
 - Plug the ZED 2i into a USB 3.0 port (blue). On first launch the SDK optimizes the AI
   depth/detection models, which can take a few minutes.
 

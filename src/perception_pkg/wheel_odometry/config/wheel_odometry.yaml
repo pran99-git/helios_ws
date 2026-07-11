@@ -2,17 +2,12 @@ wheel_odometry:
   ros__parameters:
     # === Lynxmotion A4WD3 Mecanum rover ======================================
 
-    # --- RoboClaw connection (two controllers, two separate USB ports) -------
-    # Stable names from udev/99-roboclaw.rules (keyed on physical USB port).
-    # roboclaw_left = port that enumerates as ttyACM0 (LEFT controller),
-    # roboclaw_right = ttyACM1 (RIGHT controller). 
-    #Falls back to ttyACM* if the udev rule is not installed.
-    left_port: '/dev/roboclaw_left'    # RoboClaw driving the two LEFT wheels
-    right_port: '/dev/roboclaw_right'  # RoboClaw driving the two RIGHT wheels
-    left_address: 128            # 0x80
-    right_address: 128           # 0x80
-    baud: 115200                 # match the RoboClaw config (often 38400 or 115200)
-    serial_timeout: 0.1
+    # --- Encoder source --------------------------------------------------------
+    # Raw per-wheel encoder counts (sensor_msgs/JointState), published by
+    # low_level_control_pkg's roboclaw_driver_node -- that node owns the actual
+    # RoboClaw serial connection; this node only consumes its topic. See
+    # low_level_control_pkg/config for the serial port/baud/address params.
+    encoder_topic: 'roboclaw/wheel_encoders'
 
     # --- Wheel sign inversion ------------------------------------------------
     # Fixed wiring (hardcoded in the node):
@@ -28,18 +23,16 @@ wheel_odometry:
     # --- Geometry / encoders -------------------------------------------------
     wheel_radius: 0.076          # 152 mm mecanum wheel diameter / 2
 
-    # Wheel-CENTER distances measured on the rover (Lynxmotion does not publish
-    # them). They scale the rotation term; fine-tune via rotate-in-place test.
     wheelbase: 0.220             # front<->rear wheel center distance (m)
     track_width: 0.330           # left<->right wheel center distance (m)
 
     # Counts per WHEEL revolution = encoder_PPR(12) * 4(quadrature) * gear_ratio.
     #   This rover: 51:1 gearbox -> 12 * 4 * 51 = 2448.
-    # Fine-tune by calibration: drive a measured 1 m and compare reported distance.
     counts_per_rev: 2448.0
 
     # --- ROS interface -------------------------------------------------------
-    publish_rate: 30.0           # Hz
+    # No publish_rate here -- odometry is published once per encoder message
+    # received; the rate is set by roboclaw_driver_node's encoder_publish_rate.
     odom_frame_id: 'odom'
     base_frame_id: 'base_link'
     odom_topic: 'wheel/odometry'

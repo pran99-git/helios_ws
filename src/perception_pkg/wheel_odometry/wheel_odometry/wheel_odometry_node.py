@@ -1,17 +1,18 @@
 # Copyright 2026
 #
-# Mecanum-drive wheel odometry from two RoboClaw controllers.
+# Mecanum-drive wheel odometry from raw encoder counts..
 #
-# Rover: Lynxmotion A4WD3 Mecanum (4x 152 mm mecanum wheels, holonomic).
+# This node does NOT talk to the RoboClaws directly -- that hardware I/O is
+# owned exclusively by low_level_control_pkg's roboclaw_driver_node. 
+# Instead, this node subscribes to `encoder_topic` (sensor_msgs/JointState, position = raw
+# quadrature counts per corner) and does everything downstream of that: the
+# counts->meters conversion, mecanum forward kinematics, pose integration,
+# and nav_msgs/Odometry (+ TF) publishing.
 #
-# Wiring (final): ACM0 = LEFT controller, ACM1 = RIGHT controller. The front
-# wheel is on a different channel per side:
-#   front_left  = left  M2     rear_left  = left  M1   (left side: front on M2)
-#   front_right = right M1     rear_right = right M2   (right side: front on M1)
-#
-# Because mecanum wheels can roll laterally, all FOUR wheels are read to recover
-# the body twist (vx, vy, wz). The node applies the standard mecanum forward
-# kinematics, integrates a full planar pose, and publishes nav_msgs/Odometry.
+# Because mecanum wheels can roll laterally, all FOUR wheels are read to
+# recover the body twist (vx, vy, wz). The node applies the standard mecanum
+# forward kinematics, integrates a full planar pose, and publishes
+# nav_msgs/Odometry.
 #
 # Mecanum forward kinematics (wheel linear displacements d_*, wheel radius r,
 # L = lx + ly with lx = wheelbase/2, ly = track_width/2):
@@ -28,9 +29,8 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy
 
 from geometry_msgs.msg import Quaternion, TransformStamped
 from nav_msgs.msg import Odometry
+from sensor_msgs.msg import JointState
 from tf2_ros import TransformBroadcaster
-
-from wheel_odometry.roboclaw_driver import RoboClaw, SerialBus
 
 CORNERS = ('front_left', 'front_right', 'rear_left', 'rear_right')
 
@@ -47,15 +47,8 @@ class WheelOdometryNode(Node):
     def __init__(self):
         super().__init__('wheel_odometry')
 
-        # --- Connection parameters -------------------------------------------
-        # Stable udev symlinks (keyed to physical USB port), NOT /dev/ttyACM*
-        # which renumber by insertion order. See udev/99-roboclaw.rules.
-        self.declare_parameter('left_port', '/dev/roboclaw_left')
-        self.declare_parameter('right_port', '/dev/roboclaw_right')
-        self.declare_parameter('left_address', 0x80)
-        self.declare_parameter('right_address', 0x80)
-        self.declare_parameter('baud', 115200)
-        self.declare_parameter('serial_timeout', 0.1)
+        # --- Encoder source ----------------------------------------------
+        self.declare_parameter('encoder_topic', 'roboclaw/wheel_encoders')
 
         # Per-corner sign inversion so forward motion reads positive.
         self.declare_parameter('invert_front_left', False)
@@ -74,7 +67,6 @@ class WheelOdometryNode(Node):
         self.declare_parameter('counts_per_rev', 2448.0)
 
         # --- ROS interface parameters ----------------------------------------
-        self.declare_parameter('publish_rate', 30.0)
         self.declare_parameter('odom_frame_id', 'odom')
         self.declare_parameter('base_frame_id', 'base_link')
         self.declare_parameter('odom_topic', 'wheel/odometry')
@@ -114,23 +106,6 @@ class WheelOdometryNode(Node):
             (2.0 * math.pi * self.wheel_radius) / self.counts_per_rev
             if self.counts_per_rev > 0.0 else 0.0)
 
-        # --- Open serial bus(es) and controllers -----------------------------
-        baud = g('baud').value
-        timeout = g('serial_timeout').value
-        left_port = g('left_port').value
-        right_port = g('right_port').value
-
-        self._buses = {}
-        try:
-            left_bus = self._get_bus(left_port, baud, timeout)
-            right_bus = self._get_bus(right_port, baud, timeout)
-        except Exception as exc:  # noqa: BLE001
-            self.get_logger().fatal(f'Failed to open RoboClaw serial port: {exc}')
-            raise
-
-        self.left = RoboClaw(left_bus, g('left_address').value)
-        self.right = RoboClaw(right_bus, g('right_address').value)
-
         # --- Pose / odometry state -------------------------------------------
         self.x = 0.0
         self.y = 0.0
@@ -138,48 +113,33 @@ class WheelOdometryNode(Node):
         self.prev = None       # {corner: absolute count}
         self.prev_time = None
 
-        # --- Publishers / timer ----------------------------------------------
+        # --- Publishers / subscription ----------------------------------------
         qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
         self.odom_pub = self.create_publisher(Odometry, g('odom_topic').value, qos)
         self.tf_broadcaster = TransformBroadcaster(self) if self.publish_tf else None
 
-        rate = g('publish_rate').value
-        self.timer = self.create_timer(1.0 / rate, self.update)
-        self.get_logger().info(
-            f'wheel_odometry (mecanum) started: left={left_port}, right={right_port}, '
-            f'baud={baud}, rate={rate} Hz, r={self.wheel_radius} m, '
-            f'L=lx+ly={self.l_sum:.4f} m, counts/rev={self.counts_per_rev}, '
-            f'topic="{g("odom_topic").value}"')
+        encoder_topic = g('encoder_topic').value
+        self.create_subscription(JointState, encoder_topic, self._on_joint_state, qos)
 
-    def _get_bus(self, port, baud, timeout):
-        """Reuse one SerialBus per physical port (handles a shared bus too)."""
-        if port not in self._buses:
-            self._buses[port] = SerialBus(port, baud, timeout)
-        return self._buses[port]
+        self.get_logger().info(
+            f'wheel_odometry (mecanum) started: encoder_topic="{encoder_topic}", '
+            f'r={self.wheel_radius} m, L=lx+ly={self.l_sum:.4f} m, '
+            f'counts/rev={self.counts_per_rev}, topic="{g("odom_topic").value}"')
 
     def _signed(self, corner, value):
         return -value if self.inversions[corner] else value
 
-    def update(self):
-        left_reading = self.left.read_encoders()    # (M1, M2) or None
-        right_reading = self.right.read_encoders()
-
-        now = self.get_clock().now()
-
-        if left_reading is None or right_reading is None:
-            self.get_logger().warn('RoboClaw encoder read failed (CRC/timeout); '
-                                   'skipping this cycle', throttle_duration_sec=2.0)
+    def _on_joint_state(self, msg):
+        try:
+            counts_by_name = dict(zip(msg.name, msg.position))
+            curr = {c: self._signed(c, counts_by_name[c]) for c in CORNERS}
+        except KeyError:
+            self.get_logger().warn(
+                'encoder JointState missing expected corner names; got '
+                f'{list(msg.name)}', throttle_duration_sec=5.0)
             return
 
-        # Fixed wiring. read_encoders() returns (M1, M2).
-        #   LEFT  controller (ACM0): front = M2, rear = M1
-        #   RIGHT controller (ACM1): front = M1, rear = M2
-        curr = {
-            'front_left': self._signed('front_left', left_reading[1]),    # left M2
-            'rear_left': self._signed('rear_left', left_reading[0]),      # left M1
-            'front_right': self._signed('front_right', right_reading[0]),  # right M1
-            'rear_right': self._signed('rear_right', right_reading[1]),    # right M2
-        }
+        now = self.get_clock().now()
 
         # First good reading just seeds the previous state.
         if self.prev is None:
@@ -253,11 +213,6 @@ class WheelOdometryNode(Node):
             t.transform.rotation = q
             self.tf_broadcaster.sendTransform(t)
 
-    def destroy_node(self):
-        for bus in self._buses.values():
-            bus.close()
-        super().destroy_node()
-
 
 def main(args=None):
     rclpy.init(args=args)
@@ -274,3 +229,4 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
+

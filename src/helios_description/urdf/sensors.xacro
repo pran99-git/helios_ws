@@ -5,7 +5,8 @@
   Frame convention REP-103: x forward, y left, z up. base_link at the rover
   geometric center, at wheel-axle height. The ZED wrapper's root camera frame
   is zed_camera_link, which is attached to the rover via a fixed joint. The
-  Hokuyo's frame is named 'laser' to match urg_node2's frame_id, so /scan lands here. Both sensors mount on the top surface of the chassis box.
+  Hokuyo's frame is named 'laser' to match urg_node2's frame_id, so /scan lands here. 
+  Both sensors mount on the top surface of the chassis box.
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
@@ -20,8 +21,7 @@
     <visual>
       <!-- ZED2i.STL has its own native axis convention (not the shared
            mesh_rpy). Raw mesh's widest axis (175mm, lens-to-lens span) needs
-           to land on robot_y (left/right), not robot_x (forward) - this yaw
-           does that. xyz recentered for this rotation (see mesh bbox). -->
+           to land on robot_y (left/right), not robot_x (forward). -->
       <origin xyz="0.01547 -0.08888 -0.02128" rpy="0 0 ${pi/2}"/>
       <geometry>
         <mesh filename="package://helios_description/meshes/ZED2i.STL" scale="${mesh_scale}"/>

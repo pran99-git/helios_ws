@@ -15,13 +15,13 @@ protocol, applies the mecanum forward-kinematics to recover the body twist
 
 | Spec | Value | Notes |
 |------|-------|-------|
-| Mecanum wheel diameter | 152 mm → radius **0.076 m** | confirmed |
-| Motors | 12 V DC + planetary gearbox | confirmed |
-| Encoder | magnetic, **12 PPR** at motor shaft, quadrature → **×4** | confirmed |
-| Gear ratio | **51:1** | confirmed on rover |
-| `counts_per_rev` (at wheel) | `12 × 4 × 51 = 2448` | confirmed |
-| Wheelbase (front↔rear center) | **0.220 m** | measured on rover |
-| Track width (left↔right center) | **0.330 m** | measured on rover |
+| Mecanum wheel diameter | 152 mm → radius **0.076 m** |
+| Motors | 12 V DC + planetary gearbox |
+| Encoder | magnetic, **12 PPR** at motor shaft, quadrature → **×4** |
+| Gear ratio | **51:1** |
+| `counts_per_rev` (at wheel) | `12 × 4 × 51 = 2448` |
+| Wheelbase (front↔rear center) | **0.220 m** |
+| Track width (left↔right center) | **0.330 m** |
 
 ## Mecanum model
 
@@ -57,13 +57,9 @@ source install/setup.bash
 
 Edit `config/wheel_odometry.yaml`:
 
-1. **Geometry you must measure** — `wheelbase` and `track_width` are the
-   front↔rear and left↔right **wheel-center** distances. Lynxmotion publishes
-   only the overall chassis size, so measure these on the rover.
-2. **`counts_per_rev`** — defaults to `2448` (51:1). Confirm by calibration.
-3. **Ports** — defaults `/dev/ttyACM0` (left controller) and `/dev/ttyACM1`
+1. **Ports** — defaults `/dev/ttyACM0` (left controller) and `/dev/ttyACM1`
    (right controller). These can swap on reboot; see *Stable port names* below.
-4. **Signs** — wiring is hardcoded in the node: left controller (ACM0)
+2. **Signs** — wiring is hardcoded in the node: left controller (ACM0)
    `front_left`=M2, `rear_left`=M1; right controller (ACM1) `front_right`=M1,
    `rear_right`=M2. The `invert_*` flags make forward motion read positive —
    confirm with `wheel_monitor`.

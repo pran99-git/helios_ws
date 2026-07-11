@@ -26,7 +26,6 @@ setup(
     entry_points={
         'console_scripts': [
             'wheel_odometry_node = wheel_odometry.wheel_odometry_node:main',
-            'wheel_monitor = wheel_odometry.wheel_monitor:main',
         ],
     },
 )
