@@ -1,0 +1,50 @@
+teleop_joy:
+  ros__parameters:
+    # Confirmed 2026-07-09 via `ros2 topic echo /joy` against this SN30 Pro's
+    # actual pairing mode -- see README for the procedure if this changes.
+    axis_vx: 1        # left stick Y (forward/back), +1.0 = forward
+    axis_vy: 0        # left stick X (strafe), +1.0 = left
+    axis_omega: 3     # right stick X (rotate), -1.0 = right (CW)
+    invert_vx: false
+    invert_vy: false
+    invert_omega: false
+    deadman_button: 5  # right shoulder (R) -- must be held to move
+
+    deadzone: 0.08
+    cmd_topic: 'cmd_vel'
+    publish_rate: 20.0
+    joy_timeout: 0.5
+
+roboclaw_driver:
+  ros__parameters:
+    # Sole owner of both RoboClaw serial connections -- see node docstring.
+    left_port: '/dev/roboclaw_left'
+    right_port: '/dev/roboclaw_right'
+    left_address: 128    # 0x80
+    right_address: 128   # 0x80
+    baud: 115200
+    serial_timeout: 0.1
+
+    # Verify with a bench test (wheels off the ground) -- this write path's
+    # sign convention is independent of wheel_odometry.yaml's invert_* flags.
+    invert_front_left: false
+    invert_front_right: false
+    invert_rear_left: false
+    invert_rear_right: false
+
+    wheelbase: 0.220
+    track_width: 0.330
+
+    # Open-loop duty fractions (0-1), not m/s -- see roboclaw_driver_node
+    # docstring. Start low; increase once you've confirmed direction/wiring.
+    max_linear_duty: 0.5
+    max_angular_duty: 0.5
+
+    cmd_topic: 'cmd_vel'
+    cmd_timeout: 0.5   # s; e-stop if /cmd_vel goes stale
+    control_rate: 20.0
+
+    # Encoder read/publish path -- consumed by perception_pkg's
+    # wheel_odometry_node (see its encoder_topic param, must match).
+    encoder_topic: 'roboclaw/wheel_encoders'
+    encoder_publish_rate: 30.0
