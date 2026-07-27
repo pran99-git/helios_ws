@@ -1,4 +1,4 @@
-"""Bluetooth-joystick input for Helios (8BitDo SN30 Pro) -- no hardware access.
+"""Bluetooth-joystick input for Helios (8BitDo SN30 Pro)
 
 Chain: joy_node (raw controller -> sensor_msgs/Joy)
        -> teleop_joy (Joy -> /cmd_vel, deadman-gated)

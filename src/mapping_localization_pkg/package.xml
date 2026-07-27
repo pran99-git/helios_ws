@@ -8,7 +8,7 @@
     beyond the 2D slam_toolbox pipeline in sensor_fusion. Currently: RTAB-Map
     (RGB-D + LiDAR registration, GTSAM pose-graph optimization) for 3D mapping
     and localization, fed by the ZED 2i, Hokuyo UST-10LX, and the existing
-    EKF-fused odometry. Each technique lives in its own top-level folder.
+    EKF-fused odometry.
   </description>
   <maintainer email="upadhyp1@uci.edu">pran</maintainer>
   <license>Apache-2.0</license>

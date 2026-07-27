@@ -2,8 +2,7 @@
 
 Mapping and localization approaches for Helios, beyond the 2D `slam_toolbox`
 pipeline in `sensor_fusion`. Currently: RTAB-Map (RGB-D + LiDAR registration,
-GTSAM pose-graph optimization). Each technique lives in its own top-level
-folder (`rtabmap/` now).
+GTSAM pose-graph optimization).
 
 ## Saved maps: `maps/`
 

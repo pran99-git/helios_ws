@@ -212,7 +212,7 @@ class RoboclawDriverNode(Node):
         self.encoder_pub.publish(msg)
 
     def destroy_node(self):
-        # Best-effort stop on shutdown -- don't leave motors spinning.
+        # Best-effort stop on shutdown
         try:
             self.left.stop()
             self.right.stop()

@@ -13,15 +13,13 @@ internal parameters, not a ROS node parameter -- see `ros2 run rtabmap_slam
 rtabmap --params` for the full list).
 
 GTSAM is already the default pose-graph optimizer in this RTAB-Map build
-(Optimizer/Strategy=2, confirmed against the installed librtabmap_core.so) --
-nothing extra needed to use it.
+(Optimizer/Strategy=2)
 
 To later make this TF-authoritative (replacing slam_toolbox's map->odom):
-  publish_tf_map:=true, and stop launching slam_toolbox in fusion.launch.py.
+publish_tf_map:=true, and stop launching slam_toolbox in fusion.launch.py.
 
 Each run gets its own database under maps/ (named by 'run_name', default a
-timestamp) instead of always overwriting the same ~/.ros/rtabmap.db -- that
-file was accumulating across every test run with no way to tell them apart.
+timestamp).
 The 3D map lives entirely inside that .db (the whole SLAM session: keyframes,
 pose graph, loop closures). To also save a standalone 2D map (.pgm/.yaml)
 for the SAME run, use maps/save_2d_map.sh <run_name> while this is still
@@ -43,10 +41,6 @@ from launch.substitutions import LaunchConfiguration
 def generate_launch_description():
     rtabmap_launch_pkg = get_package_share_directory('rtabmap_launch')
 
-    # Saved directly under the source package (not install/), so it survives
-    # rebuilds and colcon clean. Fixed to this workspace -- matches how
-    # low_level_control_pkg/wheel_odometry already hardcode this machine's
-    # udev device paths rather than trying to be portable.
     maps_dir = os.path.expanduser(
         '~/helios_ws/src/mapping_localization_pkg/maps')
     default_run_name = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -83,8 +77,7 @@ def generate_launch_description():
                 'scan_topic': '/scan',
                 'approx_sync': 'true',
 
-                # Odometry: reuse the EKF's fused wheel+VIO output rather than
-                # estimating a second, competing odometry source.
+                # Odometry: reuse the EKF's fused wheel+VIO output.
                 'visual_odometry': 'false',
                 'odom_topic': '/odometry/filtered',
 
@@ -94,11 +87,7 @@ def generate_launch_description():
                 'publish_tf_map': LaunchConfiguration('publish_tf_map'),
 
                 # RTAB-Map's own internal parameters (not ROS params).
-                #   Optimizer/Strategy=2 (GTSAM): must be explicit -- a fresh
-                #     database's own stored default was found to be 1 (g2o)
-                #     in practice, overriding the core library's compiled-in
-                #     default of 2. Database-stored params win over anything
-                #     not explicitly passed here, so don't rely on defaults.
+                #   Optimizer/Strategy=2 (GTSAM): must be explicit.
                 #   Reg/Strategy=2 (VisIcp): register using vision + LiDAR,
                 #     not vision alone -- both sensors are available here.
                 #   Optimizer/GravitySigma=0.3: keep optimized poses

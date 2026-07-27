@@ -1,6 +1,6 @@
 teleop_joy:
   ros__parameters:
-    # Confirmed 2026-07-09 via `ros2 topic echo /joy` against this SN30 Pro's
+    # Confirmed via `ros2 topic echo /joy` against this SN30 Pro's
     # actual pairing mode -- see README for the procedure if this changes.
     axis_vx: 1        # left stick Y (forward/back), +1.0 = forward
     axis_vy: 0        # left stick X (strafe), +1.0 = left

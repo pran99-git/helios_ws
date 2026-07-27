@@ -9,7 +9,7 @@ Bundles joy_teleop.launch.py + roboclaw_driver.launch.py for convenience when
 bench-testing low_level_control_pkg in isolation (e.g. wheels off the ground,
 no perception/SLAM stack running).
 
-SAFETY: roboclaw_driver_node is the sole owner of the RoboClaw serial ports.
+SAFETY: roboclaw_driver_node is the  owner of the RoboClaw serial ports.
 Do NOT run this launch file if roboclaw_driver.launch.py is already running
 elsewhere (e.g. as part of a full ground test) -- use joy_teleop.launch.py
 by itself in that case, since the driver is already up.
