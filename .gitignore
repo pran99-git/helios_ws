@@ -2,10 +2,6 @@ build/
 install/
 log/
 
-# Vendored upstream clone (has its own .git; track via a submodule/vcstool
-# .repos file later instead of committing it as plain files)
-src/perception_pkg/Camera/zed-ros2-wrapper/
-
 # RTAB-Map run outputs (large binary .db/.pgm/.yaml, one per mapping run) --
 # keep the folder tracked, not its contents.
 src/mapping_localization_pkg/maps/*
