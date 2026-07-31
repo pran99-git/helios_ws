@@ -39,7 +39,7 @@
     <parent link="base_link"/>
     <child link="zed_camera_link"/>
     <!-- Placeholder: top plate, leading edge, centerline. -->
-    <origin xyz="0.101 0.0 0.050" rpy="0 0 0"/> 
+    <origin xyz="0.106 0.0 0.050" rpy="0 0 0"/> 
   </joint>
 
   <!-- ===================== Hokuyo UST-10LX ===================== -->
@@ -63,7 +63,7 @@
     <parent link="base_link"/>
     <child link="laser"/>
     <!-- Placeholder: top plate, aft of the ZED. -->
-    <origin xyz="0.045 0 0.100" rpy="0 0 0"/>
+    <origin xyz="0.05 0 0.100" rpy="0 0 0"/>
   </joint>
 
 </robot>
