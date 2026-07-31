@@ -64,6 +64,12 @@ def generate_launch_description():
         DeclareLaunchArgument('rtabmap_viz', default_value='false',
                               description="RTAB-Map's own visualization GUI."),
         DeclareLaunchArgument('rviz', default_value='false'),
+        DeclareLaunchArgument(
+            'wait_for_transform', default_value='0.5',
+            description='Wait for TF before starting mapping.'),
+        DeclareLaunchArgument(
+            'sync_queue_size', default_value='30',
+            description='Queue size for approximate time sync of RGB-D + LiDAR + odometry.'),
 
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
@@ -86,19 +92,25 @@ def generate_launch_description():
                 'map_frame_id': 'map',
                 'publish_tf_map': LaunchConfiguration('publish_tf_map'),
 
-                # RTAB-Map's own internal parameters (not ROS params).
-                #   Optimizer/Strategy=2 (GTSAM): must be explicit.
-                #   Reg/Strategy=2 (VisIcp): register using vision + LiDAR,
-                #     not vision alone -- both sensors are available here.
-                #   Optimizer/GravitySigma=0.3: keep optimized poses
-                #     gravity-aligned, meaningful since VIO feeds this.
+                # RTAB-Map's own internal parameters.
+                # Optimizer/Strategy=2 (GTSAM): must be explicit.
+                #  Reg/Strategy=2 (VisIcp): register using vision + LiDAR,
+                #  not vision alone -- both sensors are available here.
+                # Optimizer/GravitySigma=0.3: keep optimized poses
+                #  gravity-aligned, meaningful since VIO feeds this.
+                # RGBD/NeighborLinkRefining=true: neighbor (sequential) edges
+                #  default to a raw copy of the external EKF odometry delta,
+                #  which can carry multi-meter jumps if VIO glitches/resets
                 'args': '--Optimizer/Strategy 2 --Reg/Strategy 2 '
-                        '--Optimizer/GravitySigma 0.3',
+                        '--Optimizer/GravitySigma 0.3 '
+                        '--RGBD/NeighborLinkRefining true',
 
                 'localization': LaunchConfiguration('localization'),
                 'database_path': LaunchConfiguration('database_path'),
                 'rtabmap_viz': LaunchConfiguration('rtabmap_viz'),
                 'rviz': LaunchConfiguration('rviz'),
+                'wait_for_transform': LaunchConfiguration('wait_for_transform'),
+                'sync_queue_size': LaunchConfiguration('sync_queue_size'),
             }.items(),
         ),
     ])
