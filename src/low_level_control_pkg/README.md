@@ -11,8 +11,8 @@ Two independent pieces:
   `sensor_msgs/JointState` on `roboclaw/wheel_encoders` (raw counts, not
   radians -- `perception_pkg`'s `wheel_odometry_node` does the counts->meters
   conversion and mecanum kinematics). Subscribes to `/cmd_vel`
-  (`geometry_msgs/Twist`, body frame) and issues open-loop duty-cycle
-  commands to the motors.
+  (`geometry_msgs/Twist`, body frame) and issues per-wheel speed commands
+  in encoder counts/sec, under an acceleration ramp.
 - **`teleop_joy_node`** -- 8BitDo SN30 Pro (Bluetooth) -> `sensor_msgs/Joy`
   (via `joy_node`) -> `/cmd_vel`, deadman-gated. This is the go-to node for
   driving the rover around manually to see how it behaves -- it has no idea
@@ -20,10 +20,11 @@ Two independent pieces:
   be a second, independent `/cmd_vel` source (or publish somewhere upstream
   of a cmd_vel mux); it doesn't touch `roboclaw_driver_node`.
 
-Control is **open-loop** (RoboClaw's raw duty-cycle command, not its
-closed-loop Speed/QPPS mode) -- the RoboClaw's internal velocity PID and
-QPPS limits aren't configured/verified on this hardware yet, so `vx`/`vy`/
-`omega` here are normalized `[-1, 1]` commands, not true m/s or rad/s.
+Control is **closed-loop** (RoboClaw's Speed/QPPS mode, not its raw
+duty-cycle command) -- the controller's own velocity PID holds the commanded
+counts/sec, so a wheel that loses traction gets throttled back instead of
+running away. `vx`/`vy`/`omega` on `/cmd_vel` are therefore true m/s and
+rad/s, not a normalized `[-1, 1]` range.
 
 ## Architecture: one process owns the hardware
 
@@ -92,9 +93,12 @@ Move each stick and press each button, note which index in `axes[]` /
 whether the axis mapping is right yet.
 
 **3. Bench-test with wheels off the ground** before trusting direction/sign.
-`max_linear_duty`/`max_angular_duty` in the config default to `0.5` (50%
-duty) specifically so a wiring/sign mistake doesn't immediately mean full
-power in the wrong direction. Flip the relevant `invert_*` flag in
+`max_vx`/`max_vy` default to `0.25` m/s and `max_omega` to `0.5` rad/s --
+0.25 m/s is ~17% of the ~1.48 m/s the wheels can do, 0.5 rad/s is ~9% of the
+~5.4 rad/s they can yaw, and all three commanded at once puts the fastest
+wheel at ~43% -- specifically so a wiring/sign mistake doesn't immediately
+mean full speed in the wrong direction. Flip the
+relevant `invert_*` flag in
 `roboclaw_driver`'s config section if a wheel spins backwards from what you
 commanded -- note these are a *separate* write path from
 `wheel_odometry.yaml`'s `invert_*` flags (reading and writing can have
@@ -118,9 +122,16 @@ ros2 launch low_level_control_pkg teleop.launch.py joy_dev:=/dev/input/js1
   the last stick position it saw.
 - **Command staleness watchdog** (`roboclaw_driver`, `cmd_timeout`): if
   `/cmd_vel` itself stops arriving (e.g. `teleop_joy` dies), `roboclaw_driver`
-  zeros all four wheels independently of the above.
+  commands all four wheels to zero independently of the above. That is a
+  zero-*speed* command, so it decelerates under `drive_accel` rather than
+  cutting drive dead.
 - **Shutdown stop**: `roboclaw_driver_node` sends a zero-duty command to both
-  RoboClaws on clean shutdown (Ctrl+C).
+  RoboClaws on clean shutdown (Ctrl+C). This is the *weakest* of the stops
+  here, not the strongest: it is unramped, attempted once, its result is not
+  checked, and it drops the wheels out of closed-loop regulation entirely, so
+  there is no holding torque and the rover can roll on a slope. The watchdog
+  stop above is re-issued every control cycle and warns if it is not
+  acknowledged.
 
 None of these are a substitute for a physical kill switch / being ready to
 cut power -- they cover software-level failure modes, not hardware ones.

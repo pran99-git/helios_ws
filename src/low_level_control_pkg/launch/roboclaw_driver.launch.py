@@ -2,7 +2,7 @@
 
 Publishes raw per-wheel encoder counts (roboclaw/wheel_encoders,
 sensor_msgs/JointState) for perception_pkg's wheel_odometry_node to consume,
-and subscribes to /cmd_vel for open-loop duty-cycle motor control.
+and subscribes to /cmd_vel (true m/s and rad/s) for closed-loop speed control.
 
 Run this exactly once, whenever the rover is powered and connected -- it's
 the low-level-control subsystem's hardware-I/O boundary. Everything else
@@ -19,15 +19,17 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    pkg = get_package_share_directory('low_level_control_pkg')
-    config = os.path.join(pkg, 'config', 'teleop.yaml')
+    pkg = get_package_share_directory("low_level_control_pkg")
+    config = os.path.join(pkg, "config", "teleop.yaml")
 
-    return LaunchDescription([
-        Node(
-            package='low_level_control_pkg',
-            executable='roboclaw_driver_node',
-            name='roboclaw_driver',
-            output='screen',
-            parameters=[config],
-        ),
-    ])
+    return LaunchDescription(
+        [
+            Node(
+                package="low_level_control_pkg",
+                executable="roboclaw_driver_node",
+                name="roboclaw_driver",
+                output="screen",
+                parameters=[config],
+            ),
+        ]
+    )

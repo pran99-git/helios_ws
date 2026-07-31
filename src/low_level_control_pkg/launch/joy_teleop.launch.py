@@ -22,32 +22,39 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    pkg = get_package_share_directory('low_level_control_pkg')
-    config = os.path.join(pkg, 'config', 'teleop.yaml')
+    pkg = get_package_share_directory("low_level_control_pkg")
+    config = os.path.join(pkg, "config", "teleop.yaml")
 
-    joy_dev = LaunchConfiguration('joy_dev')
+    joy_dev = LaunchConfiguration("joy_dev")
 
-    return LaunchDescription([
-        DeclareLaunchArgument(
-            'joy_dev', default_value='/dev/input/js0',
-            description='Joystick device node (check with `ls /dev/input/js*` '
-                        'or `jstest` after pairing)'),
-
-        Node(
-            package='joy',
-            executable='joy_node',
-            name='joy_node',
-            output='screen',
-            parameters=[{'device_name': '',
-                        'dev': joy_dev,
-                        'deadzone': 0.05,
-                        'autorepeat_rate': 20.0}],
-        ),
-        Node(
-            package='low_level_control_pkg',
-            executable='teleop_joy_node',
-            name='teleop_joy',
-            output='screen',
-            parameters=[config],
-        ),
-    ])
+    return LaunchDescription(
+        [
+            DeclareLaunchArgument(
+                "joy_dev",
+                default_value="/dev/input/js0",
+                description="Joystick device node (check with `ls /dev/input/js*` "
+                "or `jstest` after pairing)",
+            ),
+            Node(
+                package="joy",
+                executable="joy_node",
+                name="joy_node",
+                output="screen",
+                parameters=[
+                    {
+                        "device_name": "",
+                        "dev": joy_dev,
+                        "deadzone": 0.05,
+                        "autorepeat_rate": 20.0,
+                    }
+                ],
+            ),
+            Node(
+                package="low_level_control_pkg",
+                executable="teleop_joy_node",
+                name="teleop_joy",
+                output="screen",
+                parameters=[config],
+            ),
+        ]
+    )

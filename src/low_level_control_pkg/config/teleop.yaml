@@ -10,6 +10,13 @@ teleop_joy:
     invert_omega: false
     deadman_button: 5  # right shoulder (R) -- must be held to move
 
+    # Velocity at full stick deflection, in true SI units -- /cmd_vel is m/s
+    # and rad/s, not a normalized [-1, 1] range. Keep these at or below
+    # roboclaw_driver's ceilings below, or the stick goes dead over part of
+    # its travel because the driver clamps what teleop sends.
+    max_vx: 0.40       # m/s
+    max_vy: 0.40       # m/s strafe
+    max_omega: 0.8     # rad/s
     deadzone: 0.08
     cmd_topic: 'cmd_vel'
     publish_rate: 20.0
@@ -32,16 +39,37 @@ roboclaw_driver:
     invert_rear_left: false
     invert_rear_right: false
 
+    # Geometry. wheel_radius and counts_per_rev convert m/s to the counts/sec
+    # the controller's velocity PID regulates, so they MUST match
+    # perception_pkg/wheel_odometry/config/wheel_odometry.yaml -- if the two
+    # disagree, commanded and reported velocity disagree by the same factor.
     wheelbase: 0.220
     track_width: 0.330
+    wheel_radius: 0.076       # 152 mm wheel diameter / 2
+    counts_per_rev: 2448.0    # 12 PPR * 4 quadrature * 51:1 gearbox
 
-    # Open-loop duty fractions (0-1), not m/s -- see roboclaw_driver_node
-    # docstring. Start low; increase once you've confirmed direction/wiring.
-    max_linear_duty: 0.5
-    max_angular_duty: 0.5
+    # Closed-loop command ceilings in SI units, NOT duty fractions. Measured
+    # qpps 7590 puts the wheels at ~1.48 m/s flat out, so 0.25 m/s is ~17% of
+    # the ceiling -- deliberate traction margin. Raise once scrubbing is
+    # confirmed gone, and raise teleop's matching values with them.
+    max_vx: 0.40       # m/s
+    max_vy: 0.40       # m/s strafe
+    max_omega: 0.8     # rad/s
+
+    # Acceleration ramp, counts/sec^2, applied by the controller. 6000 is
+    # ~1.2 m/s^2. This is the parameter that removes the torque step an
+    # unramped duty command used to apply, so lowering it reduces slip on a
+    # hard start.
+    #
+    # It is also the DECELERATION for every stop -- watchdog trip, deadman
+    # release, shutdown. At 6000 a stop from 0.25 m/s takes ~0.21 s and
+    # ~0.03 m; at 1000 it takes ~1.28 s and ~0.16 m, on top of up to
+    # cmd_timeout before the stop is even commanded. Trade traction against
+    # stopping distance deliberately.
+    drive_accel: 5000
 
     cmd_topic: 'cmd_vel'
-    cmd_timeout: 0.5   # s; e-stop if /cmd_vel goes stale
+    cmd_timeout: 0.5   # s; ramped stop if /cmd_vel goes stale
     control_rate: 20.0
 
     # Encoder read/publish path -- consumed by perception_pkg's

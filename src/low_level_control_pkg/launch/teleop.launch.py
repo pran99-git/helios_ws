@@ -2,7 +2,7 @@
 
 Chain: joy_node (raw controller -> sensor_msgs/Joy)
        -> teleop_joy (Joy -> /cmd_vel, deadman-gated)
-       -> roboclaw_driver (/cmd_vel -> RoboClaw duty commands,
+       -> roboclaw_driver (/cmd_vel -> RoboClaw speed commands,
           + publishes roboclaw/wheel_encoders)
 
 Bundles joy_teleop.launch.py + roboclaw_driver.launch.py for convenience when
@@ -28,23 +28,28 @@ from launch.substitutions import LaunchConfiguration
 
 
 def generate_launch_description():
-    pkg = get_package_share_directory('low_level_control_pkg')
+    pkg = get_package_share_directory("low_level_control_pkg")
 
-    joy_dev = LaunchConfiguration('joy_dev')
+    joy_dev = LaunchConfiguration("joy_dev")
 
-    return LaunchDescription([
-        DeclareLaunchArgument(
-            'joy_dev', default_value='/dev/input/js0',
-            description='Joystick device node (check with `ls /dev/input/js*` '
-                        'or `jstest` after pairing)'),
-
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(
-                os.path.join(pkg, 'launch', 'roboclaw_driver.launch.py')),
-        ),
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(
-                os.path.join(pkg, 'launch', 'joy_teleop.launch.py')),
-            launch_arguments={'joy_dev': joy_dev}.items(),
-        ),
-    ])
+    return LaunchDescription(
+        [
+            DeclareLaunchArgument(
+                "joy_dev",
+                default_value="/dev/input/js0",
+                description="Joystick device node (check with `ls /dev/input/js*` "
+                "or `jstest` after pairing)",
+            ),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    os.path.join(pkg, "launch", "roboclaw_driver.launch.py")
+                ),
+            ),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    os.path.join(pkg, "launch", "joy_teleop.launch.py")
+                ),
+                launch_arguments={"joy_dev": joy_dev}.items(),
+            ),
+        ]
+    )

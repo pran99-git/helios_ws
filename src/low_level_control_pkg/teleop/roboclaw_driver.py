@@ -1,7 +1,9 @@
 # Copyright 2026
 #
-# RoboClaw packet-serial driver: quadrature encoder/speed reads and open-loop
-# duty-cycle writes. Owned exclusively by roboclaw_driver_node -- it is the
+# RoboClaw packet-serial driver: quadrature encoder/speed reads, a velocity
+# PID/QPPS read that establishes the speed ceiling, closed-loop speed writes,
+# and a raw duty-cycle write kept for the shutdown stop.
+# Owned exclusively by roboclaw_driver_node -- it is the
 # only process that opens these serial ports (see that node's docstring for
 # why: RoboClaw's packet-serial protocol is half-duplex on a single UART, so
 # two independent OS processes issuing transactions on the same port would
@@ -20,20 +22,31 @@ import threading
 
 import serial
 
-
 # RoboClaw command numbers.
-CMD_READ_ENCODERS = 78   # returns Enc1 (4B), Enc2 (4B), CRC (2B)
-CMD_READ_SPEEDS = 79     # returns Speed1 (4B), Speed2 (4B), CRC (2B), counts/sec
-CMD_DUTY_M1M2 = 34       # payload: Duty1 (2B signed), Duty2 (2B signed)
+CMD_READ_ENCODERS = 78  # returns Enc1 (4B), Enc2 (4B), CRC (2B)
+CMD_READ_ISPEEDS = 79  # returns Speed1 (4B), Speed2 (4B), CRC (2B), counts/sec
+CMD_DUTY_M1M2 = 34  # payload: Duty1 (2B signed), Duty2 (2B signed)
+CMD_SPEED_ACCEL_M1M2 = 40  # payload: Accel (4B unsigned), Speed1, Speed2 (4B signed)
+CMD_READ_M1_VELOCITY_PID = 55  # returns P, I, D, QPPS (4x 4B), CRC (2B)
 
 DUTY_FULL_SCALE = 32767  # signed 16-bit; +-DUTY_FULL_SCALE = +-100% duty
+
+# Velocity PID gains are stored on the controller as fixed point, gain * 65536.
+PID_FIXED_POINT_SCALE = 65536.0
+
+# Speeds and accelerations cross the wire as 32-bit words. Commands are clamped
+# to that range so a bad upstream value cannot raise OverflowError inside a
+# control-loop callback; the meaningful limits are enforced by the caller.
+INT32_MIN = -(2**31)
+INT32_MAX = 2**31 - 1
+UINT32_MAX = 2**32 - 1
 
 
 def crc16(data):
     """CRC16-CCITT (poly 0x1021, init 0x0000) as used by RoboClaw."""
     crc = 0
     for byte in data:
-        crc ^= (byte << 8)
+        crc ^= byte << 8
         for _ in range(8):
             if crc & 0x8000:
                 crc = ((crc << 1) ^ 0x1021) & 0xFFFF
@@ -45,6 +58,16 @@ def crc16(data):
 def _to_signed_32(value):
     """Interpret an unsigned 32-bit value as signed (two's complement)."""
     return value - 0x100000000 if value & 0x80000000 else value
+
+
+def _clamp_int32(value: float) -> int:
+    """Rounds and bounds a value to the signed 32-bit wire range."""
+    return min(max(round(value), INT32_MIN), INT32_MAX)
+
+
+def _clamp_uint32(value: float) -> int:
+    """Rounds and bounds a value to the unsigned 32-bit wire range."""
+    return min(max(round(value), 0), UINT32_MAX)
 
 
 class SerialBus:
@@ -90,7 +113,7 @@ class SerialBus:
             self._serial.reset_input_buffer()
             self._serial.write(packet + bytes([(crc >> 8) & 0xFF, crc & 0xFF]))
             ack = self._serial.read(1)
-        return ack == b'\xff'
+        return ack == b"\xff"
 
     def close(self):
         try:
@@ -107,34 +130,116 @@ class RoboClaw:
         self._address = address
         self._retries = retries
 
-    def _read(self, command):
+    def _read_words(
+        self, command: int, count: int, *, signed: bool = True
+    ) -> tuple[int, ...] | None:
+        """Reads `count` big-endian 32-bit words, retrying on timeout or CRC.
+
+        Args:
+            command: RoboClaw read command number.
+            count: How many 32-bit words the command returns.
+            signed: Whether to reinterpret each word as two's complement.
+                Encoder counts and speeds are signed; PID gains and QPPS
+                are not.
+
+        Returns:
+            The words in wire order, or None if every retry failed.
+        """
         for _ in range(self._retries):
-            payload = self._bus.transaction(self._address, command, 8)
+            payload = self._bus.transaction(self._address, command, 4 * count)
             if payload is not None:
-                m1 = _to_signed_32(int.from_bytes(payload[0:4], 'big'))
-                m2 = _to_signed_32(int.from_bytes(payload[4:8], 'big'))
-                return m1, m2
+                words = tuple(
+                    int.from_bytes(payload[i : i + 4], "big")
+                    for i in range(0, 4 * count, 4)
+                )
+                return tuple(_to_signed_32(w) for w in words) if signed else words
         return None
 
     def read_encoders(self):
         """Return (enc_m1, enc_m2) absolute quadrature counts, or None."""
-        return self._read(CMD_READ_ENCODERS)
+        return self._read_words(CMD_READ_ENCODERS, 2)
 
     def read_speeds(self):
-        """Return (speed_m1, speed_m2) in counts/sec, or None."""
-        return self._read(CMD_READ_SPEEDS)
+        """Return (speed_m1, speed_m2) in counts/sec, or None.
+
+        Instantaneous speeds (command 79), not the filtered speeds command 108
+        reports. Check the manual before building a slip monitor on either --
+        the filtering window is not documented in the vendored references.
+        """
+        return self._read_words(CMD_READ_ISPEEDS, 2)
+    
+    def read_velocity_pid(self) -> tuple[float, float, float, int] | None:
+        """Reads M1's active velocity PID constants and QPPS ceiling.
+
+        These are the controller's live settings, loaded from EEPROM at boot.
+        They diverge from what is stored if the PID was set over serial
+        without a WRITENVM, so a read-back does not prove the values survive
+        a power cycle.
+
+        QPPS is what the controller was calibrated to treat as full speed, so
+        it bounds any closed-loop speed command. Only M1 is queried, matching
+        the rover_control drivetrain; verify M1/M2 parity in Motion Studio.
+
+        Returns:
+            (p, i, d, qpps) with the gains descaled out of fixed point, or
+            None if the read failed.
+        """
+        words = self._read_words(CMD_READ_M1_VELOCITY_PID, 4, signed=False)
+        if words is None:
+            return None
+        p, i, d, qpps = words
+        return (
+            p / PID_FIXED_POINT_SCALE,
+            i / PID_FIXED_POINT_SCALE,
+            d / PID_FIXED_POINT_SCALE,
+            qpps,
+        )
+
+    def speed_accel_m1m2(self, accel: float, speed_m1: float, speed_m2: float) -> bool:
+        """Commands both channels to a target speed under an acceleration ramp.
+
+        Closed-loop, unlike `duty_m1m2`: the controller's own velocity PID
+        holds the commanded counts/sec, so a wheel that loses traction gets
+        throttled back instead of running away. The ramp bounds the torque
+        step that breaks traction in the first place.
+
+        Args:
+            accel: Acceleration limit in counts/sec^2, applied to both
+                channels. Negative values are treated as zero.
+            speed_m1: Target speed for M1 in counts/sec, signed.
+            speed_m2: Target speed for M2 in counts/sec, signed.
+
+        Returns:
+            True if the RoboClaw acknowledged, False otherwise (treat as
+            "not applied").
+        """
+        payload = (
+            _clamp_uint32(accel).to_bytes(4, "big")
+            + _clamp_int32(speed_m1).to_bytes(4, "big", signed=True)
+            + _clamp_int32(speed_m2).to_bytes(4, "big", signed=True)
+        )
+        for _ in range(self._retries):
+            if self._bus.write_transaction(
+                self._address, CMD_SPEED_ACCEL_M1M2, payload
+            ):
+                return True
+        return False
 
     def duty_m1m2(self, duty1, duty2):
         """Open-loop duty cycle for M1 and M2, each in [-1.0, 1.0]
         (-1.0 = full reverse, 0.0 = stop, 1.0 = full forward). This is NOT
-        closed-loop speed control -- the RoboClaw's velocity PID/QPPS limits
-        are not configured/verified on this hardware, so there is no fixed
-        real-world speed at a given duty. Returns True if the RoboClaw
-        acknowledged the command, False otherwise (treat as "not applied").
+        closed-loop speed control: duty is not speed, and a wheel that loses
+        traction speeds up at a fixed duty with nothing to correct it. Use
+        speed_accel_m1m2 for driving; this remains for the shutdown hard-stop
+        via stop(), where cutting drive outright is what is wanted. Returns
+        True if the RoboClaw acknowledged, False otherwise (treat as "not
+        applied").
         """
         d1 = int(round(max(-1.0, min(1.0, duty1)) * DUTY_FULL_SCALE))
         d2 = int(round(max(-1.0, min(1.0, duty2)) * DUTY_FULL_SCALE))
-        payload = d1.to_bytes(2, 'big', signed=True) + d2.to_bytes(2, 'big', signed=True)
+        payload = d1.to_bytes(2, "big", signed=True) + d2.to_bytes(
+            2, "big", signed=True
+        )
         for _ in range(self._retries):
             if self._bus.write_transaction(self._address, CMD_DUTY_M1M2, payload):
                 return True
