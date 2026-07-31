@@ -57,6 +57,7 @@ ekf_filter_node:
     odom1_relative: false
     odom1_queue_size: 10
     odom1_nodelay: true
+    odom1_twist_rejection_threshold: 2.0
 
     # --- RAW IMU : intentionally DISABLED (anti-double-count) --------------
     # Only enable this if you turn OFF the ZED's internal IMU fusion (i.e. make
