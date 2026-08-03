@@ -61,18 +61,45 @@ def generate_launch_description():
         ),
 
         # 3) ZED 2i -- VIO + IMU topics; TF disabled so it doesn't fight the EKF.
+        #
+        # enable_ipc:=false is REQUIRED here, not an optimization. With IPC on
+        # (the wrapper's default), zed_camera_component_main.cpp's
+        # publishCameraTFs() cannot use a StaticTransformBroadcaster (latched
+        # QoS is incompatible with intra-process comms), so it republishes the
+        # camera's *geometrically static* internal frames (zed_camera_link ->
+        # zed_camera_center -> zed_left_camera_frame -> ..._optical) as DYNAMIC
+        # transforms on /tf, at grab rate, from the same thread doing depth.
+        # Under load that thread slips, the pseudo-static TF goes stale, and
+        # every consumer doing a timestamped lookup into that chain fails with
+        # "extrapolation into the future" -- which is what was making RTAB-Map
+        # discard ~1/3 of all RGB-D frames. IPC buys nothing in this setup
+        # anyway: the ZED component is alone in its container, so every
+        # consumer is cross-process regardless.
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 os.path.join(zed_pkg, 'launch', 'zed_camera.launch.py')),
             launch_arguments={'camera_model': 'zed2i',
-                              'publish_tf': 'false'}.items(),
+                              'publish_tf': 'false',
+                              'enable_ipc': 'false'}.items(),
             condition=IfCondition(use_camera),
         ),
 
         # 4) Hokuyo LiDAR -- publishes /scan in frame 'laser'.
+        #
+        # node_name is passed EXPLICITLY on purpose. Launch configurations leak
+        # between sibling includes in the same LaunchDescription, and the ZED
+        # include above declares its own 'node_name' (default 'zed_node'). By
+        # the time urg_node2.launch.py runs, 'node_name' is already set in the
+        # shared context, so its own DeclareLaunchArgument default ('urg_node2')
+        # is ignored -- DeclareLaunchArgument only fills in a value that isn't
+        # already present. The LiDAR then came up as /zed_node, putting its
+        # lifecycle topic at /zed_node/transition_event and silently breaking
+        # anything that addresses it by node name (params files keyed
+        # 'urg_node2:', ros2 param calls, lifecycle transitions).
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 os.path.join(urg_pkg, 'launch', 'urg_node2.launch.py')),
+            launch_arguments={'node_name': 'urg_node2'}.items(),
             condition=IfCondition(use_lidar),
         ),
 
