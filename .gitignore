@@ -2,10 +2,12 @@ build/
 install/
 log/
 
-# RTAB-Map run outputs (large binary .db/.pgm/.yaml, one per mapping run) --
-# keep the folder tracked, not its contents.
-src/mapping_localization_pkg/maps/*
-!src/mapping_localization_pkg/maps/.gitkeep
+# Mapping run outputs (large binary .db/.pgm/.yaml, one per mapping run) --
+# keep the folders tracked, not their contents.
+src/mapping_localization_pkg/rtabmap/maps/*
+!src/mapping_localization_pkg/rtabmap/maps/.gitkeep
+src/mapping_localization_pkg/slam_toolbox/maps/*
+!src/mapping_localization_pkg/slam_toolbox/maps/.gitkeep
 
 # Python
 __pycache__/

@@ -4,19 +4,29 @@
   <name>mapping_localization_pkg</name>
   <version>0.1.0</version>
   <description>
-    Mapping and localization approaches for the Helios A4WD3 mecanum rover,
-    beyond the 2D slam_toolbox pipeline in sensor_fusion. Currently: RTAB-Map
-    (RGB-D + LiDAR registration, GTSAM pose-graph optimization) for 3D mapping
-    and localization, fed by the ZED 2i, Hokuyo UST-10LX, and the existing
-    EKF-fused odometry.
+    Mapping and localization for the Helios A4WD3 mecanum rover. Everything
+    that owns map -> odom lives here; sensing and odometry fusion stay in
+    perception_pkg. Each approach is a self-contained folder and runs
+    independently of the other:
+
+      slam_toolbox/ - 2D LiDAR SLAM (Hokuyo UST-10LX), publishes /map
+      rtabmap/      - 3D RGB-D + LiDAR SLAM (GTSAM pose-graph optimization)
+
+    Both are fed by the ZED 2i, the Hokuyo, and the EKF-fused odometry from
+    perception_pkg's sensor_fusion, which must already be running.
   </description>
   <maintainer email="upadhyp1@uci.edu">pran</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
+  <!-- rtabmap/ -->
   <exec_depend>rtabmap_ros</exec_depend>
   <exec_depend>rtabmap_launch</exec_depend>
+  <!-- slam_toolbox/ -->
+  <exec_depend>slam_toolbox</exec_depend>
+  <exec_depend>nav2_map_server</exec_depend>
+  <exec_depend>rviz2</exec_depend>
   <!-- Consumes topics from these; expects sensor_fusion/bringup.launch.py
        already running rather than launching them itself. -->
   <exec_depend>zed_wrapper</exec_depend>

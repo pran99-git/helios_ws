@@ -1,9 +1,9 @@
 """RTAB-Map (RGB-D + LiDAR registration, GTSAM pose-graph SLAM) for Helios.
 
-Runs ALONGSIDE the existing slam_toolbox + EKF stack (sensor_fusion/bringup.
-launch.py) rather than replacing it -- this does NOT own map->odom TF by
-default (publish_tf_map:=false), so its 3D map/loop-closure quality can be
-validated risk-free before anything is switched over to depend on it live.
+Runs ALONGSIDE the sensor stack (sensor_fusion/bringup.launch.py) and, if you
+want it, slam_toolbox.launch.py -- this does NOT own map->odom TF by default
+(publish_tf_map:=false), so its 3D map/loop-closure quality can be validated
+risk-free before anything is switched over to depend on it live.
 
 Reuses the already-fused EKF odometry (/odometry/filtered) instead of
 estimating its own visual odometry -- avoids running two competing pose
@@ -16,14 +16,12 @@ GTSAM is already the default pose-graph optimizer in this RTAB-Map build
 (Optimizer/Strategy=2)
 
 To later make this TF-authoritative (replacing slam_toolbox's map->odom):
-publish_tf_map:=true, and stop launching slam_toolbox in fusion.launch.py.
+publish_tf_map:=true, and stop running slam_toolbox.launch.py.
 
-Each run gets its own database under maps/ (named by 'run_name', default a
-timestamp).
-The 3D map lives entirely inside that .db (the whole SLAM session: keyframes,
-pose graph, loop closures). To also save a standalone 2D map (.pgm/.yaml)
-for the SAME run, use maps/save_2d_map.sh <run_name> while this is still
-running (it saves the live /rtabmap/map topic, so the map node must be up).
+Each run gets its own database under rtabmap/maps/ (named by 'run_name',
+default a timestamp). The 3D map lives entirely inside that .db (the whole
+SLAM session: keyframes, pose graph, loop closures) -- inspect it afterward
+with rtabmap-databaseViewer.
 
 Toggle with: publish_tf_map:=true rviz:=true rtabmap_viz:=true localization:=true
              run_name:=my_test database_path:=/custom/path.db
@@ -41,8 +39,11 @@ from launch.substitutions import LaunchConfiguration
 def generate_launch_description():
     rtabmap_launch_pkg = get_package_share_directory('rtabmap_launch')
 
+    # Deliberately points into the SOURCE tree, not the installed share/ dir:
+    # databases are run outputs that must survive a rebuild, and are far too
+    # large to copy into install/ (hence maps/ is not an install() target).
     maps_dir = os.path.expanduser(
-        '~/helios_ws/src/mapping_localization_pkg/maps')
+        '~/helios_ws/src/mapping_localization_pkg/rtabmap/maps')
     default_run_name = datetime.now().strftime('%Y%m%d_%H%M%S')
 
     return LaunchDescription([
@@ -56,8 +57,8 @@ def generate_launch_description():
                         'of building a new map.'),
         DeclareLaunchArgument(
             'run_name', default_value=default_run_name,
-            description='Names this run\'s database (and, if you also run '
-                        'save_2d_map.sh, its 2D map) -- maps/rtabmap_<run_name>.db'),
+            description='Names this run\'s database -- '
+                        'rtabmap/maps/rtabmap_<run_name>.db'),
         DeclareLaunchArgument(
             'database_path',
             default_value=[maps_dir + '/rtabmap_', LaunchConfiguration('run_name'), '.db']),

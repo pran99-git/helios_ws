@@ -7,17 +7,18 @@ the right way (REP-105):
 |--------|---------------|
 | Wheel odometry (`/wheel/odometry`) | EKF input — body velocities `vx, vy, vyaw` |
 | ZED 2i camera + IMU (`/zed/zed_node/odom`) | EKF input — VIO body velocities (camera **and** IMU enter here together) |
-| Hokuyo LiDAR (`/scan`) | slam_toolbox — builds the map and the `map → odom` correction |
+| Hokuyo LiDAR (`/scan`) | published here, consumed by the mapping layer (`mapping_localization_pkg`) |
 
 ## Architecture & TF ownership
 
 ```
- map ──[slam_toolbox]──► odom ──[robot_localization EKF]──► base_link ──[robot_state_publisher]──► sensors/wheels
+ map ──[mapping layer]──► odom ──[robot_localization EKF]──► base_link ──[robot_state_publisher]──► sensors/wheels
+     (NOT this package)
 ```
 
 | Transform | Owner (only publisher) |
 |-----------|------------------------|
-| `map → odom`        | slam_toolbox |
+| `map → odom`        | **not this package** — `mapping_localization_pkg` (slam_toolbox or RTAB-Map) |
 | `odom → base_link`  | robot_localization EKF |
 | `base_link → *`     | robot_state_publisher (URDF) |
 
@@ -35,7 +36,7 @@ the right way (REP-105):
 ## Install deps
 
 ```bash
-sudo apt install ros-jazzy-robot-localization ros-jazzy-slam-toolbox
+sudo apt install ros-jazzy-robot-localization
 ```
 
 ## Build & run
@@ -45,19 +46,20 @@ cd ~/helios_ws
 colcon build --packages-select sensor_fusion
 source install/setup.bash
 
-# Everything: description + wheel odom + ZED + LiDAR + EKF + SLAM
+# Everything: description + wheel odom + ZED + LiDAR + EKF
 ros2 launch sensor_fusion bringup.launch.py
 
-# Just the fusion nodes (if drivers/topics are already up):
-ros2 launch sensor_fusion fusion.launch.py
+# Just the EKF (if drivers/topics are already up):
+ros2 launch sensor_fusion ekf.launch.py
 ```
 Toggles: `camera:=false`, `lidar:=false`, `rviz:=true`.
 
-> slam_toolbox's async node is a lifecycle node that does **not** auto-activate
-> on this build, so `fusion.launch.py` drives it through configure → activate
-> automatically (LifecycleNode + event handlers). It comes up `active` with no
-> manual `ros2 lifecycle set` needed. Confirm with
-> `ros2 lifecycle get /slam_toolbox` → `active`.
+> This package stops at `/odometry/filtered`. It does **not** start a mapper --
+> `map -> odom` belongs to `mapping_localization_pkg`, which runs separately:
+> ```
+> ros2 launch mapping_localization_pkg slam_toolbox.launch.py   # 2D LiDAR SLAM
+> ros2 launch mapping_localization_pkg rtabmap.launch.py        # 3D RGB-D SLAM
+> ```
 
 ## Verify
 
@@ -74,7 +76,7 @@ In RViz (`rviz:=true`): fixed frame `odom` or `map`; add Odometry on `/odometry/
 - Start simple: if the ZED isn't running yet, `camera:=false` runs wheel-only EKF.
 - Mecanum slips sideways — if `vy` looks noisy, raise the wheel odometry `vy`
   covariance (in `wheel_odometry.yaml`) so the EKF trusts it less.
-- Heading drift in `odom` is expected and corrected by slam_toolbox at the
+- Heading drift in `odom` is expected and corrected by the mapping layer at the
   `map` level. If you need a tighter heading before SLAM, see the optional IMU
   block in `ekf.yaml` (only with the ZED's internal IMU fusion disabled).
 - `process_noise_covariance` is left at defaults; tune after observing behavior.

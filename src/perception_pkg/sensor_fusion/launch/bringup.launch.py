@@ -1,14 +1,22 @@
-"""Full Helios bring-up: description + drivers + wheel odometry + fusion.
+"""Full Helios sensor bring-up: description + drivers + wheel odometry + EKF.
+
+This is the PERCEPTION layer only: read every sensor, and fuse them into one
+odometry estimate that the mapping/localization layer can consume. It stops at
+/odometry/filtered -- it deliberately starts no mapper.
 
 TF ownership (REP-105):
   base_link -> sensors/wheels : robot_state_publisher (URDF)
   odom -> base_link           : robot_localization EKF  (ONLY publisher)
-  map -> odom                 : slam_toolbox
+  map -> odom                 : NOT owned here -- belongs to the mapping layer
 
   * wheel_odometry is launched with publish_tf:=false (EKF owns odom->base_link).
   * the ZED wrapper is launched with publish_tf:=false (no odom/map TF from it);
     it still publishes its /odom and /imu TOPICS, which the EKF consumes.
   * the raw IMU is NOT fused separately (it is inside the ZED VIO) -- see ekf.yaml.
+
+Run a mapper separately, on top of this:
+  ros2 launch mapping_localization_pkg slam_toolbox.launch.py   # 2D LiDAR SLAM
+  ros2 launch mapping_localization_pkg rtabmap.launch.py        # 3D RGB-D SLAM
 
 Toggle parts with: camera:=false lidar:=false rviz:=true
 """
@@ -103,10 +111,9 @@ def generate_launch_description():
             condition=IfCondition(use_lidar),
         ),
 
-        # 5) Fusion: EKF (odom->base_link) + slam_toolbox (map->odom).
+        # 5) Fusion: EKF (odom->base_link). No mapper -- see module docstring.
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
-                os.path.join(fusion_pkg, 'launch', 'fusion.launch.py')),
-            launch_arguments={'slam': use_lidar}.items(),
+                os.path.join(fusion_pkg, 'launch', 'ekf.launch.py')),
         ),
     ])

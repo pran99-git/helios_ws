@@ -1,14 +1,28 @@
-"""Core fusion: robot_localization EKF (odom->base_link) + slam_toolbox (map->odom).
+"""slam_toolbox: 2D LiDAR SLAM -- owns map -> odom and publishes /map.
 
-Assumes the sensor TOPICS are already being published (/wheel/odometry,
-/zed/zed_node/odom, /scan) and that nothing else publishes odom->base_link.
-Use bringup.launch.py to start the whole stack including drivers.
+Consumes /scan (Hokuyo UST-10LX, frame 'laser') and the EKF's odom -> base_link,
+and produces the 2D occupancy grid plus the map -> odom correction (REP-105:
+SLAM owns map -> odom; the EKF owns odom -> base_link).
 
-slam_toolbox's async node is a LIFECYCLE node that does NOT auto-activate on this
-build, so it is declared as a LifecycleNode and driven through
+Runs SEPARATELY from the sensor stack. Start the sensors + EKF first, then this:
+
+    ros2 launch sensor_fusion bringup.launch.py
+    ros2 launch mapping_localization_pkg slam_toolbox.launch.py
+
+slam_toolbox's async node is a LIFECYCLE node that does NOT auto-activate on
+this build, so it is declared as a LifecycleNode and driven through
 configure -> activate automatically via event handlers (same pattern as
 urg_node2.launch.py). This makes it come up 'active' (subscribed to /scan,
-publishing /map + map->odom) with no manual `ros2 lifecycle set` needed.
+publishing /map + map -> odom) with no manual `ros2 lifecycle set` needed.
+
+DO NOT run this at the same time as rtabmap.launch.py with
+publish_tf_map:=true -- both would publish map -> odom and fight over it.
+rtabmap defaults to publish_tf_map:=false precisely so the two can coexist,
+with slam_toolbox staying the TF authority.
+
+Save the current map with: slam_toolbox/scripts/save_map.sh <name>
+
+Toggle with: rviz:=true
 """
 import os
 
@@ -26,22 +40,13 @@ from lifecycle_msgs.msg import Transition
 
 
 def generate_launch_description():
-    pkg = get_package_share_directory('sensor_fusion')
-    ekf_yaml = os.path.join(pkg, 'config', 'ekf.yaml')
-    slam_yaml = os.path.join(pkg, 'config', 'slam_toolbox.yaml')
+    pkg = get_package_share_directory('mapping_localization_pkg')
+    slam_yaml = os.path.join(pkg, 'slam_toolbox', 'config', 'slam_toolbox.yaml')
+    rviz_config = os.path.join(pkg, 'slam_toolbox', 'rviz', 'slam.rviz')
 
-    use_slam = LaunchConfiguration('slam')
+    use_rviz = LaunchConfiguration('rviz')
 
-    # Local EKF: sole owner of odom -> base_link.
-    ekf_node = Node(
-        package='robot_localization',
-        executable='ekf_node',
-        name='ekf_filter_node',
-        output='screen',
-        parameters=[ekf_yaml],
-    )
-
-    # LiDAR SLAM (lifecycle): map -> odom + map.
+    # LiDAR SLAM (lifecycle): map -> odom + /map.
     slam_node = LifecycleNode(
         package='slam_toolbox',
         executable='async_slam_toolbox_node',
@@ -49,7 +54,6 @@ def generate_launch_description():
         namespace='',
         output='screen',
         parameters=[slam_yaml],
-        condition=IfCondition(use_slam),
     )
 
     # On start -> configure (unconfigured -> inactive).
@@ -63,7 +67,6 @@ def generate_launch_description():
                 )),
             ],
         ),
-        condition=IfCondition(use_slam),
     )
 
     # On reaching 'inactive' after configuring -> activate (inactive -> active).
@@ -79,14 +82,22 @@ def generate_launch_description():
                 )),
             ],
         ),
-        condition=IfCondition(use_slam),
+    )
+
+    rviz_node = Node(
+        package='rviz2',
+        executable='rviz2',
+        name='rviz2',
+        output='screen',
+        arguments=['-d', rviz_config],
+        condition=IfCondition(use_rviz),
     )
 
     return LaunchDescription([
-        DeclareLaunchArgument('slam', default_value='true',
-                              description='Run slam_toolbox (LiDAR map -> odom)'),
-        ekf_node,
+        DeclareLaunchArgument('rviz', default_value='false',
+                              description="Launch RViz with the slam_toolbox view."),
         slam_node,
         slam_configure,
         slam_activate,
+        rviz_node,
     ])

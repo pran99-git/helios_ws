@@ -4,10 +4,14 @@
   <name>sensor_fusion</name>
   <version>0.1.0</version>
   <description>
-    Sensor fusion for the Helios A4WD3 mecanum rover. A robot_localization EKF
-    fuses wheel odometry with the ZED 2i visual-inertial odometry (camera + IMU)
-    to produce a smooth odom -> base_link, and slam_toolbox uses the Hokuyo
-    LiDAR to provide map -> odom. Follows REP-105.
+    Sensor bring-up and fusion for the Helios A4WD3 mecanum rover. Starts every
+    sensor driver and fuses their output: a robot_localization EKF combines
+    wheel odometry with the ZED 2i visual-inertial odometry (camera + IMU) to
+    produce a smooth odom -> base_link plus /odometry/filtered.
+
+    This is the perception layer and it stops there -- map -> odom belongs to
+    the mapping layer (mapping_localization_pkg), which runs separately. Follows
+    REP-105.
   </description>
   <maintainer email="upadhyp1@uci.edu">pran</maintainer>
   <license>Apache-2.0</license>
@@ -15,7 +19,6 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <exec_depend>robot_localization</exec_depend>
-  <exec_depend>slam_toolbox</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>joint_state_publisher</exec_depend>
   <exec_depend>rviz2</exec_depend>
