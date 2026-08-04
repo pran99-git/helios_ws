@@ -1,12 +1,151 @@
 # perception_pkg
 
-Perception stack for the Helios robot..
-It bundles two sensor subsystems:
+Everything sensing-related: read every sensor, convert the raw readings into
+something meaningful, and fuse them into a single estimate of where the robot
+is. The layer stops there — it produces `/odometry/filtered` and hands off to
+`mapping_localization_pkg`.
 
-- **LiDAR** — Hokuyo **UST-10LX** 2D scanner over Ethernet (`urg_node2` driver)
-- **Camera** — Stereolabs **ZED 2i** stereo camera (`zed-ros2-wrapper`)
+> **`perception_pkg` is a directory, not a ROS package.** There is no
+> `package.xml` here. It groups four things, two of which are ROS packages you
+> build and launch by name (`sensor_fusion`, `wheel_odometry`), and two of which
+> are third-party drivers vendored as git submodules. `colcon` finds the
+> packages nested inside automatically.
 
-Build the workspace before running anything below:
+**Read [the root README](../../README.md) first** for the system overview.
+
+---
+
+## What's in here
+
+```
+perception_pkg/
+├── sensor_fusion/           ROS package — the EKF + the whole-stack bring-up
+├── wheel_odometry/          ROS package — encoder counts → position estimate
+├── Camera/
+│   └── zed-ros2-wrapper/    git submodule — Stereolabs ZED 2i driver
+├── LiDAR/
+│   ├── urg_node2/           git submodule — Hokuyo driver
+│   └── rviz/
+│       └── lidar_scan.rviz  RViz layout for checking the laser alone
+└── rviz/
+    └── visual_odemetry_with_LiDAR.rviz   RViz layout for camera + laser together
+```
+
+| Component | Read this |
+|---|---|
+| `sensor_fusion` | [README](sensor_fusion/README.md) — the EKF, transform ownership, bring-up |
+| `wheel_odometry` | [README](wheel_odometry/README.md) — mecanum kinematics, calibration |
+| ZED wrapper | Upstream [README](Camera/zed-ros2-wrapper/README.md) |
+| Hokuyo driver | Upstream [README](LiDAR/urg_node2/README.md) |
+
+The two RViz configs are convenience layouts for checking a sensor in
+isolation, before involving fusion or mapping. Load one with
+`rviz2 -d <path>` (paths in the Verify section below).
+
+---
+
+## How the pieces connect
+
+```
+  RoboClaw driver                    ZED 2i                    Hokuyo
+  (low_level_control_pkg)            (submodule)              (submodule)
+        │                               │                          │
+        │ roboclaw/wheel_encoders       │ /zed/zed_node/odom        │ /scan
+        │ (raw counts)                  │ (visual-inertial odom)    │
+        ▼                               │                          │
+  wheel_odometry_node                   │                          │
+        │                               │                          │
+        │ /wheel/odometry               │                          │
+        ▼                               ▼                          │
+     ┌───────────────────────────────────────┐                     │
+     │   ekf_filter_node  (sensor_fusion)    │                     │
+     └───────────────────────────────────────┘                     │
+                        │                                          │
+                        │ /odometry/filtered                       │
+                        │ + TF odom → base_link                    │
+                        ▼                                          ▼
+              ═══════════ consumed by mapping_localization_pkg ═══════════
+```
+
+Two fusion decisions are worth stating up front, because they explain choices
+you will see in the config:
+
+**Only velocities are fused, never absolute positions.** Both odometry sources
+report where they think the robot is *and* how fast it is moving. The position
+estimates drift — that is unavoidable for dead reckoning. The velocity estimates
+do not accumulate error. So the EKF takes velocities from both sources and
+integrates them itself, which keeps a single consistent position estimate rather
+than two competing ones.
+
+**The IMU is not fused separately.** The ZED's `/odom` is already
+visual-*inertial* — the SDK fuses camera and IMU internally. Feeding the raw IMU
+into the EKF as well would count the same measurement twice, making the filter
+overconfident. The raw IMU block in `ekf.yaml` is commented out for this reason.
+
+---
+
+## Hardware setup
+
+Both sensors need one-time setup before any ROS command will work.
+
+### Hokuyo UST-10LX (2D laser scanner)
+
+The scanner talks over **Ethernet**, not USB. It ships at `192.168.0.10`, so
+the Jetson's wired interface must be on the same `192.168.0.0/24` subnet.
+
+```bash
+ping 192.168.0.10      # must reply before you launch anything
+```
+
+If it does not reply: check the cable, then check your interface has an address
+on that subnet (`ip addr`). Assign one if needed:
+
+```bash
+sudo ip addr add 192.168.0.1/24 dev eth0
+```
+
+Connection settings live in `LiDAR/urg_node2/config/params_ether.yaml`
+(`ip_address`, `ip_port: 10940`, `frame_id: laser`).
+
+> That file is **inside a git submodule**. Editing it works, but the change is
+> not tracked by this repo and will be lost on a fresh clone or a submodule
+> update. Prefer changing the sensor's address to match the config over the
+> reverse. `frame_id: laser` in particular must stay as-is — it matches the
+> frame name in `helios_description/urdf/sensors.xacro`.
+
+### ZED 2i (stereo depth camera)
+
+1. Install the **ZED SDK** from Stereolabs, matching this JetPack/CUDA version.
+   The ROS wrapper is only a thin layer over it and will not build or run
+   without it.
+2. Plug into a **USB 3.0** port (blue connector). USB 2.0 enumerates the camera
+   but cannot carry the bandwidth.
+3. Confirm the SDK sees it: `ZED_Explorer` (live view) or `ZED_Diagnostic`.
+
+On the first launch after installing, the SDK optimises its AI depth models for
+this GPU. That takes several minutes and only happens once — the camera appears
+frozen while it runs. This is also why the EKF may log a one-off "failed to meet
+update rate" warning at startup.
+
+Camera settings live in `Camera/zed-ros2-wrapper/zed_wrapper/config/`
+(`common_stereo.yaml` shared, `zed2i.yaml` model-specific) — same submodule
+caveat as above. The setting that matters most for performance is `depth_mode`;
+it is currently `NEURAL_LIGHT`, which is accurate but is the single largest CPU
+and GPU consumer on the robot.
+
+### Submodules
+
+```bash
+git submodule update --init --recursive     # if you cloned without --recurse-submodules
+```
+
+Both are pinned to upstream releases (ZED wrapper `v5.4.0`, `urg_node2`
+`ver1.0.0-3`). Keep them clean — local patches here are invisible to this repo's
+history and get silently reverted.
+
+---
+
+## Build
 
 ```bash
 cd ~/helios_ws
@@ -14,86 +153,112 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
-> source `install/setup.bash` in **every** new terminal before launching a node.
-
----
-
-# SETUP LIDAR
-
-The Hokuyo UST-10LX talks over Ethernet on the `192.168.0.0/24` subnet. The sensor
-defaults to `192.168.0.10`; the Jetson's wired interface must be on the same subnet.
-
-- Verify the sensor is reachable before launching ROS:
-  ```bash
-  ping 192.168.0.10
-  ```
-
-Connection settings live in `LiDAR/urg_node2/config/params_ether.yaml`
-(`ip_address: 192.168.0.10`, `ip_port: 10940`, `frame_id: laser`). Edit that file if
-your sensor uses a different address.
-
-# ROS_SETUP LIDAR
-
-The driver is a **lifecycle node** that auto-starts (configures → activates) on launch.
-
-- Launch the driver (Ethernet config):
-  ```bash
-  ros2 launch urg_node2 urg_node2.launch.py
-  ```
-
-- Useful launch arguments (defaults shown):
-  - `auto_start:=true` — automatically transition to the Active (publishing) state
-  - `node_name:=urg_node2` — node name
-  - `scan_topic_name:=scan` — output topic
-
-- Confirm scans are publishing:
-  ```bash
-  ros2 topic hz /scan
-  ros2 topic echo /scan --once
-  ```
-
-- Visualize in RViz (fixed frame `laser`):
-  ```bash
-  rviz2 -d LiDAR/rviz/lidar_scan.rviz
-  ```
-
----
-
-# SETUP Camera
-
-- Install the **ZED SDK** matching this JetPack/CUDA version and confirm the camera is
-  detected (the SDK's `ZED_Diagnostic` / `ZED_Explorer` tools).
-- Plug the ZED 2i into a USB 3.0 port (blue). On first launch the SDK optimizes the AI
-  depth/detection models, which can take a few minutes.
-
-# ROS_SETUP Camera
-
-- Launch the ZED 2i wrapper:
-  ```bash
-  ros2 launch zed_wrapper zed_camera.launch.py camera_model:=zed2i
-  ```
-
-- Key topics published by the wrapper:
-  - `/zed/zed_node/rgb/color/rect/image` — rectified RGB image (also `/compressed`, `/theora`, `/zstd`)
-  - `/zed/zed_node/depth/depth_registered` — registered depth map
-  - `/zed/zed_node/point_cloud/cloud_registered` — 3D point cloud
-  - `/zed/zed_node/odom` — visual-inertial odometry
-  - `/zed/zed_node/pose` — fused camera pose (`/pose/status` for tracking state)
-  - `/zed/zed_node/imu/data` — IMU measurements
-  - `/zed/zed_node/status/health`, `/status/heartbeat` — node health/liveness
-  - `/tf`, `/tf_static`, `/zed/joint_states` — camera frame transforms
-
-  List them live with `ros2 topic list`.
-
-- Camera tuning lives in `Camera/zed-ros2-wrapper/zed_wrapper/config/`
-  (`common_stereo.yaml` for shared settings, `zed2i.yaml` for model-specific ones).
-
----
-
-# Visualize both sensors together
-
-With the LiDAR and camera nodes running, open the combined RViz config:
+To build only this layer:
 
 ```bash
-rviz2 -d rviz/visual_odemetry_with_LiDAR.rviz
+colcon build --packages-select wheel_odometry sensor_fusion --symlink-install
 ```
+
+The two drivers build from their submodule sources as part of the normal
+workspace build. `--symlink-install` means edits to launch files, YAML, and
+Python nodes take effect without rebuilding.
+
+---
+
+## Run
+
+Normally you run the whole layer in one command:
+
+```bash
+ros2 launch sensor_fusion bringup.launch.py
+```
+
+That starts the robot model, wheel odometry, both drivers, and the EKF. Details
+and arguments are in the [`sensor_fusion` README](sensor_fusion/README.md).
+
+For bringing up one sensor on its own — useful when something is broken and you
+want to know which half:
+
+```bash
+ros2 launch urg_node2 urg_node2.launch.py                          # laser only
+ros2 launch zed_wrapper zed_camera.launch.py camera_model:=zed2i   # camera only
+```
+
+Both are lifecycle nodes that configure and activate themselves on launch, so
+no manual transition is needed.
+
+---
+
+## Verify
+
+**Laser is publishing:**
+
+```bash
+ros2 topic hz /scan            # ~40 Hz
+ros2 topic echo /scan --once    # ranges[] mostly finite, frame_id: laser
+rviz2 -d src/perception_pkg/LiDAR/rviz/lidar_scan.rviz    # Fixed Frame: laser
+```
+
+In RViz the scan should trace the room outline. All-`inf` ranges usually means
+the scanner is pointing at nothing within 10 m; a scan rotated relative to the
+room points at `laser_mount_joint` in the URDF.
+
+**Camera is publishing:**
+
+```bash
+ros2 topic hz /zed/zed_node/rgb/color/rect/image      # ~30 Hz
+ros2 topic hz /zed/zed_node/odom                      # ~50 Hz
+ros2 topic echo /zed/zed_node/pose/status --once      # tracking state
+```
+
+Main topics: `/rgb/color/rect/image` (rectified colour),
+`/depth/depth_registered` (depth aligned to the colour image),
+`/point_cloud/cloud_registered` (3D points), `/odom` (visual-inertial odometry),
+`/imu/data`. Full list with `ros2 topic list`.
+
+**Both together, geometrically consistent** — the real test of this layer:
+
+```bash
+rviz2 -d src/perception_pkg/rviz/visual_odemetry_with_LiDAR.rviz
+```
+
+Set Fixed Frame to `base_link`. The laser scan and the camera point cloud should
+overlap on the same physical surfaces. If a wall appears twice, offset from
+itself, the sensor mount offsets in `helios_description/urdf/sensors.xacro` are
+wrong — not the sensors.
+
+**Fusion output:**
+
+```bash
+ros2 topic hz /odometry/filtered      # ~30 Hz
+ros2 run tf2_tools view_frames        # one tree, odom → base_link → sensors
+```
+
+Push the rover forward by hand about a metre and watch
+`ros2 topic echo /odometry/filtered` — `pose.position.x` should increase by
+roughly that much. More detail in the [`sensor_fusion`
+README](sensor_fusion/README.md).
+
+---
+
+## Common problems
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `could not open ethernet port` | Scanner's TCP port not ready yet, or wrong subnet | `ping 192.168.0.10`, wait a few seconds, relaunch |
+| Camera launches then exits | ZED SDK missing or JetPack mismatch | Reinstall the matching SDK; check with `ZED_Explorer` |
+| Camera stalls for minutes on first run | SDK optimising AI models | One-off; wait it out |
+| `Gravity alignment issues detected` | Rover moved during ZED startup | Keep it still ~5 s while it launches, then relaunch |
+| Laser node appears as `/zed_node` | Launch-argument leak between includes | Already fixed in `bringup.launch.py` — see the comment there |
+| Scan and cloud do not overlap | Sensor mount offsets in the URDF | Measure and update `sensors.xacro` |
+
+---
+
+## Related
+
+- [`helios_description`](../helios_description/README.md) — where the sensors
+  are mounted
+- [`low_level_control_pkg`](../low_level_control_pkg/README.md) — publishes the
+  encoder counts this layer consumes
+- [`mapping_localization_pkg`](../mapping_localization_pkg/README.md) — consumes
+  this layer's output

@@ -1,139 +1,292 @@
 # wheel_odometry
 
-Wheel odometry for the **Lynxmotion A4WD3 Mecanum** rover, driven by **two
-RoboClaw** motor controllers — one per side (left RoboClaw → two left wheels,
-right RoboClaw → two right wheels), each on its own USB port.
+Turns raw wheel encoder counts into an estimate of where the robot is.
 
-Mecanum wheels are **holonomic** (the rover can strafe sideways), so the node
-reads **all four wheels independently** over the RoboClaw packet-serial
-protocol, applies the mecanum forward-kinematics to recover the body twist
-(`vx, vy, ωz`), integrates a full planar pose `(x, y, θ)`, and publishes
-`nav_msgs/Odometry` (+ the `odom → base_link` TF) for sensor fusion
-(`robot_localization`, or your own EKF fusing this with the ZED VIO and LiDAR).
+One node, `wheel_odometry_node`. It subscribes to `roboclaw/wheel_encoders`
+(four raw counters), applies mecanum kinematics to recover how the robot body
+moved, integrates that into a position, and publishes `nav_msgs/Odometry` on
+`/wheel/odometry` for the EKF to fuse.
 
-## A4WD3 Mecanum hardware (from Lynxmotion / RobotShop)
+> **This node does not touch the motor controllers.** All RoboClaw serial I/O
+> belongs to `roboclaw_driver_node` in
+> [`low_level_control_pkg`](../../low_level_control_pkg/README.md) — a single
+> serial port cannot safely be shared between two processes. This node consumes
+> that driver's topic and does everything downstream of it.
 
-| Spec | Value | Notes |
-|------|-------|-------|
-| Mecanum wheel diameter | 152 mm → radius **0.076 m** |
-| Motors | 12 V DC + planetary gearbox |
-| Encoder | magnetic, **12 PPR** at motor shaft, quadrature → **×4** |
-| Gear ratio | **51:1** |
-| `counts_per_rev` (at wheel) | `12 × 4 × 51 = 2448` |
-| Wheelbase (front↔rear center) | **0.220 m** |
-| Track width (left↔right center) | **0.330 m** |
+**Read [the root README](../../../README.md) first** for the system overview.
 
-## Mecanum model
+---
 
-With per-wheel distances `d_fl, d_fr, d_rl, d_rr` (m), wheel radius `r`, and
-`L = lx + ly = (wheelbase + track_width) / 2`:
+## What odometry is, and why mecanum makes it harder
+
+**Odometry** is estimating how far you have moved by counting your own wheel
+rotations — dead reckoning. Each wheel carries a quadrature **encoder**: a
+sensor producing a counter that ticks up as the wheel turns forward and down as
+it turns back. Knowing counts-per-revolution and wheel radius converts ticks
+into metres travelled.
+
+On a normal differential-drive robot, two wheel distances are enough to
+reconstruct the motion. Mecanum wheels are different: the angled rollers mean
+each wheel's rotation contributes to forward motion, sideways motion *and*
+rotation at the same time. All four wheels must be read, and the body motion is
+recovered by combining them.
+
+With per-wheel linear displacements `d_fl, d_fr, d_rl, d_rr`, wheel radius `r`,
+and `L = (wheelbase + track_width) / 2`:
 
 ```
-dx_body =  ( d_fl + d_fr + d_rl + d_rr) / 4
-dy_body =  (-d_fl + d_fr + d_rl - d_rr) / 4
-dθ      =  (-d_fl + d_fr - d_rl + d_rr) / (4·L)
+forward     dx = ( d_fl + d_fr + d_rl + d_rr) / 4
+sideways    dy = (-d_fl + d_fr + d_rl - d_rr) / 4
+rotation    dθ = (-d_fl + d_fr - d_rl + d_rr) / (4·L)
 ```
 
-Pose is integrated in the world frame with midpoint-heading; signed 32-bit
-encoder wrap is handled in the driver.
+Read those as difference patterns: all four the same → pure forward; diagonal
+pairs opposed → strafe; left pair opposed to right pair → spin in place. This is
+the standard X-roller mecanum model. The node integrates these increments into a
+planar pose `(x, y, θ)` using the midpoint heading over each step, and handles
+the encoders' signed 32-bit wraparound.
 
-## Published
+### Why this output is fused rather than trusted
 
-| Name | Type | Notes |
-|------|------|-------|
-| `wheel/odometry` (configurable) | `nav_msgs/Odometry` | twist has `linear.x`, `linear.y`, `angular.z` |
-| TF `odom → base_link` (optional) | `tf2` | disable with `publish_tf:=false` |
+Dead reckoning drifts: every slip and every rounding error is added to the total
+permanently and never corrected. Mecanum wheels slip *more* than ordinary
+wheels, and they slip most in the sideways direction, so `vy` is the noisiest
+output here.
+
+That is why the EKF fuses this with the ZED's visual-inertial odometry, and why
+it fuses **only the velocities** from this node, not the absolute position. The
+covariance values in the config tell the EKF how much to distrust each channel —
+they are how "wheel `vy` is unreliable" gets expressed numerically.
+
+---
+
+## Interfaces
+
+| Direction | Name | Type | Notes |
+|---|---|---|---|
+| Subscribes | `roboclaw/wheel_encoders` | `sensor_msgs/JointState` | `position[]` = raw counts per corner |
+| Publishes | `/wheel/odometry` | `nav_msgs/Odometry` | twist has `linear.x`, `linear.y`, `angular.z` |
+| Publishes | TF `odom → base_link` | `tf2` | **disabled in normal operation** — see below |
+
+There is no publish rate parameter: one odometry message goes out per encoder
+message received, so the rate is set by the driver's `encoder_publish_rate`.
+
+### On TF publishing
+
+The node *can* publish `odom → base_link`, and does by default when run standalone.
+
+On the real robot it must not, because the EKF publishes that same transform and
+two publishers of one transform makes the robot's position flicker between two
+answers. `sensor_fusion/launch/bringup.launch.py` therefore starts this node
+with `publish_tf: False` overriding the config file.
+
+Leave `publish_tf: true` in the YAML — it makes the node usable on its own for
+calibration, and the bring-up overrides it where it matters.
+
+---
+
+## Files
+
+```
+wheel_odometry/
+  wheel_odometry_node.py    The node. Kinematics, integration, publishing.
+  __init__.py               Marks the directory as a Python package.
+config/
+  wheel_odometry.yaml       Geometry, encoder counts, sign flags, covariances.
+launch/
+  wheel_odometry.launch.py  Starts the node with the config file.
+udev/
+  99-roboclaw.rules         Pins the RoboClaw USB ports to stable names.
+setup.py / setup.cfg        Python package build; declares the executable.
+package.xml                 Package metadata and dependencies.
+```
+
+### `wheel_odometry/wheel_odometry_node.py`
+
+The whole implementation. Subscribes to the encoder topic, converts counts to
+metres, applies the kinematics above, integrates the pose, publishes.
+
+One thing is hardcoded rather than configurable: which motor channel is which
+corner. Left controller `M2` = front left, `M1` = rear left; right controller
+`M1` = front right, `M2` = rear right. That mapping reflects the physical
+wiring. If a wheel is rewired, this is the file to change — the config's
+`invert_*` flags fix *sign*, not *identity*.
+
+### `config/wheel_odometry.yaml`
+
+| Parameter | Value | What it does |
+|---|---|---|
+| `encoder_topic` | `roboclaw/wheel_encoders` | Where counts come from |
+| `wheel_radius` | 0.076 m | Counts → metres |
+| `wheelbase` | 0.220 m | Front↔rear spacing; affects rotation scale |
+| `track_width` | 0.330 m | Left↔right spacing; affects rotation scale |
+| `counts_per_rev` | 2448.0 | 12 PPR × 4 (quadrature) × 51 (gearbox) |
+| `invert_*` (×4) | all `false` | Flip if a wheel counts down when driven forward |
+| `publish_tf` | `true` | Overridden to `false` by the bring-up |
+| `pose_covariance_diagonal` | `[0.01, 0.01, 1e6, 1e6, 1e6, 0.05]` | How much the EKF should trust each channel |
+| `twist_covariance_diagonal` | same | Same, for velocities |
+
+Two notes on those values.
+
+**`counts_per_rev` is per wheel revolution, not per motor revolution.** The
+encoder is on the motor shaft before the 51:1 gearbox, and quadrature decoding
+gives four edges per pulse — hence `12 × 4 × 51`.
+
+**The `1e6` covariance entries mean "ignore this".** Order is
+`[x, y, z, roll, pitch, yaw]`. A ground robot cannot observe z, roll or pitch
+from wheel encoders, so those get an enormous variance and the EKF discards
+them. The real values are x, y and yaw.
+
+**The geometry constants also appear in `helios_description/urdf/base.xacro` and
+in the RoboClaw driver.** They are not shared automatically — re-measuring the
+rover means editing all three.
+
+### `launch/wheel_odometry.launch.py`
+
+Starts the node with the config file. Accepts `config_file:=/path/to/params.yaml`
+to point at an alternative — useful for testing calibration values without
+editing the tracked config.
+
+### `udev/99-roboclaw.rules`
+
+A Linux rule giving each RoboClaw a stable device name. It lives in this package
+for historical reasons — it is now used by
+[`low_level_control_pkg`](../../low_level_control_pkg/README.md), which owns the
+serial ports. Installation instructions are in that package's README.
+
+---
 
 ## Build
 
 ```bash
 cd ~/helios_ws
-pip3 install pyserial            # or: sudo apt install python3-serial
 colcon build --packages-select wheel_odometry --symlink-install
 source install/setup.bash
 ```
 
-## Configure
-
-Edit `config/wheel_odometry.yaml`:
-
-1. **Ports** — defaults `/dev/ttyACM0` (left controller) and `/dev/ttyACM1`
-   (right controller). These can swap on reboot; see *Stable port names* below.
-2. **Signs** — wiring is hardcoded in the node: left controller (ACM0)
-   `front_left`=M2, `rear_left`=M1; right controller (ACM1) `front_right`=M1,
-   `rear_right`=M2. The `invert_*` flags make forward motion read positive —
-   confirm with `wheel_monitor`.
-
 ## Run
 
-```bash
-ros2 launch wheel_odometry wheel_odometry.launch.py
-# or a custom param file:
-ros2 launch wheel_odometry wheel_odometry.launch.py config_file:=/path/to/params.yaml
-```
-
-### Step 1 — wheel signs (off the ground, with `wheel_monitor`)
-
-Stop the node (the serial port is exclusive) and run the monitor, which reads
-the RoboClaws directly and shows each corner live:
+Normally started by the bring-up, not directly:
 
 ```bash
-ros2 run wheel_odometry wheel_monitor
+ros2 launch sensor_fusion bringup.launch.py
 ```
 
-Spin one wheel at a time in its forward-drive direction:
-
-- Every corner should read **positive** when driven forward; any that reads
-  negative → set its `invert_*` flag `true` in the YAML.
-- Check the computed twist line: forward → `vx+`, strafe-left → `vy+`,
-  rotate CCW → `wz+`.
-
-(If a wheel turns the *wrong* corner's row, the wiring isn't what the fixed
-`ACM0=left/ACM1=right`, `M1=front/M2=rear` mapping assumes — re-check the cabling.)
-
-### Step 2 — linear & rotation scale (on the ground, with the node)
-
-3. **Linear scale** — drive a measured 1.0 m forward, compare `pose.position.x`.
-   `counts_per_rev` is 2448 (51:1); fine-tune by `reported / actual` if needed.
-4. **Rotation scale** — rotate in place a known angle; if reported yaw is off,
-   adjust `wheelbase` + `track_width` (equivalently `L`).
-
-## Stable port names
-
-`/dev/ttyACM0` and `/dev/ttyACM1` can renumber on replug/reboot, swapping
-left/right. The udev rule in [`udev/99-roboclaw.rules`](udev/99-roboclaw.rules)
-pins each RoboClaw to a fixed name. The two units are identical and have **no
-unique USB serial**, so the rule matches the **physical USB port**:
-
-```
-left  controller -> port 1-4.4 -> /dev/roboclaw_left
-right controller -> port 1-4.3 -> /dev/roboclaw_right
-```
-
-Install it:
+Standalone, for calibration (needs the RoboClaw driver running to supply counts):
 
 ```bash
-sudo cp src/perception_pkg/wheel_odometry/udev/99-roboclaw.rules /etc/udev/rules.d/
-sudo udevadm control --reload-rules
-sudo udevadm trigger
-ls -l /dev/roboclaw_*        # should symlink to the right ttyACM*
+ros2 launch low_level_control_pkg roboclaw_driver.launch.py   # terminal 1
+ros2 launch wheel_odometry wheel_odometry.launch.py           # terminal 2
 ```
 
-The config already points at `/dev/roboclaw_left` and `/dev/roboclaw_right`.
+---
 
-**Important:** because matching is by physical port, keep each RoboClaw in its
-current socket (and the hub in the same Jetson port). If you move one, update the
-`KERNELS==` value in the rule — find the new port with
-`udevadm info -n /dev/ttyACM0 | grep DEVPATH` (the `1-4.x` segment is the port).
-The rule also sets `MODE=0666`, so it permanently fixes the serial permission
-issue too.
+## Calibration
 
-## Notes / limitations
+Do this once per rover, and again after changing wheels, gearboxes or wiring.
+Each step has a clear pass condition.
 
-- Serial access may need the `dialout` group:
-  `sudo usermod -aG dialout $USER` then re-login.
-- This is dead-reckoning — it drifts, and mecanum wheels slip more than
-  standard wheels, so wheel `vy` is noisier than `vx`. That is exactly why it is
-  fused with low-drift sensors (ZED VIO, LiDAR). Tune the covariance diagonals
-  in the YAML to reflect this (looser on `y`).
-- The node reads encoders only; it does **not** command the motors.
+### Step 1 — wheel signs (wheels off the ground)
+
+Every wheel must count *up* when driven forward. Use the monitor in
+`low_level_control_pkg`, which prints all four corners live:
+
+```bash
+ros2 run low_level_control_pkg wheel_monitor
+```
+
+Turn each wheel by hand in its forward direction:
+
+- Every corner should read **positive**. Any that reads negative → set that
+  wheel's `invert_*` flag to `true` in `wheel_odometry.yaml`.
+- If turning one wheel changes a *different* corner's row, the wiring does not
+  match the hardcoded channel map — fix the cabling or the node, not the flags.
+
+Then check the derived twist: pushing the rover forward should give `vx` > 0,
+strafing left `vy` > 0, rotating counter-clockwise `ωz` > 0.
+
+### Step 2 — linear scale (on the ground)
+
+Mark a 1.0 m line. Zero the odometry by restarting the node, push the rover
+along the line, and read the result:
+
+```bash
+ros2 topic echo /wheel/odometry --once
+```
+
+`pose.position.x` should read ≈ 1.0. If it is consistently off, scale
+`counts_per_rev` by `reported / actual`. A ~2 % error is normal for mecanum on
+a hard floor; ~10 % means a wrong constant, not slip.
+
+### Step 3 — rotation scale (on the ground)
+
+Rotate the rover in place through a known angle — 360° is easiest to judge by
+eye — and compare the yaw in `/wheel/odometry`. If reported rotation is too
+large, `L` is too small: increase `wheelbase` and/or `track_width`. Adjust these
+only after step 2 passes, since linear scale error feeds into rotation error.
+
+---
+
+## Verify
+
+**The node is receiving counts** — the most common failure is that it is not,
+because the RoboClaw driver is not running:
+
+```bash
+ros2 topic hz roboclaw/wheel_encoders
+ros2 node info /wheel_odometry            # confirm the subscription is connected
+```
+
+Silence on that topic means nothing is publishing counts. Odometry will sit at
+zero and never move.
+
+**Output is sane:**
+
+```bash
+ros2 topic hz /wheel/odometry             # matches the encoder rate
+ros2 topic echo /wheel/odometry --once
+```
+
+With the rover stationary, all velocities should read ~0 and the pose should not
+creep. Creeping while stationary means an encoder is reporting noise.
+
+**It responds correctly to motion.** Push the rover by hand and watch:
+
+```bash
+ros2 topic echo /wheel/odometry --field twist.twist
+```
+
+Forward → `linear.x` positive. Strafe left → `linear.y` positive. Rotate
+counter-clockwise → `angular.z` positive. Any sign that is backwards is an
+`invert_*` flag.
+
+**It is not publishing TF when it shouldn't be.** With the full stack running:
+
+```bash
+ros2 topic info /tf --verbose | grep -c "Node name: wheel_odometry"
+```
+
+Expect `0`. Anything else means `publish_tf` was not overridden and the robot's
+position will fight with the EKF.
+
+---
+
+## Limitations
+
+- Dead reckoning drifts without bound. This node is one input to the EKF, not a
+  position source on its own.
+- Mecanum wheels slip laterally more than they roll cleanly, so `vy` is the
+  least trustworthy channel — reflected in its covariance.
+- Encoders only. This node never commands the motors.
+- Reported motion assumes the wheels are on the ground and gripping; wheels-up
+  testing shows motion that did not happen.
+
+---
+
+## Related
+
+- [`low_level_control_pkg`](../../low_level_control_pkg/README.md) — publishes
+  the encoder counts, owns the serial ports, has `wheel_monitor`
+- [`sensor_fusion`](../sensor_fusion/README.md) — consumes `/wheel/odometry`
+- [`helios_description`](../../helios_description/README.md) — same geometry
+  constants
