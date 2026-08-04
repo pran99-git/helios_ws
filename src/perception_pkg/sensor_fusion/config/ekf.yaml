@@ -15,6 +15,7 @@ ekf_filter_node:
   ros__parameters:
     frequency: 30.0
     sensor_timeout: 0.2
+    transform_time_offset: 0.1
     two_d_mode: true            # flat ground + 2D LiDAR -> zero z, roll, pitch
     publish_tf: true            # owns odom -> base_link
     publish_acceleration: false
