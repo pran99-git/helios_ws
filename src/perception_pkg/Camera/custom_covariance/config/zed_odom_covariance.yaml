@@ -1,0 +1,43 @@
+zed_odom_covariance:
+  ros__parameters:
+    # The ZED wrapper publishes this with twist.covariance all zeros and has no
+    # parameter to change it (the SDK has no velocity covariance to copy from).
+    # See the node docstring for the full measurement.
+    input_topic: '/zed/zed_node/odom'
+
+    # What ekf.yaml's odom1 must point at. The raw wrapper topic must NOT be
+    # fused directly -- that is the bug.
+    output_topic: '/zed/odom_with_cov'
+
+    # Covariance diagonal for the twist: [vx, vy, vz, vroll, vpitch, vyaw].
+    # Same layout and convention as wheel_odometry.yaml, so the two can be read
+    # side by side -- because their RATIO is the entire fusion policy. The EKF
+    # has no other mechanism for deciding which sensor to believe.
+    #
+    #   axis   wheel   ZED    who the EKF should lean on, and why
+    #   vx     0.01    0.02   Wheels. In straight-line rolling the encoders are
+    #                         direct and unambiguous; VIO has to infer it from
+    #                         image motion.
+    #   vy     0.05    0.02   ZED. Lateral motion on mecanum comes entirely from
+    #                         the free rollers, and the per-wheel PID cannot
+    #                         tell that the body went sideways instead of
+    #                         straight. VIO sees the body actually move. This is
+    #                         the whole reason the camera is in the filter.
+    #   vyaw   0.05    0.01   ZED. Its odom is visual-INERTIAL -- the SDK fuses
+    #                         the IMU internally, and a gyro beats a yaw rate
+    #                         differenced from wheel speeds.
+    #
+    # Unused axes are 1.0e+6 ("do not trust"), matching wheel_odometry.yaml.
+    # ekf.yaml's odom1_config leaves them false so they are never read, but if
+    # anyone enables one later the safe default is already in place.
+    #
+    # NOTE the signed exponent. Strict YAML 1.1 parses `1.0e6` as a STRING
+    # (PyYAML does exactly this); only `1.0e+6` is read as a float by both
+    # PyYAML and ROS 2's C parser. Same trap as wheel_odometry.yaml.
+    #
+    # These are STARTING values, not measured ones. Do not re-derive them from a
+    # stationary recording: parked, this camera reports ~2e-5 m/s of noise, and
+    # a variance computed from that is ~1e-9 -- precisely the number that caused
+    # the original bug. Refine them from a moving run instead, or by pushing the
+    # rover a measured distance and comparing integrated velocity against tape.
+    twist_covariance_diagonal: [0.02, 0.02, 1.0e+6, 1.0e+6, 1.0e+6, 0.01]
