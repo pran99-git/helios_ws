@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<!--
+  Shared xacro definitions used by BOTH base.xacro and sensors.xacro.
+
+  This file exists to break an ordering dependency: sensors.xacro used to
+  reference mesh_scale/mesh_rpy and the sensor_blue material without defining
+  them, which worked only because helios.urdf.xacro happened to include
+  base.xacro first. Swapping those two includes broke the description. Now
+  everything shared lives here and is included once, before either.
+
+  Included ONCE, from helios.urdf.xacro — not from base.xacro or
+  sensors.xacro. Properties are idempotent under a repeated include, but
+  <material> elements are not: two identical definitions make urdf_parser fail
+  with "material '<name>' is not unique".
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ===================== Mesh conventions ===================== -->
+  <!-- CAD meshes (meshes/*.STL) were exported in millimeters with a Y-up,
+       Z-forward convention (mesh_y -> robot up, mesh_z -> robot forward,
+       mesh_x -> robot left). mesh_scale converts mm -> m; mesh_rpy is the
+       fixed rotation that maps the CAD frame into REP-103 (x fwd, y left,
+       z up). Each link's own visual origin then re-centers that mesh's
+       bounding-box centroid on the link origin.
+
+       NOTE: ZED2i.STL does NOT follow this convention — it has its own
+       native CAD axes and carries its own rotation in sensors.xacro. -->
+  <xacro:property name="mesh_scale" value="0.001 0.001 0.001"/>
+  <xacro:property name="mesh_rpy"   value="${pi/2} 0 ${pi/2}"/>
+
+  <!-- ===================== Materials ===================== -->
+  <material name="chassis_grey"><color rgba="0.30 0.32 0.35 1.0"/></material>
+  <material name="wheel_black"><color rgba="0.10 0.10 0.10 1.0"/></material>
+  <material name="sensor_blue"><color rgba="0.10 0.30 0.80 1.0"/></material>
+
+</robot>

@@ -17,23 +17,13 @@
   <xacro:property name="chassis_width"  value="0.240"/>
   <xacro:property name="chassis_height" value="0.0785"/>
 
-  <!-- CAD meshes (meshes/*.STL) were exported in millimeters with a Y-up,Z-forward convention        
-      zed bounding boxes: mesh_y -> robot up, mesh_z -> robot forward,
-       mesh_x -> robot left). mesh_scale converts mm -> m; mesh_rpy is the
-       fixed rotation that maps the CAD frame into REP-103 (x fwd, y left,
-       z up). mesh_*_xyz below re-center each mesh's bounding-box centroid on
-       its link origin.
-       -->
-  <xacro:property name="mesh_scale" value="0.001 0.001 0.001"/>
-  <xacro:property name="mesh_rpy"   value="${pi/2} 0 ${pi/2}"/>
+  <!-- mesh_scale, mesh_rpy and the materials live in common.xacro, which
+       helios.urdf.xacro includes before this file. The mesh_*_xyz values
+       below re-center each mesh's bounding-box centroid on its link origin
+       and are specific to these meshes, so they stay here. -->
   <xacro:property name="chassis_mesh_xyz" value="-0.16552 -0.13383 -0.03827"/>
   <xacro:property name="wheelA_mesh_xyz"  value="-0.08398 -0.02833 -0.08436"/>
   <xacro:property name="wheelB_mesh_xyz"  value="-0.08395 -0.02833 -0.08436"/>
-
-  <!-- ===================== Materials ===================== -->
-  <material name="chassis_grey"><color rgba="0.30 0.32 0.35 1.0"/></material>
-  <material name="wheel_black"><color rgba="0.10 0.10 0.10 1.0"/></material>
-  <material name="sensor_blue"><color rgba="0.10 0.30 0.80 1.0"/></material>
 
   <!-- ===================== base_link (root) ===================== -->
   <link name="base_link">

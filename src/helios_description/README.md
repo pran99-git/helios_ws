@@ -85,7 +85,8 @@ internal camera frames.
 
 ```
 urdf/
-  helios.urdf.xacro     Top-level file. Includes the other two; nothing else.
+  helios.urdf.xacro     Top-level file. Includes the other three; nothing else.
+  common.xacro          Shared mesh conventions + materials. Included first.
   base.xacro            Chassis + 4 mecanum wheels. All the geometry constants.
   sensors.xacro         ZED and laser mount frames.
 launch/
@@ -101,10 +102,30 @@ package.xml             Package metadata and dependencies.
 
 ### `urdf/helios.urdf.xacro`
 
-The entry point, and deliberately almost empty — it just includes `base.xacro`
-and `sensors.xacro`. Splitting them means chassis geometry and sensor mounting
-can be edited independently. This is the file the launch file processes; the
-other two are never loaded directly.
+The entry point, and deliberately almost empty — it just includes
+`common.xacro`, `base.xacro` and `sensors.xacro`. Splitting them means chassis
+geometry and sensor mounting can be edited independently. This is the file the
+launch file processes; the other three are never loaded directly.
+
+`common.xacro` **must be included first**, because the other two consume its
+properties and materials. `base.xacro` and `sensors.xacro` do not depend on each
+other and may be listed in either order.
+
+### `urdf/common.xacro`
+
+Holds only what both other files need: the mesh conventions (`mesh_scale`,
+`mesh_rpy`) and the three material definitions.
+
+It exists to remove an ordering trap. These definitions used to live in
+`base.xacro`, and `sensors.xacro` referenced them without defining them — which
+worked purely because the top-level file happened to include `base.xacro`
+first. Swapping those two lines broke the whole description with an unhelpful
+error.
+
+It is included **once**, from the top level, rather than from both files.
+Properties are idempotent under a repeated include, but `<material>` elements
+are not — two identical definitions make `urdf_parser` fail outright with
+`material '<name>' is not unique`.
 
 ### `urdf/base.xacro`
 
@@ -137,12 +158,13 @@ nothing for a rover this size.
 Defines `zed_camera_link` and `laser`, each attached to `base_link` by a fixed
 joint whose `<origin>` is the physical mounting offset.
 
-> **These two offsets are the main thing left to verify on this model.** Both
-> joints currently carry placeholder values. Until they are measured against the
-> real rover, the laser scan and camera cloud will be slightly displaced from
-> where they truly are — which shows up as a map that is subtly skewed rather
-> than obviously broken. Measure from the chassis centre at axle height and
-> update `zed_mount_joint` / `laser_mount_joint`.
+> **Both offsets are hand-measured against the real rover**, from the chassis
+> centre at axle height (`base_link`), to the point each driver actually
+> anchors to: the laser's rotating mirror, and the ZED's bottom screw hole.
+> They are worth re-checking after any remount — an error here displaces the
+> scan and cloud from where they truly are, which shows up as a map that is
+> subtly skewed rather than obviously broken. `laser_mount_joint` is
+> slam_toolbox's scan-matching lever arm, so its error grows with rotation.
 
 The file also carries a warning worth repeating: the ZED wrapper must not
 publish `base_link → zed_camera_link` itself. This URDF owns that transform. If
