@@ -39,7 +39,14 @@ publishing it means the robot's position fights between two answers.
 
 ---
 
-## Which mapper should I use?
+## Which one should I use?
+
+First decide whether you are **building** a map or **reusing** one. If you
+already have a `.pgm`/`.yaml` and only want to know where the rover is inside
+it, you do not want a mapper at all — jump to
+[Localizing in an existing map](#localizing-in-an-existing-map).
+
+For building:
 
 | | `slam_toolbox` | `rtabmap` |
 |---|---|---|
@@ -62,11 +69,16 @@ slice misses, or a visual record of the space.
 the sole transform authority while RTAB-Map builds its database alongside. They
 share inputs and neither subscribes to the other's output.
 
-Both need the sensing layer running first:
+All three (both mappers, and AMCL localization) need the sensing layer running
+first:
 
 ```bash
 ros2 launch sensor_fusion bringup.launch.py
 ```
+
+And only one of them may run at a time, since all three publish `map → odom`.
+The one exception is the `slam_toolbox` + `rtabmap` pairing described above,
+which works precisely because RTAB-Map defaults to not publishing it.
 
 ---
 
@@ -77,14 +89,29 @@ slam_toolbox/
   launch/slam_toolbox.launch.py   Starts slam_toolbox, drives its lifecycle.
   config/slam_toolbox.yaml        All tuning: solver, scan matcher, loop closure.
   rviz/slam.rviz                  RViz layout for watching the map build.
-  scripts/save_map.sh             Saves the live /map to disk.
+  scripts/save_slam.sh            Saves a run in both formats: .pgm + .yaml
+                                  and .posegraph + .data, under one name.
   maps/                           Saved 2D maps. Contents gitignored.
 rtabmap/
   launch/rtabmap.launch.py        Wraps the upstream launch file with our settings.
   maps/                           Run databases. Contents gitignored.
+localization/
+  launch/amcl_localization.launch.py  AMCL over an already-built map.
+  config/amcl.yaml                Particle filter + motion model tuning.
 CMakeLists.txt                    Installs launch/, config/, rviz/ — but not maps/.
 package.xml                       Metadata and dependencies.
 ```
+
+The three folders answer different questions:
+
+| Folder | Question | Writes a map? | Owns `map → odom`? |
+|---|---|---|---|
+| `slam_toolbox/` | "What does this place look like?" (2D) | yes | yes |
+| `rtabmap/` | "What does this place look like?" (3D) | yes | only if `publish_tf_map:=true` |
+| `localization/` | "Where am I in a map I already have?" | no, read-only | yes |
+
+Only **one** of them may run at a time, because all three publish `map → odom`
+and would fight over it.
 
 There is no source code in this package. Both mappers are third-party ROS
 packages; what lives here is the configuration and launch wiring that makes them
@@ -174,17 +201,42 @@ these.
 
 ### Saving a map
 
+One script, both formats — all four files, under one shared name:
+
 ```bash
-~/helios_ws/src/mapping_localization_pkg/slam_toolbox/scripts/save_map.sh
-~/helios_ws/src/mapping_localization_pkg/slam_toolbox/scripts/save_map.sh lab_corridor
+S=~/helios_ws/src/mapping_localization_pkg/slam_toolbox/scripts
+$S/save_slam.sh lab_corridor
 ```
 
-Output lands in `slam_toolbox/maps/` as `slam_toolbox_<name>.pgm` (the map as a
-greyscale image) plus `.yaml` (its resolution and origin). With no argument the
-name is a timestamp, matching how RTAB-Map names its runs. The script refuses to
-overwrite an existing map.
+That writes `.pgm` + `.yaml` (for AMCL / nav2) **and** `.posegraph` + `.data`
+(for slam_toolbox) into `slam_toolbox/maps/` as `slam_toolbox_<name>.*`. See
+[Map storage](#two-different-slam_toolbox-artifacts-and-why-you-want-both) for
+why neither pair substitutes for the other. With no argument the name is a
+timestamp, matching how RTAB-Map names its runs.
 
-Two constraints:
+`--map-only` / `--graph-only` narrow it to one pair if you deliberately want
+just one. The script refuses to overwrite any file it is about to write, and
+checks all of them up front so a collision never leaves a half-saved run.
+
+### Reusing a map with slam_toolbox
+
+```bash
+ros2 launch mapping_localization_pkg slam_toolbox.launch.py \
+    localization:=true \
+    map_file_name:=<path>/slam_toolbox_lab_corridor \
+    map_start_pose:="[0.0, 0.0, 0.0]"
+```
+
+`map_file_name` takes the prefix **without** the `.posegraph`/`.data`
+extension, exactly as `save_slam.sh` prints it. Localization is a
+different executable (`localization_slam_toolbox_node`), not just a parameter,
+and it will not start without a starting pose — pass `map_start_pose:="[x, y,
+yaw]"` or `map_start_at_dock:=true`.
+
+To localize against the `.pgm` instead, use AMCL — see
+[Localizing in an existing map](#localizing-in-an-existing-map).
+
+Two constraints on the save scripts:
 
 - **Run it while slam_toolbox is still up.** It saves a live topic, not
   something read back from disk afterwards. Close the mapper first and the map
@@ -270,6 +322,73 @@ the robot, which is why there is so little headroom.
 
 ---
 
+## Localizing in an existing map
+
+The other two folders build maps. This one reuses one: given a `.pgm`/`.yaml`
+you saved earlier, work out where the rover is inside it. The map is
+**read-only** — AMCL never writes to it.
+
+```bash
+# Terminal 1 — sensors + fused odometry
+ros2 launch sensor_fusion bringup.launch.py
+
+# Terminal 2 — localization
+ros2 launch mapping_localization_pkg amcl_localization.launch.py \
+    map:=$PWD/src/mapping_localization_pkg/slam_toolbox/maps/slam_toolbox_20260728_175429.yaml \
+    rviz:=true
+```
+
+This starts three nodes. `nav2_bringup` is **not** installed on this machine
+and is not required — the launch file wires them up itself:
+
+| Node | Job |
+|---|---|
+| `map_server` | Serves the saved `.pgm` on `/map` |
+| `amcl` | Particle filter; publishes `map → odom` and `/particlecloud` |
+| `lifecycle_manager` | Drives both to `active` (neither self-activates) |
+
+### Giving it a starting pose
+
+On launch the rover does **not** know where it is. Supply a pose:
+
+- **RViz "2D Pose Estimate"** — click the rover's position, drag in the
+  direction it faces. Works from anywhere in the map; this is the normal path.
+- **`ros2 service call /reinitialize_global_localization std_srvs/srv/Empty`** —
+  scatter particles across the whole map and let it work the pose out
+  unaided. Slower, and ambiguous in self-similar spaces like corridors.
+
+Heading is far less forgiving than position. The default yaw spread is only
+about ±0.5 rad, so a position off by half a metre recovers, while a heading off
+by 90° usually does not.
+
+`set_initial_pose: false` in `config/amcl.yaml` is what makes "start anywhere"
+work. Set it `true`, and fill in `initial_pose`, only if the rover genuinely
+always starts from the same spot.
+
+### Then drive
+
+AMCL only runs a filter update after `update_min_d` (0.20 m) or `update_min_a`
+(0.20 rad) of motion — **a stationary rover never converges.** Drive a few
+metres past distinctive geometry and watch `/particlecloud` tighten in RViz.
+
+Teleop is the normal way to do this. Pushing the rover by hand works just as
+well: AMCL reads odometry, not commands.
+
+### Why `OmniMotionModel`
+
+`config/amcl.yaml` sets `robot_model_type: nav2_amcl::OmniMotionModel`, not the
+more common `DifferentialMotionModel`. This rover is mecanum — it can translate
+sideways without rotating, and the differential model assumes that is
+impossible. Under that model a strafe looks like sensor noise, and the particle
+cloud gets dragged badly.
+
+`alpha5` (lateral odometry noise, omni-only) is deliberately the largest of the
+alpha terms, for the same reason the `y` covariance is raised in
+`wheel_odometry.yaml`: strafe is the least trustworthy thing this drivetrain
+reports, so the filter is told to lean on scan matching to correct it.
+
+---
+
 ## Build
 
 ```bash
@@ -278,11 +397,17 @@ colcon build --packages-select mapping_localization_pkg --symlink-install
 source install/setup.bash
 ```
 
-Needs both mappers installed:
+Needs both mappers plus the nav2 localization pieces installed:
 
 ```bash
-sudo apt install ros-jazzy-slam-toolbox ros-jazzy-rtabmap-ros ros-jazzy-nav2-map-server
+sudo apt install ros-jazzy-slam-toolbox ros-jazzy-rtabmap-ros \
+                 ros-jazzy-nav2-map-server ros-jazzy-nav2-amcl \
+                 ros-jazzy-nav2-lifecycle-manager
 ```
+
+`ros-jazzy-nav2-bringup` is deliberately **not** required —
+`amcl_localization.launch.py` starts `map_server`, `amcl` and
+`lifecycle_manager` itself, so the localization stack works without it.
 
 ---
 
@@ -380,8 +505,40 @@ too few features, or motion blur from driving too fast.
 
 | Path | Holds | Tracked in git? |
 |---|---|---|
-| `slam_toolbox/maps/` | `.pgm` + `.yaml` pairs | Folder only; contents ignored |
+| `slam_toolbox/maps/` | `.pgm` + `.yaml` pairs, and `.posegraph` + `.data` pairs | Folder only; contents ignored |
 | `rtabmap/maps/` | `.db` databases, plus any derived exports | Folder only; contents ignored |
+
+### Two different slam_toolbox artifacts, and why you want both
+
+A mapping run can be saved in two formats, and **neither can be regenerated
+from the other** — which is why `save_slam.sh` writes both by default.
+
+| Output | What it is | Who can read it |
+|---|---|---|
+| `.pgm` + `.yaml` | The rendered occupancy grid — an image plus its metadata | AMCL, nav2 costmaps, any map viewer |
+| `.posegraph` + `.data` | The full SLAM session: nodes, scans, constraints, loop closures | slam_toolbox only |
+
+The `.pgm` is lossy: it is the *result* of the pose graph, with no graph behind
+it, so slam_toolbox cannot resume, extend, or localize from it. The pose graph
+is the only format you can continue mapping from — but nav2 cannot read it.
+
+Saving both in one call also keeps the two halves on the **same name**. Running
+two separate scripts a minute apart left you with an occupancy grid and a pose
+graph timestamped differently, with nothing recording that they came from the
+same run.
+
+Both halves are **live captures** — a service call and a topic subscription —
+so this must be run while `slam_toolbox.launch.py` is still up:
+
+```bash
+src/mapping_localization_pkg/slam_toolbox/scripts/save_slam.sh lab_corridor
+```
+
+> Serializing before any scan has been processed produces an *empty* pose graph
+> that reports success and then segfaults `localization_slam_toolbox_node` on
+> load. The script checks the output size and refuses to leave one behind. The
+> pose graph is written first for exactly this reason: an empty graph means an
+> empty grid too, so it bails out before writing a misleading `.pgm`.
 
 Both are run outputs — large, binary, and regenerable — so `.gitignore` keeps
 the folders (via `.gitkeep`) but not their contents. They live in the source tree

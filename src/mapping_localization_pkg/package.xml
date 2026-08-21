@@ -9,8 +9,9 @@
     perception_pkg. Each approach is a self-contained folder and runs
     independently of the other:
 
-      slam_toolbox/ - 2D LiDAR SLAM (Hokuyo UST-10LX), publishes /map
-      rtabmap/      - 3D RGB-D + LiDAR SLAM (GTSAM pose-graph optimization)
+      slam_toolbox/  - 2D LiDAR SLAM (Hokuyo UST-10LX), publishes /map
+      rtabmap/       - 3D RGB-D + LiDAR SLAM (GTSAM pose-graph optimization)
+      localization/  - AMCL against an already-built map (no mapping)
 
     Both are fed by the ZED 2i, the Hokuyo, and the EKF-fused odometry from
     perception_pkg's sensor_fusion, which must already be running.
@@ -27,6 +28,11 @@
   <exec_depend>slam_toolbox</exec_depend>
   <exec_depend>nav2_map_server</exec_depend>
   <exec_depend>rviz2</exec_depend>
+  <!-- localization/ (AMCL against a saved map). Note: nav2_bringup is NOT
+       used or required — amcl_localization.launch.py starts map_server,
+       amcl and lifecycle_manager itself. -->
+  <exec_depend>nav2_amcl</exec_depend>
+  <exec_depend>nav2_lifecycle_manager</exec_depend>
   <!-- Consumes topics from these; expects sensor_fusion/bringup.launch.py
        already running rather than launching them itself. -->
   <exec_depend>zed_wrapper</exec_depend>

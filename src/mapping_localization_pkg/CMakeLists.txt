@@ -29,4 +29,16 @@ install(
   DESTINATION share/${PROJECT_NAME}/slam_toolbox
 )
 
+# localization/ reuses a map instead of building one (AMCL over a saved
+# .pgm/.yaml). Same layout rule as above: launch/ and config/ install,
+# maps/ does not. scripts/ is deliberately NOT installed -- save_slam.sh
+# locates maps/ relative to its own path and is meant to be run straight out
+# of the source tree.
+install(
+  DIRECTORY
+    localization/launch
+    localization/config
+  DESTINATION share/${PROJECT_NAME}/localization
+)
+
 ament_package()

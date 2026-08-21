@@ -1,0 +1,126 @@
+### AMCL — localization against an ALREADY-BUILT map (publishes map -> odom)
+#
+# This is the "I have a map, where am I in it?" half of the problem, as
+# opposed to slam_toolbox/rtabmap which build the map in the first place. The
+# map is read-only here: AMCL never modifies the .pgm.
+#
+# TF ownership (REP-105): AMCL owns map -> odom, exactly like slam_toolbox
+# does when mapping. So DO NOT run this at the same time as
+# slam_toolbox.launch.py or rtabmap with publish_tf_map:=true -- they would
+# fight over the same transform. The EKF still owns odom -> base_link.
+
+amcl:
+  ros__parameters:
+    # --- Frames / topics -------------------------------------------------
+    base_frame_id: 'base_link'
+    odom_frame_id: 'odom'
+    global_frame_id: 'map'
+    scan_topic: '/scan'
+    tf_broadcast: true
+
+    # How long a published map -> odom stays valid. Slightly longer than one
+    # AMCL update period so consumers never see a gap between corrections.
+    transform_tolerance: 1.0
+
+    # --- Motion model ----------------------------------------------------
+    # OmniMotionModel, NOT DifferentialMotionModel. This rover is mecanum: it
+    # can translate sideways without rotating. The differential model assumes
+    # any lateral displacement is impossible and would treat a strafe as
+    # sensor noise, dragging the particle cloud badly.
+    robot_model_type: 'nav2_amcl::OmniMotionModel'
+
+    # Odometry noise. alpha1/2 = rotation noise from rotation/translation,
+    # alpha3/4 = translation noise from translation/rotation, alpha5 =
+    # LATERAL (strafe) noise -- omni-only, ignored by the differential model.
+    #
+    # alpha5 is deliberately the largest term. Ground tests showed this rover
+    # tracks well forward/back and in yaw but drifts off-axis when strafing,
+    # because lateral motion comes entirely from the free rollers with no
+    # body-level feedback. Same reasoning as the raised y covariance in
+    # wheel_odometry.yaml -- tell the filter not to over-trust sideways
+    # odometry, so scan matching gets to correct it.
+    alpha1: 0.2
+    alpha2: 0.2
+    alpha3: 0.2
+    alpha4: 0.2
+    alpha5: 0.4
+
+    # --- Particle filter -------------------------------------------------
+    # max_particles is the cost knob AND the global-localization knob: too few
+    # and a from-scratch (kidnapped-robot) reinitialization has no chance of
+    # seeding a particle near the true pose. 2000 is a reasonable ceiling for
+    # a Jetson that is already running the ZED.
+    min_particles: 500
+    max_particles: 2000
+
+    # KLD sampling: how aggressively the filter is allowed to shrink the
+    # cloud once it is confident.
+    pf_err: 0.05
+    pf_z: 0.99
+    recovery_alpha_slow: 0.001
+    recovery_alpha_fast: 0.1
+
+    # --- Update gating ---------------------------------------------------
+    # AMCL only runs a filter update after this much motion. THIS IS WHY A
+    # STATIONARY ROVER NEVER CONVERGES: with no motion there is no update, so
+    # the initial particle spread just sits there. Drive (teleop is fine, or
+    # push it by hand -- AMCL reads odometry, not commands) a few metres past
+    # distinctive geometry to collapse the cloud.
+    update_min_d: 0.20       # m of translation between updates
+    update_min_a: 0.20       # rad of rotation between updates
+    resample_interval: 1
+
+    # --- Laser model -----------------------------------------------------
+    # likelihood_field is the right default for a 2D lidar in a mostly-static
+    # indoor map: cheaper than beam and much less prone to the local minima
+    # the beam model falls into when the map is slightly wrong.
+    laser_model_type: 'likelihood_field'
+    laser_likelihood_max_dist: 2.0
+
+    # Hokuyo UST-10LX. laser_max_range matches slam_toolbox.yaml's
+    # max_laser_range so localization and mapping agree on what counts as a
+    # usable return; -1.0 means "use whatever the sensor reports".
+    laser_min_range: -1.0
+    laser_max_range: 10.0
+    max_beams: 60
+
+    z_hit: 0.5
+    z_rand: 0.5
+    z_max: 0.05
+    z_short: 0.05
+    z_shortscale: 0.1
+    sigma_hit: 0.2
+    lambda_short: 0.1
+
+    # --- Initial pose ----------------------------------------------------
+    # false = do NOT assume a fixed home position. Start the rover anywhere
+    # and supply the pose with RViz's "2D Pose Estimate" tool (or publish to
+    # /initialpose, or call /reinitialize_global_localization for no guess at
+    # all). Set true and fill in initial_pose below ONLY if the rover really
+    # does always start from the same spot.
+    #
+    # Heading is far less forgiving than position: the default yaw spread is
+    # only about +-0.5 rad, so point the arrow the way the rover actually
+    # faces. A position that is off by half a metre recovers; a heading that
+    # is off by 90 deg usually does not.
+    set_initial_pose: false
+    always_reset_initial_pose: false
+    # initial_pose: {x: 0.0, y: 0.0, z: 0.0, yaw: 0.0}
+
+    # Keep the last pose across a restart, so a re-launch in the same spot
+    # does not need the RViz click again.
+    save_pose_rate: 0.5
+
+map_server:
+  ros__parameters:
+    # Overridden by the launch file's `map:=` argument; the value here is only
+    # a fallback so the node is never left with an empty path.
+    yaml_filename: ''
+    frame_id: 'map'
+    topic_name: 'map'
+
+map_saver:
+  ros__parameters:
+    save_map_timeout: 5.0
+    free_thresh_default: 0.196
+    occupied_thresh_default: 0.65
