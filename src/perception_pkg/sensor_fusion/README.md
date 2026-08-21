@@ -86,9 +86,29 @@ config/
 launch/
   bringup.launch.py      Starts the whole sensing layer. The one you run.
   ekf.launch.py          Starts only the EKF.
-CMakeLists.txt           Installs config/ and launch/ into share/.
+rviz/
+  visual_odometry_with_lidar.rviz  Layout for camera + laser together.
+CMakeLists.txt           Installs config/, launch/ and rviz/ into share/.
 package.xml              Metadata; declares the dependency on robot_localization.
 ```
+
+### Per-sensor content lives with its sensor, not here
+
+Anything specific to one sensor sits beside that sensor's vendor submodule, so
+everything for a given device is in one place:
+
+| | where | what |
+|---|---|---|
+| Camera | [`Camera/custom_covariance/`](../Camera/custom_covariance/README.md) | Republishes the ZED's odometry with the twist covariance the wrapper never sets |
+| LiDAR | [`LiDAR/custom_config/`](../LiDAR/custom_config/README.md) | Hokuyo driver parameters, its launch file, and the laser-only RViz layout |
+
+Both are **ours**, deliberately placed *outside* the submodule they sit next to —
+which is the entire point. Editing vendor content inside a pinned submodule gets
+silently reverted by `git submodule update`.
+
+`bringup.launch.py` pulls both in. What remains in this package is the fusion
+layer itself: the EKF, its config, and the layout that shows both sensors at
+once.
 
 ### `config/ekf.yaml`
 
@@ -273,8 +293,10 @@ sliding across static walls means the fused estimate disagrees with reality.
 
 - **The ZED is unavailable:** `camera:=false` runs wheel-only. Expect faster
   drift, especially in heading.
-- **`vy` looks noisy:** mecanum slips sideways. Raise the `vy` covariance in
-  `wheel_odometry.yaml` so the EKF trusts it less.
+- **`vy` looks noisy:** mecanum slips sideways. Its covariance in
+  `wheel_odometry.yaml` is already 5× the longitudinal one for exactly this
+  reason — raise it further if the fused estimate still pulls off-axis when
+  strafing.
 - **Heading drifts in `odom`:** expected, and corrected by the mapping layer at
   the `map` level. Tightening it before SLAM means enabling the IMU block in
   `ekf.yaml`, which is only valid if you first disable the ZED's internal IMU

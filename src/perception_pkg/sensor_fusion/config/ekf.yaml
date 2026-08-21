@@ -48,7 +48,20 @@ ekf_filter_node:
     # --- ZED 2i visual-inertial odometry (camera + IMU) --------------------
     # Fuse body velocities. This is how BOTH the camera and the IMU enter the
     # filter without double-counting.
-    odom1: /zed/zed_node/odom
+    #
+    # NOT the wrapper's raw /zed/zed_node/odom. That topic carries an all-zero
+    # twist.covariance (the wrapper never assigns it and has no parameter to),
+    # and since only the twist is fused here, robot_localization substituted
+    # 1e-9 and gave the ZED a Kalman gain of exactly 1.0 -- overwriting the
+    # wheel odometry instead of blending with it, while its Mahalanobis gate
+    # rejected ~20% of measurements outright. custom_covariance's
+    # zed_odom_covariance_node republishes the same data with a real covariance
+    # from its own YAML. Measurement covariance can ONLY arrive on the message:
+    # robot_localization has no per-input covariance parameter.
+    #
+    # This node MUST be running or odom1 is silent. sensor_fusion's
+    # bringup.launch.py starts it alongside the camera.
+    odom1: /zed/odom_with_cov
     odom1_config: [false, false, false,
                    false, false, false,
                    true,  true,  false,
@@ -58,6 +71,13 @@ ekf_filter_node:
     odom1_relative: false
     odom1_queue_size: 10
     odom1_nodelay: true
+    # NEEDS RE-TUNING against real data. This gate computes a Mahalanobis
+    # distance using the measurement covariance, so it was previously keyed off
+    # the substituted 1e-9 and rejected ~20% of ZED measurements for no good
+    # reason. With a real covariance (~0.02) the distances collapse by ~4000x,
+    # which means this threshold is now close to inert and will not catch a
+    # genuine VIO failure. Re-measure the innovation distribution on a moving
+    # run and set it from that, rather than carrying this number forward.
     odom1_twist_rejection_threshold: 2.0
 
     # --- RAW IMU : intentionally DISABLED (anti-double-count) --------------

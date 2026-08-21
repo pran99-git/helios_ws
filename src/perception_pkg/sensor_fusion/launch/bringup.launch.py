@@ -35,8 +35,9 @@ def generate_launch_description():
     desc_pkg = get_package_share_directory('helios_description')
     wheel_pkg = get_package_share_directory('wheel_odometry')
     zed_pkg = get_package_share_directory('zed_wrapper')
-    urg_pkg = get_package_share_directory('urg_node2')
     fusion_pkg = get_package_share_directory('sensor_fusion')
+    zed_cov_pkg = get_package_share_directory('custom_covariance')
+    lidar_pkg = get_package_share_directory('custom_config')
 
     use_camera = LaunchConfiguration('camera')
     use_lidar = LaunchConfiguration('lidar')
@@ -92,21 +93,53 @@ def generate_launch_description():
             condition=IfCondition(use_camera),
         ),
 
+        # 3b) ZED twist covariance -- REQUIRED for the EKF to fuse the camera.
+        #
+        # The wrapper publishes /zed/zed_node/odom with twist.covariance all
+        # zeros and offers no parameter to set it (its SDK has no velocity
+        # covariance to copy from). ekf.yaml fuses only the twist, so
+        # robot_localization substituted 1e-9 and gave the ZED a Kalman gain of
+        # exactly 1.0 -- the camera overwrote the wheel odometry rather than
+        # being blended with it, and the same 1e-9 made the rejection gate
+        # discard ~20% of measurements. This node republishes the identical data
+        # on /zed/odom_with_cov with a real covariance from its own YAML, which
+        # is what ekf.yaml's odom1 subscribes to.
+        #
+        # Tied to the camera condition: without the ZED there is nothing to
+        # republish, and ekf.yaml simply runs on wheel odometry alone.
+        Node(
+            package='custom_covariance',
+            executable='zed_odom_covariance_node',
+            name='zed_odom_covariance',
+            output='screen',
+            parameters=[os.path.join(zed_cov_pkg, 'config',
+                                     'zed_odom_covariance.yaml')],
+            condition=IfCondition(use_camera),
+        ),
+
         # 4) Hokuyo LiDAR -- publishes /scan in frame 'laser'.
         #
-        # node_name is passed EXPLICITLY on purpose. Launch configurations leak
+        # Uses custom_config's lidar.launch.py, not the one inside the
+        # urg_node2 submodule. Upstream's launch file hardcodes its parameter
+        # file path with no override, so owning the launch is what makes the
+        # LiDAR config live in this workspace instead of in tracked submodule
+        # content that `git submodule update` reverts. custom_config sits in
+        # LiDAR/ beside the submodule (mirroring Camera/custom_covariance) but
+        # is our content, outside the submodule boundary. See its
+        # config/urg_node2.yaml.
+        #
+        # node_name is still passed EXPLICITLY. Launch configurations leak
         # between sibling includes in the same LaunchDescription, and the ZED
         # include above declares its own 'node_name' (default 'zed_node'). By
-        # the time urg_node2.launch.py runs, 'node_name' is already set in the
-        # shared context, so its own DeclareLaunchArgument default ('urg_node2')
-        # is ignored -- DeclareLaunchArgument only fills in a value that isn't
-        # already present. The LiDAR then came up as /zed_node, putting its
-        # lifecycle topic at /zed_node/transition_event and silently breaking
-        # anything that addresses it by node name (params files keyed
-        # 'urg_node2:', ros2 param calls, lifecycle transitions).
+        # the time this include runs, 'node_name' is already set in the shared
+        # context, so a DeclareLaunchArgument default ('urg_node2') is ignored
+        # -- it only fills in a value that isn't already present. The LiDAR
+        # then came up as /zed_node, putting its lifecycle topic at
+        # /zed_node/transition_event and silently breaking anything that
+        # addresses it by node name (ros2 param calls, lifecycle transitions).
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
-                os.path.join(urg_pkg, 'launch', 'urg_node2.launch.py')),
+                os.path.join(lidar_pkg, 'launch', 'lidar.launch.py')),
             launch_arguments={'node_name': 'urg_node2'}.items(),
             condition=IfCondition(use_lidar),
         ),

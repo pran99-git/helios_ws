@@ -6,10 +6,10 @@ is. The layer stops there — it produces `/odometry/filtered` and hands off to
 `mapping_localization_pkg`.
 
 > **`perception_pkg` is a directory, not a ROS package.** There is no
-> `package.xml` here. It groups four things, two of which are ROS packages you
-> build and launch by name (`sensor_fusion`, `wheel_odometry`), and two of which
-> are third-party drivers vendored as git submodules. `colcon` finds the
-> packages nested inside automatically.
+> `package.xml` here. It groups six things: four ROS packages you build and
+> launch by name (`sensor_fusion`, `wheel_odometry`, `custom_covariance`,
+> `custom_config`) and two third-party drivers vendored as git submodules.
+> `colcon` finds the packages nested inside automatically, however deep.
 
 **Read [the root README](../../README.md) first** for the system overview.
 
@@ -20,27 +20,47 @@ is. The layer stops there — it produces `/odometry/filtered` and hands off to
 ```
 perception_pkg/
 ├── sensor_fusion/           ROS package — the EKF + the whole-stack bring-up
+│   └── rviz/                sensor-check layouts (see below)
 ├── wheel_odometry/          ROS package — encoder counts → position estimate
 ├── Camera/
-│   └── zed-ros2-wrapper/    git submodule — Stereolabs ZED 2i driver
-├── LiDAR/
-│   ├── urg_node2/           git submodule — Hokuyo driver
-│   └── rviz/
-│       └── lidar_scan.rviz  RViz layout for checking the laser alone
-└── rviz/
-    └── visual_odemetry_with_LiDAR.rviz   RViz layout for camera + laser together
+│   ├── zed-ros2-wrapper/    git submodule — Stereolabs ZED 2i driver
+│   └── custom_covariance/   ROS package — OURS. Fixes the ZED's missing
+│                            twist covariance before the EKF sees it.
+└── LiDAR/
+    ├── urg_node2/           git submodule — Hokuyo driver
+    └── custom_config/       ROS package — OURS. The Hokuyo's parameters,
+                             launch file and laser-only RViz layout.
 ```
+
+**Everything for one sensor lives in that sensor's folder**, and each folder has
+the same internal boundary: the submodule is vendor content that
+`git submodule update` will revert, and the package beside it is ours and safe
+to edit. Anything we write about a sensor belongs in the latter — that is the
+whole reason those packages exist, since both vendors hardcode paths into their
+own `share/` directories with no override.
+
+What stays in `sensor_fusion/` is the fusion layer itself: the EKF, its config,
+the whole-stack bring-up, and the one RViz layout that spans both sensors.
+
+`perception_pkg/` itself is a plain container directory, **not** a ROS package —
+it has no `package.xml`, so nothing placed directly at this level is installable
+or reachable through `ros2 launch`. Everything must live inside one of the
+packages below it.
 
 | Component | Read this |
 |---|---|
 | `sensor_fusion` | [README](sensor_fusion/README.md) — the EKF, transform ownership, bring-up |
 | `wheel_odometry` | [README](wheel_odometry/README.md) — mecanum kinematics, calibration |
+| `custom_covariance` | [README](Camera/custom_covariance/README.md) — why the ZED's odometry must be republished before the EKF can fuse it |
+| `custom_config` | [README](LiDAR/custom_config/README.md) — why the Hokuyo's parameters and launch live outside the submodule |
 | ZED wrapper | Upstream [README](Camera/zed-ros2-wrapper/README.md) |
 | Hokuyo driver | Upstream [README](LiDAR/urg_node2/README.md) |
 
-The two RViz configs are convenience layouts for checking a sensor in
-isolation, before involving fusion or mapping. Load one with
-`rviz2 -d <path>` (paths in the Verify section below).
+There are two RViz layouts for checking things before involving mapping:
+`lidar_scan.rviz` (laser alone) installs with `custom_config`, and
+`visual_odometry_with_lidar.rviz` (camera and laser together) installs with
+`sensor_fusion`. Both load by package path rather than source-tree path — see
+the Verify section below.
 
 ---
 
@@ -101,17 +121,20 @@ If it does not reply: check the cable, then check your interface has an address
 on that subnet (`ip addr`). Assign one if needed:
 
 ```bash
-sudo ip addr add 192.168.0.1/24 dev eth0
+nmcli con up lidar-ethernet                  # the profile already on this machine
+sudo ip addr add 192.168.0.1/24 dev end0     # or by hand
 ```
 
-Connection settings live in `LiDAR/urg_node2/config/params_ether.yaml`
-(`ip_address`, `ip_port: 10940`, `frame_id: laser`).
+> The wired interface on this Jetson is **`end0`**, not `eth0`. Check for
+> `NO-CARRIER` with `ip -brief link show end0` if the ping fails — that means
+> the cable is unplugged or the scanner is unpowered.
 
-> That file is **inside a git submodule**. Editing it works, but the change is
-> not tracked by this repo and will be lost on a fresh clone or a submodule
-> update. Prefer changing the sensor's address to match the config over the
-> reverse. `frame_id: laser` in particular must stay as-is — it matches the
-> frame name in `helios_description/urdf/sensors.xacro`.
+Connection settings live in
+[`LiDAR/custom_config/config/urg_node2.yaml`](LiDAR/custom_config/config/urg_node2.yaml)
+(`ip_address`, `ip_port: 10940`, `frame_id: laser`) — **not** in the submodule's
+own `params_ether.yaml`, which upstream's launch file reads and ours does not.
+`frame_id: laser` must stay as-is: it matches the frame name in
+`helios_description/urdf/sensors.xacro`.
 
 ### ZED 2i (stereo depth camera)
 
@@ -156,7 +179,8 @@ source install/setup.bash
 To build only this layer:
 
 ```bash
-colcon build --packages-select wheel_odometry sensor_fusion --symlink-install
+colcon build --packages-select wheel_odometry sensor_fusion \
+    custom_covariance custom_config --symlink-install
 ```
 
 The two drivers build from their submodule sources as part of the normal
@@ -180,12 +204,17 @@ For bringing up one sensor on its own — useful when something is broken and yo
 want to know which half:
 
 ```bash
-ros2 launch urg_node2 urg_node2.launch.py                          # laser only
+ros2 launch custom_config lidar.launch.py                          # laser only
 ros2 launch zed_wrapper zed_camera.launch.py camera_model:=zed2i   # camera only
 ```
 
 Both are lifecycle nodes that configure and activate themselves on launch, so
 no manual transition is needed.
+
+Use `custom_config lidar.launch.py`, **not** `urg_node2 urg_node2.launch.py`.
+The upstream one reads its parameters from inside the pinned submodule; ours
+reads them from `LiDAR/custom_config/config/urg_node2.yaml`, which is where this
+workspace's LiDAR settings actually live.
 
 ---
 
@@ -196,7 +225,7 @@ no manual transition is needed.
 ```bash
 ros2 topic hz /scan            # ~40 Hz
 ros2 topic echo /scan --once    # ranges[] mostly finite, frame_id: laser
-rviz2 -d src/perception_pkg/LiDAR/rviz/lidar_scan.rviz    # Fixed Frame: laser
+rviz2 -d $(ros2 pkg prefix --share custom_config)/rviz/lidar_scan.rviz  # Fixed Frame: laser
 ```
 
 In RViz the scan should trace the room outline. All-`inf` ranges usually means
@@ -219,13 +248,15 @@ Main topics: `/rgb/color/rect/image` (rectified colour),
 **Both together, geometrically consistent** — the real test of this layer:
 
 ```bash
-rviz2 -d src/perception_pkg/rviz/visual_odemetry_with_LiDAR.rviz
+rviz2 -d $(ros2 pkg prefix --share sensor_fusion)/rviz/visual_odometry_with_lidar.rviz
 ```
 
-Set Fixed Frame to `base_link`. The laser scan and the camera point cloud should
-overlap on the same physical surfaces. If a wall appears twice, offset from
-itself, the sensor mount offsets in `helios_description/urdf/sensors.xacro` are
-wrong — not the sensors.
+Fixed Frame is already `base_link` in that layout, and the rover model is drawn
+at 60% opacity so scan and cloud points stay visible through it. The laser scan
+and the camera point cloud should overlap on the same physical surfaces, and
+both should sit correctly relative to the chassis. If a wall appears twice,
+offset from itself, the sensor mount offsets in
+`helios_description/urdf/sensors.xacro` are wrong — not the sensors.
 
 **Fusion output:**
 
