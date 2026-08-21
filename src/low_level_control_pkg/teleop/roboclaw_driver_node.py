@@ -84,6 +84,11 @@ class RoboclawDriverNode(Node):
         # Ceilings on an incoming /cmd_vel, in SI units. Deliberately well
         # under what the hardware can do: at 7590 qpps the wheels top out near
         # 1.48 m/s, so 0.25 leaves plenty of traction margin.
+        #
+        # These are FALLBACK defaults, used only if no params file is loaded.
+        # Every launch path passes config/teleop.yaml, which currently raises
+        # them to 0.40/0.40/0.8 -- that file, not this block, is what the rover
+        # actually runs with. Same for drive_accel below (yaml: 5000).
         self.declare_parameter("max_vx", 0.25)  # m/s
         self.declare_parameter("max_vy", 0.25)  # m/s
         self.declare_parameter("max_omega", 0.5)  # rad/s

@@ -177,13 +177,13 @@ rather than through `/cmd_vel` because mecanum has only three controllable
 degrees of freedom for four wheels — no body-twist command can isolate a single
 wheel.
 
-> `wheel_monitor` has a `ros2 run` entry point; **`calibrate_qpps` does not**
-> (it is absent from `setup.py`'s `console_scripts`, despite what its own
-> docstring says). Run it directly:
-> ```bash
-> python3 src/low_level_control_pkg/teleop/calibrate_qpps.py --duty 0.3
-> ```
-> Or add it to `console_scripts` and rebuild.
+Both have `ros2 run` entry points:
+
+```bash
+ros2 run low_level_control_pkg wheel_monitor
+ros2 run low_level_control_pkg calibrate_qpps --duty 0.3   # cautious dry run
+ros2 run low_level_control_pkg calibrate_qpps              # full 100% duty
+```
 
 ### `config/teleop.yaml`
 
@@ -229,10 +229,19 @@ consistent lie.
 conventions. Do not assume the two sets match — verify each on the bench.
 
 **`drive_accel` is a real trade-off.** It is also the deceleration for every
-stop, including watchdog trips and deadman release. At 5000 counts/s² a stop
-from 0.25 m/s takes roughly 0.25 s; drop it to 1000 for gentler starts and the
-stop takes over a second — on top of up to `cmd_timeout` before the stop is even
-commanded.
+stop, including watchdog trips and deadman release. At 5126 counts/m, 5000
+counts/s² is ~0.98 m/s², so braking from `max_vx` (0.40 m/s) takes ~0.41 s and
+~0.082 m. Drop it to 1000 and the same stop takes ~2.05 s and ~0.41 m.
+
+The total stopping distance depends on *how* the stop was triggered:
+
+| Trigger | What happens | Distance from 0.40 m/s |
+|---|---|---|
+| Deadman released, or joystick goes stale | `teleop_joy` keeps publishing at 20 Hz with zeroed values, so braking starts within ~50 ms | ~0.09 m |
+| `/cmd_vel` stops entirely (teleop dies, comms drop) | The watchdog waits up to `cmd_timeout` (0.5 s) at full speed first | ~0.28 m |
+
+Recompute these whenever `max_vx` or `drive_accel` changes — the numbers are in
+`config/teleop.yaml`'s comments too, and both should be updated together.
 
 ### `launch/`
 

@@ -49,23 +49,33 @@ roboclaw_driver:
     counts_per_rev: 2448.0    # 12 PPR * 4 quadrature * 51:1 gearbox
 
     # Closed-loop command ceilings in SI units, NOT duty fractions. Measured
-    # qpps 7590 puts the wheels at ~1.48 m/s flat out, so 0.25 m/s is ~17% of
+    # qpps 7590 puts the wheels at ~1.48 m/s flat out, so 0.40 m/s is ~27% of
     # the ceiling -- deliberate traction margin. Raise once scrubbing is
     # confirmed gone, and raise teleop's matching values with them.
     max_vx: 0.40       # m/s
     max_vy: 0.40       # m/s strafe
     max_omega: 0.8     # rad/s
 
-    # Acceleration ramp, counts/sec^2, applied by the controller. 6000 is
-    # ~1.2 m/s^2. This is the parameter that removes the torque step an
+    # Acceleration ramp, counts/sec^2, applied by the controller. At 5126
+    # counts/m (2448 counts/rev over a 0.478 m circumference), 5000 is
+    # ~0.98 m/s^2. This is the parameter that removes the torque step an
     # unramped duty command used to apply, so lowering it reduces slip on a
     # hard start.
     #
     # It is also the DECELERATION for every stop -- watchdog trip, deadman
-    # release, shutdown. At 6000 a stop from 0.25 m/s takes ~0.21 s and
-    # ~0.03 m; at 1000 it takes ~1.28 s and ~0.16 m, on top of up to
-    # cmd_timeout before the stop is even commanded. Trade traction against
-    # stopping distance deliberately.
+    # release, shutdown. At 5000, braking from max_vx (0.40 m/s) takes
+    # ~0.41 s and ~0.082 m; at 1000 it would take ~2.05 s and ~0.41 m.
+    #
+    # Two stop paths, with different totals:
+    #   deadman released / joy goes stale -> teleop_joy keeps publishing at
+    #     20 Hz with zeroed values, so braking starts within ~50 ms:
+    #     ~0.09 m total.
+    #   /cmd_vel stream stops outright (teleop node dies, comms drop) -> the
+    #     watchdog waits up to cmd_timeout (0.5 s) at full speed first:
+    #     ~0.20 m coasting + ~0.082 m braking = ~0.28 m total.
+    #
+    # Trade traction against stopping distance deliberately, and recompute
+    # these numbers whenever max_vx or drive_accel changes.
     drive_accel: 5000
 
     cmd_topic: 'cmd_vel'
