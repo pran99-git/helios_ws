@@ -123,19 +123,34 @@ wiring. If a wheel is rewired, this is the file to change — the config's
 | `counts_per_rev` | 2448.0 | 12 PPR × 4 (quadrature) × 51 (gearbox) |
 | `invert_*` (×4) | all `false` | Flip if a wheel counts down when driven forward |
 | `publish_tf` | `true` | Overridden to `false` by the bring-up |
-| `pose_covariance_diagonal` | `[0.01, 0.01, 1e6, 1e6, 1e6, 0.05]` | How much the EKF should trust each channel |
+| `pose_covariance_diagonal` | `[0.01, 0.05, 1e+6, 1e+6, 1e+6, 0.05]` | How much the EKF should trust each channel |
 | `twist_covariance_diagonal` | same | Same, for velocities |
 
-Two notes on those values.
+Three notes on those values.
 
 **`counts_per_rev` is per wheel revolution, not per motor revolution.** The
 encoder is on the motor shaft before the 51:1 gearbox, and quadrature decoding
 gives four edges per pulse — hence `12 × 4 × 51`.
 
-**The `1e6` covariance entries mean "ignore this".** Order is
+**The `1e+6` covariance entries mean "ignore this".** Order is
 `[x, y, z, roll, pitch, yaw]`. A ground robot cannot observe z, roll or pitch
 from wheel encoders, so those get an enormous variance and the EKF discards
 them. The real values are x, y and yaw.
+
+(Written `1e+6`, with the explicit `+`, on purpose. ROS 2's own YAML parser
+reads `1e6` as a float either way, but strict YAML 1.1 — which PyYAML
+implements — requires a signed exponent and otherwise parses it as a *string*.
+Any Python tooling that reads these configs would silently get `'1e6'`.)
+
+**`y` is deliberately 5× `x`.** Both are observable on a mecanum rover, but they
+are not equally trustworthy. Lateral motion is produced entirely by the free
+rollers, and the per-wheel velocity PID has no body-level feedback — it holds
+each wheel to its setpoint and cannot tell that the body went sideways instead
+of straight. Ground tests confirmed the rover tracks well forward/back and in
+yaw, and drifts off-axis only when strafing. The raised variance is what tells
+the EKF to lean on the ZED's visual-inertial odometry for lateral velocity while
+still trusting the wheels longitudinally. AMCL's `alpha5` is set high for the
+same reason.
 
 **The geometry constants also appear in `helios_description/urdf/base.xacro` and
 in the RoboClaw driver.** They are not shared automatically — re-measuring the
@@ -276,7 +291,8 @@ position will fight with the EKF.
 - Dead reckoning drifts without bound. This node is one input to the EKF, not a
   position source on its own.
 - Mecanum wheels slip laterally more than they roll cleanly, so `vy` is the
-  least trustworthy channel — reflected in its covariance.
+  least trustworthy channel — reflected in its covariance, which is 5× the
+  longitudinal one.
 - Encoders only. This node never commands the motors.
 - Reported motion assumes the wheels are on the ground and gripping; wheels-up
   testing shows motion that did not happen.
