@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>zed_custom_tuning</name>
+  <version>0.1.0</version>
+  <description>
+    Workspace-owned parameter overrides for the ZED 2i wrapper, kept out of the
+    zed-ros2-wrapper submodule so `git submodule update` cannot revert them.
+    Unlike the Hokuyo, the ZED wrapper DOES support an override file
+    (ros_params_override_path), so this package only has to supply the YAML --
+    it does not need to own the launch file the way custom_config does.
+
+    Holds every deliberate departure from Stereolabs' shipped defaults, present
+    and future, with the reason recorded beside each one. Sits in Camera/
+    beside the submodule and custom_covariance; nothing here is vendor content.
+  </description>
+  <maintainer email="pranavupadhyay1202@gmail.com">pran</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>zed_wrapper</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

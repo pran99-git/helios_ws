@@ -37,6 +37,7 @@ def generate_launch_description():
     zed_pkg = get_package_share_directory('zed_wrapper')
     fusion_pkg = get_package_share_directory('sensor_fusion')
     zed_cov_pkg = get_package_share_directory('custom_covariance')
+    zed_tune_pkg = get_package_share_directory('zed_custom_tuning')
     lidar_pkg = get_package_share_directory('custom_config')
 
     use_camera = LaunchConfiguration('camera')
@@ -44,6 +45,7 @@ def generate_launch_description():
     use_rviz = LaunchConfiguration('rviz')
 
     wheel_yaml = os.path.join(wheel_pkg, 'config', 'wheel_odometry.yaml')
+    zed_overrides = os.path.join(zed_tune_pkg, 'config', 'zed_overrides.yaml')
 
     return LaunchDescription([
         DeclareLaunchArgument('camera', default_value='true',
@@ -84,12 +86,36 @@ def generate_launch_description():
         # discard ~1/3 of all RGB-D frames. IPC buys nothing in this setup
         # anyway: the ZED component is alone in its container, so every
         # consumer is cross-process regardless.
+        #
+        # ros_params_override_path is how our ZED settings stay OUT of the
+        # pinned submodule. The wrapper appends that file after its own
+        # common_stereo.yaml/zed2i.yaml, so it wins over them -- but the
+        # launch-argument dict below it wins over the file, which is why
+        # publish_tf is set here as an argument and NOT in the YAML, where it
+        # would be silently ignored. See zed_custom_tuning/README.md.
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 os.path.join(zed_pkg, 'launch', 'zed_camera.launch.py')),
             launch_arguments={'camera_model': 'zed2i',
                               'publish_tf': 'false',
-                              'enable_ipc': 'false'}.items(),
+                              # Static zed_left_camera_frame -> zed_imu_link TF.
+                              # RTAB-Map needs it to transform /zed/zed_node/imu/data
+                              # into base_link before it can build gravity links;
+                              # without it the IMU is silently dropped.
+                              #
+                              # The launch argument's own description claims this is
+                              # "Ignored if publish_tf is False" -- it is not.
+                              # publishImuFrameAndTopic()
+                              # (zed_camera_component_main.cpp:4749) gates only on
+                              # mPublishImuTF and broadcasts a STATIC transform whose
+                              # parent is zed_left_camera_frame, which
+                              # robot_state_publisher already ties to base_link. No
+                              # odom/map TF is involved, so publish_tf:=false above
+                              # still holds and the EKF stays the sole owner of
+                              # odom->base_link.
+                              'publish_imu_tf': 'true',
+                              'enable_ipc': 'false',
+                              'ros_params_override_path': zed_overrides}.items(),
             condition=IfCondition(use_camera),
         ),
 

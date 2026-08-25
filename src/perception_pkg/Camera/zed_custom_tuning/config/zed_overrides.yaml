@@ -1,0 +1,114 @@
+# config/zed_overrides.yaml
+#
+# Our departures from Stereolabs' shipped ZED 2i defaults.
+#
+# Loaded by sensor_fusion/launch/bringup.launch.py via the wrapper's
+# `ros_params_override_path` argument. The wrapper stacks parameter sources in
+# this order (zed_camera.launch.py:415-451), later winning:
+#
+#   1. common_stereo.yaml            submodule, vendor
+#   2. zed2i.yaml                    submodule, vendor
+#   3. object detection YAMLs        submodule, vendor
+#   4. THIS FILE
+#   5. the launch-argument dict      <-- still beats us
+#   6. inline `param_overrides:=`    highest
+#
+# Step 5 matters: `pos_tracking.publish_tf`, `pos_tracking.publish_map_tf`,
+# `general.camera_model`, `general.camera_name`, `general.serial_number` and
+# `sensors.publish_imu_tf` are set from launch arguments AFTER this file is
+# read, so putting them here does nothing. Set those as launch arguments.
+#
+# ONLY list values we actually change. Copying a vendor default in "for
+# reference" silently pins it, so a future submodule bump that improves the
+# default gets shadowed by a stale number nobody remembers typing.
+---
+/**:
+    ros__parameters:
+        general:
+            # The Jetson runs out of compute before it runs out of camera.
+            # Depth is recomputed on EVERY grab, and depth_mode is
+            # NEURAL_LIGHT, which measured ~155% CPU in zed_container on its
+            # own -- enough to starve the EKF and stall the odom->base_link TF
+            # past RTAB-Map's 0.5 s wait_for_transform budget (that is the
+            # documented root cause of the dropped RGB-D frames; see the
+            # rtabmap README).
+            #
+            # grab_frame_rate stays at the vendor's 60 deliberately. It is the
+            # SENSOR capture rate, and a high capture rate is what keeps
+            # exposure short, which is what keeps motion blur out of the images
+            # the VIO tracks features in. Halving it to 30 would cut compute,
+            # but it would pay for that in blur during turns -- the wrong
+            # trade for a rover whose whole problem is scan/visual matching
+            # while rotating.
+            #
+            # grab_compute_capping_fps is the surgical version of that cut: it
+            # caps how often the SDK *processes* a grab (it goes straight into
+            # sl::InitParameters, zed_camera_component_main.cpp:2788) while the
+            # sensor keeps capturing at 60. Short exposure, half the depth
+            # compute. 0.0 (vendor default) means no cap.
+            #
+            # KNOWN SIDE EFFECT, verify this live: positional tracking runs off
+            # processed grabs, so /zed/zed_node/odom drops from the ~50 Hz
+            # measured at the vendor defaults to roughly this number. The EKF
+            # runs at 30 Hz (ekf.yaml) with sensor_timeout 0.2, so 30 still
+            # clears it -- but the margin is now one sample, not two. If the
+            # EKF starts logging "failed to meet update rate", raise this to
+            # 40 before touching anything else.
+            grab_compute_capping_fps: 30.0
+
+            # Publish rate for images and the depth map. 0.0 (vendor default)
+            # means "no limit", i.e. publish at the grab rate -- so at the
+            # vendor defaults the wrapper was serialising 60 full-resolution
+            # image + depth pairs per second.
+            #
+            # 15 Hz is set to what the consumers actually need, not to what the
+            # camera can emit: RTAB-Map's default Rtabmap/DetectionRate is 1 Hz
+            # and it drops every frame in between, and the EKF fuses
+            # /zed/zed_node/odom (unaffected by this setting) rather than
+            # images. Nothing downstream reads image topics faster than this.
+            #
+            # NOTE this does NOT reduce depth *computation* -- that is what
+            # grab_compute_capping_fps above does. This only reduces the
+            # serialise-and-publish cost, which is CPU on both ends.
+            pub_frame_rate: 15.0
+
+# ---------------------------------------------------------------------------
+# Considered and deliberately NOT changed. Recorded so the next person does
+# not have to re-derive the reasoning, and so re-opening one of these is a
+# decision rather than a discovery:
+#
+#   depth.depth_mode: 'NEURAL_LIGHT'
+#       The single largest consumer on the robot. Dropping to a classical
+#       stereo mode would cut more CPU than everything above combined, but it
+#       costs depth accuracy, which is the whole point of running RTAB-Map.
+#       Try grab_compute_capping_fps first; revisit this only if that is not
+#       enough.
+#
+#   depth.depth_confidence: 95 / depth.depth_texture_conf: 100
+#       TRIED AND REVERTED 2026-08-24. Set to 50/90 to clean up flying pixels
+#       and smeared textureless surfaces in the RTAB-Map cloud. It did reduce
+#       depth noise -- and it also starved RTAB-Map's loop-closure front end.
+#       Visual (GlobalClosure) loop closures fell 5x per node, 0.113 -> 0.022,
+#       measured across rtabmap_20260824_155711.db and _181256.db, because PnP
+#       verification needs depth AT the keypoints: the log went from healthy
+#       registration to "Not enough inliers 6/20 (matches=132)" and a new
+#       "Missing visual features or missing raw data" warning. The same depth
+#       map feeds BOTH the 3D cloud and SLAM geometry, so it cannot be tuned
+#       for rendering. Clean the cloud at export time instead (cloud_max_depth,
+#       voxel + noise filtering in rtabmap-databaseViewer), never here.
+#
+#   depth.point_cloud_freq: 10.0
+#       Only RViz subscribes to cloud_registered, and the wrapper publishes it
+#       lazily (publish_point_cloud advertises; nothing is computed until
+#       someone subscribes). Costs nothing on a headless run, so capping it
+#       would buy nothing where it hurts.
+#
+#   pos_tracking.area_memory: true
+#       ZED-internal loop closure. Harmless: publish_tf is false, so the ZED's
+#       relocalisations only ever reach the EKF as a twist, never as a jump in
+#       the TF tree.
+#
+#   mapping.mapping_enabled: false / object_detection.od_enabled: false
+#       Already off. Both are separate GPU workloads; leave them off until
+#       something actually consumes their output.
+# ---------------------------------------------------------------------------

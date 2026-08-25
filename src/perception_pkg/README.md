@@ -6,10 +6,11 @@ is. The layer stops there — it produces `/odometry/filtered` and hands off to
 `mapping_localization_pkg`.
 
 > **`perception_pkg` is a directory, not a ROS package.** There is no
-> `package.xml` here. It groups six things: four ROS packages you build and
+> `package.xml` here. It groups seven things: five ROS packages you build and
 > launch by name (`sensor_fusion`, `wheel_odometry`, `custom_covariance`,
-> `custom_config`) and two third-party drivers vendored as git submodules.
-> `colcon` finds the packages nested inside automatically, however deep.
+> `zed_custom_tuning`, `custom_config`) and two third-party drivers vendored as
+> git submodules. `colcon` finds the packages nested inside automatically,
+> however deep.
 
 **Read [the root README](../../README.md) first** for the system overview.
 
@@ -24,8 +25,10 @@ perception_pkg/
 ├── wheel_odometry/          ROS package — encoder counts → position estimate
 ├── Camera/
 │   ├── zed-ros2-wrapper/    git submodule — Stereolabs ZED 2i driver
-│   └── custom_covariance/   ROS package — OURS. Fixes the ZED's missing
-│                            twist covariance before the EKF sees it.
+│   ├── custom_covariance/   ROS package — OURS. Fixes the ZED's missing
+│   │                        twist covariance before the EKF sees it.
+│   └── zed_custom_tuning/   ROS package — OURS. Our departures from
+│                            Stereolabs' shipped parameter defaults.
 └── LiDAR/
     ├── urg_node2/           git submodule — Hokuyo driver
     └── custom_config/       ROS package — OURS. The Hokuyo's parameters,
@@ -34,10 +37,14 @@ perception_pkg/
 
 **Everything for one sensor lives in that sensor's folder**, and each folder has
 the same internal boundary: the submodule is vendor content that
-`git submodule update` will revert, and the package beside it is ours and safe
-to edit. Anything we write about a sensor belongs in the latter — that is the
-whole reason those packages exist, since both vendors hardcode paths into their
-own `share/` directories with no override.
+`git submodule update` will revert, and the package(s) beside it are ours and
+safe to edit. Anything we write about a sensor belongs on our side of that line
+— that is the whole reason those packages exist.
+
+`Camera/` has two of ours rather than one because the camera needs two
+different kinds of thing: a *running node* (`custom_covariance`) and a *config
+layer* (`zed_custom_tuning`). Folding them together would produce a package
+whose name could not honestly describe its contents.
 
 What stays in `sensor_fusion/` is the fusion layer itself: the EKF, its config,
 the whole-stack bring-up, and the one RViz layout that spans both sensors.
@@ -52,6 +59,7 @@ packages below it.
 | `sensor_fusion` | [README](sensor_fusion/README.md) — the EKF, transform ownership, bring-up |
 | `wheel_odometry` | [README](wheel_odometry/README.md) — mecanum kinematics, calibration |
 | `custom_covariance` | [README](Camera/custom_covariance/README.md) — why the ZED's odometry must be republished before the EKF can fuse it |
+| `zed_custom_tuning` | [README](Camera/zed_custom_tuning/README.md) — our ZED parameter overrides, and which ones the wrapper silently ignores |
 | `custom_config` | [README](LiDAR/custom_config/README.md) — why the Hokuyo's parameters and launch live outside the submodule |
 | ZED wrapper | Upstream [README](Camera/zed-ros2-wrapper/README.md) |
 | Hokuyo driver | Upstream [README](LiDAR/urg_node2/README.md) |
@@ -150,11 +158,18 @@ this GPU. That takes several minutes and only happens once — the camera appear
 frozen while it runs. This is also why the EKF may log a one-off "failed to meet
 update rate" warning at startup.
 
-Camera settings live in `Camera/zed-ros2-wrapper/zed_wrapper/config/`
-(`common_stereo.yaml` shared, `zed2i.yaml` model-specific) — same submodule
-caveat as above. The setting that matters most for performance is `depth_mode`;
-it is currently `NEURAL_LIGHT`, which is accurate but is the single largest CPU
-and GPU consumer on the robot.
+The vendor's camera settings live in `Camera/zed-ros2-wrapper/zed_wrapper/config/`
+(`common_stereo.yaml` shared, `zed2i.yaml` model-specific) — **read** those, but
+do not edit them: they are inside the pinned submodule. Our changes go in
+[`Camera/zed_custom_tuning/config/zed_overrides.yaml`](Camera/zed_custom_tuning/config/zed_overrides.yaml),
+which bring-up passes to the wrapper as `ros_params_override_path` so it wins
+over both. Note that a handful of parameters — `publish_tf` among them — are
+applied from launch arguments *after* that file and so cannot be set in it; the
+[`zed_custom_tuning` README](Camera/zed_custom_tuning/README.md) lists them.
+
+The setting that matters most for performance is `depth_mode`; it is currently
+`NEURAL_LIGHT`, which is accurate but is the single largest CPU and GPU
+consumer on the robot.
 
 ### Submodules
 
@@ -180,7 +195,7 @@ To build only this layer:
 
 ```bash
 colcon build --packages-select wheel_odometry sensor_fusion \
-    custom_covariance custom_config --symlink-install
+    custom_covariance zed_custom_tuning custom_config --symlink-install
 ```
 
 The two drivers build from their submodule sources as part of the normal

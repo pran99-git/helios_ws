@@ -27,9 +27,11 @@
   <exec_depend>wheel_odometry</exec_depend>
   <exec_depend>zed_wrapper</exec_depend>
   <!-- Sensor-specific config/launch live beside their own vendor submodules:
-       custom_covariance in Camera/, custom_config in LiDAR/. Bring-up includes
-       both. urg_node2 itself is now custom_config's dependency, not ours. -->
+       custom_covariance and zed_custom_tuning in Camera/, custom_config in
+       LiDAR/. Bring-up resolves all three by share path. urg_node2 itself is
+       now custom_config's dependency, not ours. -->
   <exec_depend>custom_covariance</exec_depend>
+  <exec_depend>zed_custom_tuning</exec_depend>
   <exec_depend>custom_config</exec_depend>
 
   <export>
