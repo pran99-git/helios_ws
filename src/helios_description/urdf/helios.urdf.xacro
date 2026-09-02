@@ -1,12 +1,12 @@
 <?xml version="1.0"?>
 <!--
-  Helios rover (Lynxmotion A4WD3 Mecanum) — top-level xacro.
-  Composes common.xacro (shared properties + materials),
-  base.xacro (chassis + wheels) and sensors.xacro (ZED + LiDAR mount frames).
+  Helios rover (Lynxmotion A4WD3 Mecanum), top-level xacro and the only file
+  the launch file processes. It composes the other three and holds nothing of
+  its own, so chassis geometry and sensor mounting stay independently editable.
 
-  common.xacro MUST come first — the other two consume its properties and
-  materials. base.xacro and sensors.xacro are independent of each other and
-  may be listed in either order.
+  common.xacro MUST come first: base.xacro and sensors.xacro both consume its
+  properties and materials. Those two do not depend on each other and may be
+  listed in either order.
 -->
 <robot name="helios" xmlns:xacro="http://www.ros.org/wiki/xacro">
 

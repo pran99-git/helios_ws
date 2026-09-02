@@ -2,36 +2,36 @@
 <!--
   Sensor mount frames: ZED 2i camera and Hokuyo UST-10LX LiDAR.
 
-  Frame convention REP-103: x forward, y left, z up. base_link at the rover
-  geometric center, at wheel-axle height. The ZED wrapper's root camera frame
-  is zed_camera_link, which is attached to the rover via a fixed joint. The
-  Hokuyo's frame is named 'laser' to match urg_node2's frame_id, so /scan lands here. 
-  Both sensors mount on the top surface of the chassis box.
+  Frame convention REP-103: x forward, y left, z up. base_link is at the rover
+  geometric center, at wheel-axle height. Both sensors mount on the top surface
+  of the chassis box.
+
+  Frame names are dictated by their drivers: 'laser' matches urg_node2's
+  frame_id so /scan lands here, and 'zed_camera_link' is the root the ZED
+  wrapper hangs its internal camera frames from.
 
   Consumes mesh_scale and the sensor_blue material from common.xacro, which
   helios.urdf.xacro includes before this file.
 
   MOUNT ACCURACY: these joint origins are the ONLY source of the
-  base_link -> sensor transforms — both drivers run publish_tf:=false, so
-  nothing else corrects them. The EKF uses zed_mount_joint to rotate ZED VIO
-  twist into base_link, and slam_toolbox uses laser_mount_joint as the
-  scan-matching lever arm. A wrong number here is a silent accuracy bug, not
-  a rendering glitch. Per-joint status is noted at each joint below.
+  base_link -> sensor transforms. Both drivers run publish_tf:=false, so
+  nothing downstream corrects them. The EKF uses zed_mount_joint to rotate ZED
+  VIO twist into base_link, and slam_toolbox uses laser_mount_joint as its
+  scan-matching lever arm. A wrong number here is a silent accuracy bug, not a
+  rendering glitch.
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-
   <!-- ===================== ZED 2i ===================== -->
-  <!-- 'zed_camera_link' is the ZED wrapper's root camera frame. This joint
-       attaches it to the rover. 
-       NOTE: make sure the ZED wrapper is NOT also publishing a base_link -> zed_camera_link transform 
-       (otherwise the frame gets two parents). In the wrapper config set publish_tf so it only
-       publishes the camera's *internal* frames, and let this URDF own the mount. -->
+  <!-- The ZED wrapper must NOT also publish base_link -> zed_camera_link, or
+       the frame gets two parents and the camera data jitters between them.
+       bringup.launch.py passes publish_tf:=false so the wrapper emits only the
+       camera's internal frames and this URDF owns the mount. -->
   <link name="zed_camera_link">
     <visual>
       <!-- ZED2i.STL has its own native axis convention (not the shared
-           mesh_rpy). Raw mesh's widest axis (175mm, lens-to-lens span) needs
-           to land on robot_y (left/right), not robot_x (forward). -->
+           mesh_rpy). Its widest axis (175 mm, the lens-to-lens span) has to
+           land on robot y (left/right), not robot x (forward). -->
       <origin xyz="0.01547 -0.08888 -0.02128" rpy="0 0 ${pi/2}"/>
       <geometry>
         <mesh filename="package://helios_description/meshes/ZED2i.STL" scale="${mesh_scale}"/>
@@ -41,32 +41,28 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <box size="0.04 0.17525 0.030"/>   <!-- ZED 2i ~175 mm wide -->
+        <box size="0.04 0.17525 0.030"/>   <!-- m, ZED 2i body is ~175 mm wide -->
       </geometry>
     </collision>
   </link>
   <joint name="zed_mount_joint" type="fixed">
     <parent link="base_link"/>
     <child link="zed_camera_link"/>
-    <!-- Top plate, leading edge, centerline. MEASURED by hand against the real
-         rover.
-         Measured to the point the ZED wrapper actually anchors to: its
-         zed_camera_link is the threaded screw hole in the BOTTOM face of the
-         camera ("Camera mounting point" in the wrapper's zed_macro.urdf.xacro),
-         not the lens and not the body centre. The wrapper hangs
-         zed_camera_center 15 mm above it and the left lens a further -10 mm x /
-         +60 mm y off that.
-         rpy VERIFIED: the ZED is physically mounted flat and forward-facing.
-         (An earlier -90/+90 pitch here was compensating for the mesh's own CAD
-         axes, not real geometry, and was corrupting how the EKF rotated ZED
-         velocity into base_link.)
-         z of 0.050 sits 11 mm above the top plate (surface is at ~0.039);
-         that is the mount standoff, not an error. -->
-    <origin xyz="0.106 0.0 0.050" rpy="0 0 0"/> 
+    <!-- Top plate, leading edge, centerline. MEASURED by hand to the point the
+         wrapper actually anchors to: zed_camera_link is the threaded screw hole
+         in the camera's BOTTOM face ("Camera mounting point" in the wrapper's
+         zed_macro.urdf.xacro), not the lens and not the body centre. The
+         wrapper places zed_camera_center 15 mm above it, and the left lens a
+         further -10 mm x / +60 mm y from that.
+         rpy is zero because the camera is physically flat and forward-facing;
+         the mesh's own CAD rotation belongs on the <visual> above, not here,
+         where it would corrupt how the EKF rotates ZED velocity into base_link.
+         z of 0.050 sits 11 mm above the top plate (surface at ~0.039); that is
+         the mount standoff, not an error. -->
+    <origin xyz="0.106 0.0 0.050" rpy="0 0 0"/>
   </joint>
 
   <!-- ===================== Hokuyo UST-10LX ===================== -->
-  <!-- Frame name 'laser' matches urg_node2's frame_id, so /scan lands here. -->
   <link name="laser">
     <visual>
       <origin xyz="-0.03163 -0.02500 -0.03500" rpy="${mesh_rpy}"/>
@@ -78,24 +74,23 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <cylinder radius="0.020" length="0.0685"/>   <!-- UST-10LX ~50 mm dia -->
+        <cylinder radius="0.020" length="0.0685"/>   <!-- m, UST-10LX housing is ~50 mm dia -->
       </geometry>
     </collision>
   </link>
   <joint name="laser_mount_joint" type="fixed">
     <parent link="base_link"/>
     <child link="laser"/>
-    <!-- Top plate, aft of the ZED. MEASURED by hand against the real rover.
-         slam_toolbox uses this offset as its scan-matching lever arm: an error
-         of d here becomes a prediction error of (R(phi) - I)*d, i.e. up to 2*d
-         on a 180 deg turn, which is why it is worth measuring rather than
-         estimating. xyz is to the laser's optical centre (the rotating mirror
-         inside the case, not the base of the housing).
-         rpy is 0 0 0, which asserts the Hokuyo's 0 deg bearing points straight
-         forward, i.e. the cable and the 90 deg dead zone face AFT. If the
-         sensor is ever remounted cable-forward this must become 0 0 ${pi};
-         nothing downstream would report an error, the map would just be built
-         backwards. -->
+    <!-- Top plate, aft of the ZED. MEASURED by hand, to the laser's optical
+         centre (the rotating mirror inside the case, not the base of the
+         housing).
+         Worth measuring rather than estimating: slam_toolbox treats this offset
+         as its scan-matching lever arm, so a translation error d becomes a
+         prediction error of (R(phi) - I)*d, which reaches 2*d at phi = 180 deg.
+         rpy of zero asserts the Hokuyo's 0 deg bearing points straight forward,
+         i.e. the cable and the 90 deg dead zone face AFT. Remounting it
+         cable-forward makes this 0 0 ${pi}; nothing would report an error, the
+         map would just be built backwards. -->
     <origin xyz="0.05 0 0.100" rpy="0 0 0"/>
   </joint>
 

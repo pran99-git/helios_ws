@@ -1,17 +1,11 @@
 <?xml version="1.0"?>
 <!--
-  Shared xacro definitions used by BOTH base.xacro and sensors.xacro.
+  Shared xacro definitions consumed by BOTH base.xacro and sensors.xacro.
 
-  This file exists to break an ordering dependency: sensors.xacro used to
-  reference mesh_scale/mesh_rpy and the sensor_blue material without defining
-  them, which worked only because helios.urdf.xacro happened to include
-  base.xacro first. Swapping those two includes broke the description. Now
-  everything shared lives here and is included once, before either.
-
-  Included ONCE, from helios.urdf.xacro — not from base.xacro or
-  sensors.xacro. Properties are idempotent under a repeated include, but
-  <material> elements are not: two identical definitions make urdf_parser fail
-  with "material '<name>' is not unique".
+  Included exactly ONCE, from helios.urdf.xacro, and before either of them.
+  Properties are idempotent under a repeated include but <material> elements
+  are not: two identical definitions make urdf_parser fail with
+  "material '<name>' is not unique".
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 

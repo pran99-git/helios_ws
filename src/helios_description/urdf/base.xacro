@@ -7,15 +7,20 @@
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <!-- ===================== Parameters ===================== -->
-  <xacro:property name="wheel_radius"   value="0.076"/>   <!-- 152 mm dia -->
-  <xacro:property name="wheel_width"    value="0.045"/>   <!-- rough -->
-  <xacro:property name="half_wheelbase" value="0.110"/>   <!-- wheelbase 0.220 / 2 (front<->rear) -->
-  <xacro:property name="half_track"     value="0.165"/>   <!-- track 0.330 / 2 (left<->right) -->
+  <!-- Drive geometry. wheel_radius, wheelbase and track are the SAME rover
+       measurements used by wheel_odometry.yaml and teleop.yaml; they are not
+       shared automatically, so a re-measurement must update all three files. -->
+  <xacro:property name="wheel_radius"   value="0.076"/>   <!-- m, 152 mm wheel diameter / 2 -->
+  <xacro:property name="wheel_width"    value="0.045"/>   <!-- m, collision cylinder length; estimated, not measured -->
+  <xacro:property name="half_wheelbase" value="0.110"/>   <!-- m, front<->rear axle spacing 0.220 / 2 -->
+  <xacro:property name="half_track"     value="0.165"/>   <!-- m, left<->right wheel spacing 0.330 / 2 -->
 
-  <!-- Chassis collision box (rough; A4WD3 frame ~ 0.32 x 0.24 x 0.10). -->
-  <xacro:property name="chassis_length" value="0.320"/>
-  <xacro:property name="chassis_width"  value="0.240"/>
-  <xacro:property name="chassis_height" value="0.0785"/>
+  <!-- Chassis collision box, estimated from the A4WD3 frame. Collision uses a
+       box rather than the STL because mesh collision checking costs far more
+       and buys nothing at this scale. -->
+  <xacro:property name="chassis_length" value="0.320"/>   <!-- m, along x (forward) -->
+  <xacro:property name="chassis_width"  value="0.240"/>   <!-- m, along y (left) -->
+  <xacro:property name="chassis_height" value="0.0785"/>  <!-- m, along z (up), centred on base_link -->
 
   <!-- mesh_scale, mesh_rpy and the materials live in common.xacro, which
        helios.urdf.xacro includes before this file. The mesh_*_xyz values
