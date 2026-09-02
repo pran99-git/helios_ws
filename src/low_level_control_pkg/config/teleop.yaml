@@ -1,3 +1,10 @@
+### Joystick teleop: /joy -> /cmd_vel.
+#
+# Read by teleop/teleop_joy_node.py via launch/joy_teleop.launch.py.
+# The velocity ceilings here must stay at or below roboclaw.yaml's, or the
+# stick goes dead over part of its travel because the driver clamps what
+# teleop sends.
+
 teleop_joy:
   ros__parameters:
     # Confirmed via `ros2 topic echo /joy` against this SN30 Pro's
@@ -5,9 +12,9 @@ teleop_joy:
     axis_vx: 1        # left stick Y (forward/back), +1.0 = forward
     axis_vy: 0        # left stick X (strafe), +1.0 = left
     axis_omega: 3     # right stick X (rotate), -1.0 = right (CW)
-    invert_vx: false
-    invert_vy: false
-    invert_omega: false
+    invert_vx: false     # flip if pushing the stick forward drives backward
+    invert_vy: false     # flip if pushing left strafes right
+    invert_omega: false  # flip if pushing right rotates CCW
     deadman_button: 5  # right shoulder (R) -- must be held to move
 
     # Velocity at full stick deflection, in true SI units -- /cmd_vel is m/s
@@ -17,72 +24,7 @@ teleop_joy:
     max_vx: 0.40       # m/s
     max_vy: 0.40       # m/s strafe
     max_omega: 0.8     # rad/s
-    deadzone: 0.08
+    deadzone: 0.08       # fraction of stick travel treated as centred
     cmd_topic: 'cmd_vel'
-    publish_rate: 20.0
-    joy_timeout: 0.5
-
-roboclaw_driver:
-  ros__parameters:
-    # Sole owner of both RoboClaw serial connections -- see node docstring.
-    left_port: '/dev/roboclaw_left'
-    right_port: '/dev/roboclaw_right'
-    left_address: 128    # 0x80
-    right_address: 128   # 0x80
-    baud: 115200
-    serial_timeout: 0.1
-
-    # Verify with a bench test (wheels off the ground) -- this write path's
-    # sign convention is independent of wheel_odometry.yaml's invert_* flags.
-    invert_front_left: false
-    invert_front_right: false
-    invert_rear_left: false
-    invert_rear_right: false
-
-    # Geometry. wheel_radius and counts_per_rev convert m/s to the counts/sec
-    # the controller's velocity PID regulates, so they MUST match
-    # perception_pkg/wheel_odometry/config/wheel_odometry.yaml -- if the two
-    # disagree, commanded and reported velocity disagree by the same factor.
-    wheelbase: 0.220
-    track_width: 0.330
-    wheel_radius: 0.076       # 152 mm wheel diameter / 2
-    counts_per_rev: 2448.0    # 12 PPR * 4 quadrature * 51:1 gearbox
-
-    # Closed-loop command ceilings in SI units, NOT duty fractions. Measured
-    # qpps 7590 puts the wheels at ~1.48 m/s flat out, so 0.40 m/s is ~27% of
-    # the ceiling -- deliberate traction margin. Raise once scrubbing is
-    # confirmed gone, and raise teleop's matching values with them.
-    max_vx: 0.40       # m/s
-    max_vy: 0.40       # m/s strafe
-    max_omega: 0.8     # rad/s
-
-    # Acceleration ramp, counts/sec^2, applied by the controller. At 5126
-    # counts/m (2448 counts/rev over a 0.478 m circumference), 5000 is
-    # ~0.98 m/s^2. This is the parameter that removes the torque step an
-    # unramped duty command used to apply, so lowering it reduces slip on a
-    # hard start.
-    #
-    # It is also the DECELERATION for every stop -- watchdog trip, deadman
-    # release, shutdown. At 5000, braking from max_vx (0.40 m/s) takes
-    # ~0.41 s and ~0.082 m; at 1000 it would take ~2.05 s and ~0.41 m.
-    #
-    # Two stop paths, with different totals:
-    #   deadman released / joy goes stale -> teleop_joy keeps publishing at
-    #     20 Hz with zeroed values, so braking starts within ~50 ms:
-    #     ~0.09 m total.
-    #   /cmd_vel stream stops outright (teleop node dies, comms drop) -> the
-    #     watchdog waits up to cmd_timeout (0.5 s) at full speed first:
-    #     ~0.20 m coasting + ~0.082 m braking = ~0.28 m total.
-    #
-    # Trade traction against stopping distance deliberately, and recompute
-    # these numbers whenever max_vx or drive_accel changes.
-    drive_accel: 5000
-
-    cmd_topic: 'cmd_vel'
-    cmd_timeout: 0.5   # s; ramped stop if /cmd_vel goes stale
-    control_rate: 20.0
-
-    # Encoder read/publish path -- consumed by perception_pkg's
-    # wheel_odometry_node (see its encoder_topic param, must match).
-    encoder_topic: 'roboclaw/wheel_encoders'
-    encoder_publish_rate: 30.0
+    publish_rate: 20.0   # Hz, /cmd_vel republish rate while the deadman is held
+    joy_timeout: 0.5     # s without a /joy message before commands are zeroed

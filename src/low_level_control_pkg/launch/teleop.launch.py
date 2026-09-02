@@ -18,6 +18,7 @@ Pair the SN30 Pro over Bluetooth first (see README), then:
   ros2 launch low_level_control_pkg teleop.launch.py
   ros2 launch low_level_control_pkg teleop.launch.py joy_dev:=/dev/input/js1
 """
+
 import os
 
 from ament_index_python.packages import get_package_share_directory
@@ -27,7 +28,12 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 
 
-def generate_launch_description():
+def generate_launch_description() -> LaunchDescription:
+    """Builds the combined bench-test launch description.
+
+    Returns:
+        The joy_teleop and roboclaw_driver launch files, included together.
+    """
     pkg = get_package_share_directory("low_level_control_pkg")
 
     joy_dev = LaunchConfiguration("joy_dev")

@@ -6,8 +6,8 @@ tests assert the exact wire format rather than just "it did not crash".
 """
 
 import pytest
-from teleop import roboclaw_driver
-from teleop.roboclaw_driver import (
+from roboclaw import roboclaw_driver
+from roboclaw.roboclaw_driver import (
     CMD_DUTY_M1M2,
     CMD_READ_ENCODERS,
     CMD_READ_ISPEEDS,

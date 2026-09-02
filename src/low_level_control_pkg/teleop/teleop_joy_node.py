@@ -33,11 +33,14 @@ import rclpy
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
+from rclpy.time import Time
 from sensor_msgs.msg import Joy
 
 
 class TeleopJoyNode(Node):
-    def __init__(self):
+    """Maps an 8BitDo SN30 Pro's /joy messages onto /cmd_vel."""
+
+    def __init__(self) -> None:
         super().__init__("teleop_joy")
 
         # --- Axis/button mapping (UNVERIFIED defaults -- see module docstring) --
@@ -86,7 +89,7 @@ class TeleopJoyNode(Node):
         self.create_subscription(Joy, "joy", self._on_joy, qos)
 
         self._latest = Twist()
-        self._last_joy_time = None
+        self._last_joy_time: Time | None = None
 
         rate = g("publish_rate").value
         self.timer = self.create_timer(1.0 / rate, self._publish)
@@ -100,16 +103,40 @@ class TeleopJoyNode(Node):
             f"`ros2 topic echo /joy` before trusting them."
         )
 
-    def _apply_deadzone(self, value):
+    def _apply_deadzone(self, value: float) -> float:
+        """Zeroes stick deflection inside the configured deadzone.
+
+        Args:
+            value: Raw axis value in [-1.0, 1.0].
+
+        Returns:
+            The value, or 0.0 if it is within `deadzone` of centre.
+        """
         return 0.0 if abs(value) < self.deadzone else value
 
-    def _axis(self, msg, index, invert):
+    def _axis(self, msg: Joy, index: int, invert: bool) -> float:
+        """Reads one axis, deadzoned and optionally inverted.
+
+        Args:
+            msg: The incoming Joy message.
+            index: Axis index into `msg.axes`.
+            invert: Negate the result.
+
+        Returns:
+            Deflection in [-1.0, 1.0], or 0.0 if the index is out of range.
+        """
         if not (0 <= index < len(msg.axes)):
             return 0.0
         v = self._apply_deadzone(msg.axes[index])
         return -v if invert else v
 
-    def _on_joy(self, msg):
+    def _on_joy(self, msg: Joy) -> None:
+        """Converts one Joy message into the pending Twist.
+
+        Args:
+            msg: The incoming Joy message. Axes are ignored entirely
+                unless the deadman button is held.
+        """
         self._last_joy_time = self.get_clock().now()
 
         twist = Twist()
@@ -128,7 +155,8 @@ class TeleopJoyNode(Node):
 
         self._latest = twist
 
-    def _publish(self):
+    def _publish(self) -> None:
+        """Publishes the latest Twist, or a zero Twist if /joy went stale."""
         # Republish at a fixed rate rather than only on /joy callback, so
         # roboclaw_driver_node's own watchdog sees a steady stream and doesn't
         # trip between individual joystick updates.
@@ -140,7 +168,12 @@ class TeleopJoyNode(Node):
         self.cmd_pub.publish(Twist() if stale else self._latest)
 
 
-def main(args=None):
+def main(args: list[str] | None = None) -> None:
+    """Spins the teleop node until interrupted.
+
+    Args:
+        args: Command line arguments forwarded to rclpy.
+    """
     rclpy.init(args=args)
     node = TeleopJoyNode()
     try:

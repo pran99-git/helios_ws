@@ -201,72 +201,28 @@ Then three hardware steps, each covered in the package README that owns it:
 
 ## Running it
 
-Every terminal below keeps running — do not close it.
-
-Four terminals, started in this order — terminal 1 must come first, because it
-owns the serial ports everything downstream expects encoder data from:
-
-```bash
-# Terminal 1 — motors (must be first; owns the serial ports)
-ros2 launch low_level_control_pkg roboclaw_driver.launch.py
-
-# Terminal 2 — sensors + fused odometry
-ros2 launch sensor_fusion bringup.launch.py
-
-# Terminal 3 — joystick driving
-ros2 launch low_level_control_pkg joy_teleop.launch.py
-
-# Terminal 4 — pick exactly ONE of these
-ros2 launch mapping_localization_pkg slam_toolbox.launch.py        # build a 2D map
-ros2 launch mapping_localization_pkg rtabmap.launch.py             # build a 3D map
-ros2 launch mapping_localization_pkg amcl_localization.launch.py \
-    map:=<path>/slam_toolbox_20260728_175429.yaml                  # reuse a 2D map
-```
-
-Only one of the terminal-4 options may run at a time: all three publish the
-`map → odom` transform and would fight over it. (The documented exception is
-running `rtabmap` alongside `slam_toolbox`, which works because RTAB-Map
-defaults to `publish_tf_map:=false`.)
-
-**Hold the right shoulder button (R) to drive.** Release it and the rover stops
-— that is a deadman switch, and it is deliberate. Left stick moves, right stick
-rotates.
-
-**Keep the rover still for the first ~5 seconds** after terminal 2 starts. The
-ZED aligns its internal sense of "down" against gravity at startup, and moving
-during that makes it print a realignment warning and start with a worse
-estimate.
-
-The order matters in one place only: the motor driver must start before
-anything else, because it is the only process allowed to open the RoboClaw
-serial ports. Two processes on one serial port corrupt each other's packets —
-sent to a motor controller, that is a safety problem, not a dropped reading.
-
-### Checking it actually works
+Four terminals. Only the first has a hard ordering requirement: it owns the
+RoboClaw serial ports, and two processes on one port corrupt each other's
+packets.
 
 ```bash
-ros2 topic hz /scan                  # laser        ~40 Hz
-ros2 topic hz /odometry/filtered     # fused pose   ~30 Hz
-ros2 topic hz /map                   # the map, once a mapper is running
-ros2 run tf2_tools view_frames       # writes a PDF of the transform tree
+source ~/helios_ws/install/setup.bash        # in EVERY terminal
+
+ros2 launch low_level_control_pkg roboclaw_driver.launch.py   # 1. motors
+ros2 launch sensor_fusion bringup.launch.py                   # 2. sensors + EKF
+ros2 launch low_level_control_pkg joy_teleop.launch.py        # 3. joystick
+ros2 launch mapping_localization_pkg slam_toolbox.launch.py   # 4. a mapper
 ```
 
-The transform tree should be a single connected tree:
-`map → odom → base_link → sensors and wheels`. If a frame is missing or
-appears twice, that is the problem — go back to rule 3 above.
+**Hold the right shoulder button (R) to drive.** Release it and the rover
+stops. **Keep the rover still for the first ~5 seconds** after terminal 2
+starts, while the ZED aligns against gravity.
 
----
+Exactly one terminal-4 mapper at a time: all three publish `map -> odom`.
 
-## Things that commonly go wrong
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| `Package 'x' not found` | Terminal not sourced | `source ~/helios_ws/install/setup.bash` |
-| `could not open ethernet port` | Laser's network port not ready yet | Wait a few seconds, relaunch. Confirm with `ping 192.168.0.10` |
-| `Gravity alignment issues detected` | Rover moved during ZED startup | Keep it still ~5 s while terminal 2 starts, then relaunch |
-| RTAB-Map drops frames, map is patchy | Jetson overloaded | Do not run `rtabmap_viz:=true` during a real run — inspect the saved database afterwards instead |
-| Rover will not move | Deadman not held, or gamepad disconnected | Hold R. Check `ros2 topic echo /joy` responds to sticks |
-| Two robot positions in RViz | Two nodes publishing one transform | See rule 3. `ros2 topic info /tf --verbose` lists publishers |
+> **[launch_helios.md](launch_helios.md) is the full runbook.** Pre-flight
+> checks, every launch argument, what to verify at each stage, how to save a
+> run, shutdown order, and what to do when something does not come up.
 
 ---
 
@@ -307,7 +263,10 @@ Terms used throughout this repo and the ROS documentation:
 
 ## Where to read next
 
-In this order:
+To run the rover, go straight to
+**[launch_helios.md](launch_helios.md)**, the end-to-end runbook.
+
+To understand it, in this order:
 
 1. [`helios_description`](src/helios_description/README.md) — the robot's
    physical model and the full transform tree

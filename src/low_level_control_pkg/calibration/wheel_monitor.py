@@ -26,11 +26,19 @@ import math
 import sys
 import time
 
-from teleop.mecanum_kinematics import CORNERS
-from teleop.roboclaw_driver import RoboClaw, SerialBus
+from roboclaw.mecanum_kinematics import CORNERS
+from roboclaw.roboclaw_driver import RoboClaw, SerialBus
 
 
-def parse_args(argv):
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    """Parses the command line.
+
+    Args:
+        argv: Arguments without the program name.
+
+    Returns:
+        The parsed namespace.
+    """
     p = argparse.ArgumentParser(
         description="Live RoboClaw encoder monitor for mecanum odometry calibration."
     )
@@ -52,7 +60,7 @@ def parse_args(argv):
     return known
 
 
-def fmt(delta):
+def fmt(delta: int) -> str:
     """Format a per-cycle delta with a direction marker."""
     if delta > 2:
         arrow = "+"
@@ -64,12 +72,21 @@ def fmt(delta):
     return f"{arrow}{delta:+8d}{active}"
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> int:
+    """Streams per-corner encoder deltas so wheel signs can be verified.
+
+    Args:
+        argv: Arguments without the program name; defaults to sys.argv.
+
+    Returns:
+        Process exit status: 0 on success, non-zero on failure.
+    """
     args = parse_args(sys.argv[1:] if argv is None else argv)
 
     buses = {}
 
-    def get_bus(port):
+    def get_bus(port: str) -> SerialBus:
+        """Returns one SerialBus per physical port, creating it on first use."""
         if port not in buses:
             buses[port] = SerialBus(port, args.baud, timeout=0.1)
         return buses[port]
@@ -90,8 +107,10 @@ def main(argv=None):
     l_sum = 0.5 * (args.wheelbase + args.track_width)
     period = 1.0 / args.rate
 
-    prev = None
-    prev_t = None
+    # prev only ever holds an all-valid reading (see the guarded assignment at
+    # the bottom of the loop), so its values are never None.
+    prev: dict[str, int] | None = None
+    prev_t: float | None = None
     n_lines = 0
 
     print("RoboClaw encoder monitor — spin one wheel FORWARD at a time.")
@@ -103,7 +122,7 @@ def main(argv=None):
     )
     print("Ctrl-C to quit.\n")
 
-    def read_corners():
+    def read_corners() -> dict[str, int | None]:
         """Return {corner: count or None}. Fixed wiring: ACM0 left, ACM1 right;
         left front=M2/rear=M1, right front=M1/rear=M2."""
         lr = left.read_encoders()  # (M1, M2) or None
@@ -128,8 +147,10 @@ def main(argv=None):
                     lines.append(f"  {name:12s} count={shown:>12}   delta=   (seeding)")
                 twist_line = "  twist: (waiting for valid reads)"
             else:
-                dt = max(t - prev_t, 1e-3)
-                deltas = {k: (corners[k] - prev[k]) for k in corners}
+                # The guard above proved every read succeeded.
+                curr = {k: v for k, v in corners.items() if v is not None}
+                dt = max(t - (prev_t or t), 1e-3)
+                deltas = {k: curr[k] - prev[k] for k in curr}
                 for name in CORNERS:
                     lines.append(
                         f"  {name:12s} count={corners[name]:>12d}   "
@@ -171,7 +192,8 @@ def main(argv=None):
                     f"vx={vx:+.3f} m/s  vy={vy:+.3f} m/s  wz={wz:+.3f} rad/s"
                 )
 
-            prev = corners if all(v is not None for v in corners.values()) else prev
+            if all(v is not None for v in corners.values()):
+                prev = {k: v for k, v in corners.items() if v is not None}
             prev_t = t
 
             out = "\n".join(lines + ["", twist_line])

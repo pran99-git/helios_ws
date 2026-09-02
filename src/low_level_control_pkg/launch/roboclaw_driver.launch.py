@@ -11,6 +11,7 @@ control node) talks to it over ROS topics, not the serial port directly.
 
   ros2 launch low_level_control_pkg roboclaw_driver.launch.py
 """
+
 import os
 
 from ament_index_python.packages import get_package_share_directory
@@ -18,9 +19,14 @@ from launch import LaunchDescription
 from launch_ros.actions import Node
 
 
-def generate_launch_description():
+def generate_launch_description() -> LaunchDescription:
+    """Builds the RoboClaw driver launch description.
+
+    Returns:
+        The driver node, parameterised from config/roboclaw.yaml.
+    """
     pkg = get_package_share_directory("low_level_control_pkg")
-    config = os.path.join(pkg, "config", "teleop.yaml")
+    config = os.path.join(pkg, "config", "roboclaw.yaml")
 
     return LaunchDescription(
         [

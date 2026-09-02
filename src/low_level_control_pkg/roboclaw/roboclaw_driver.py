@@ -18,6 +18,7 @@
 # replies with a single 0xFF byte if the CRC matched (no reply / a timeout
 # means the command was not applied).
 
+import contextlib
 import threading
 
 import serial
@@ -42,7 +43,7 @@ INT32_MAX = 2**31 - 1
 UINT32_MAX = 2**32 - 1
 
 
-def crc16(data):
+def crc16(data: bytes) -> int:
     """CRC16-CCITT (poly 0x1021, init 0x0000) as used by RoboClaw."""
     crc = 0
     for byte in data:
@@ -55,7 +56,7 @@ def crc16(data):
     return crc
 
 
-def _to_signed_32(value):
+def _to_signed_32(value: int) -> int:
     """Interpret an unsigned 32-bit value as signed (two's complement)."""
     return value - 0x100000000 if value & 0x80000000 else value
 
@@ -77,12 +78,14 @@ class SerialBus:
     their request/response exchanges, so every transaction holds a lock.
     """
 
-    def __init__(self, port, baud, timeout=0.1):
+    def __init__(self, port: str, baud: int, timeout: float = 0.1) -> None:
         self.port = port
         self._serial = serial.Serial(port, baudrate=baud, timeout=timeout)
         self._lock = threading.Lock()
 
-    def transaction(self, address, command, response_len):
+    def transaction(
+        self, address: int, command: int, response_len: int
+    ) -> bytes | None:
         """Send a read command and return `response_len` payload bytes.
 
         Returns the payload (without CRC) on success, or None if the read
@@ -104,7 +107,7 @@ class SerialBus:
             return None
         return payload
 
-    def write_transaction(self, address, command, payload):
+    def write_transaction(self, address: int, command: int, payload: bytes) -> bool:
         """Send a write command with CRC16 appended; return True iff the
         RoboClaw acknowledged with a single 0xFF byte."""
         packet = bytes([address, command]) + payload
@@ -115,17 +118,16 @@ class SerialBus:
             ack = self._serial.read(1)
         return ack == b"\xff"
 
-    def close(self):
-        try:
+    def close(self) -> None:
+        """Closes the port. Teardown must never raise, so failures are ignored."""
+        with contextlib.suppress(OSError):
             self._serial.close()
-        except Exception:
-            pass
 
 
 class RoboClaw:
     """One RoboClaw controller (two motor channels: M1, M2) on a SerialBus."""
 
-    def __init__(self, bus, address, retries=3):
+    def __init__(self, bus: SerialBus, address: int, retries: int = 3) -> None:
         self._bus = bus
         self._address = address
         self._retries = retries
@@ -155,11 +157,11 @@ class RoboClaw:
                 return tuple(_to_signed_32(w) for w in words) if signed else words
         return None
 
-    def read_encoders(self):
+    def read_encoders(self) -> tuple[int, ...] | None:
         """Return (enc_m1, enc_m2) absolute quadrature counts, or None."""
         return self._read_words(CMD_READ_ENCODERS, 2)
 
-    def read_speeds(self):
+    def read_speeds(self) -> tuple[int, ...] | None:
         """Return (speed_m1, speed_m2) in counts/sec, or None.
 
         Instantaneous speeds (command 79), not the filtered speeds command 108
@@ -167,7 +169,7 @@ class RoboClaw:
         the filtering window is not documented in the vendored references.
         """
         return self._read_words(CMD_READ_ISPEEDS, 2)
-    
+
     def read_velocity_pid(self) -> tuple[float, float, float, int] | None:
         """Reads M1's active velocity PID constants and QPPS ceiling.
 
@@ -225,7 +227,7 @@ class RoboClaw:
                 return True
         return False
 
-    def duty_m1m2(self, duty1, duty2):
+    def duty_m1m2(self, duty1: float, duty2: float) -> bool:
         """Open-loop duty cycle for M1 and M2, each in [-1.0, 1.0]
         (-1.0 = full reverse, 0.0 = stop, 1.0 = full forward). This is NOT
         closed-loop speed control: duty is not speed, and a wheel that loses
@@ -235,8 +237,8 @@ class RoboClaw:
         True if the RoboClaw acknowledged, False otherwise (treat as "not
         applied").
         """
-        d1 = int(round(max(-1.0, min(1.0, duty1)) * DUTY_FULL_SCALE))
-        d2 = int(round(max(-1.0, min(1.0, duty2)) * DUTY_FULL_SCALE))
+        d1 = round(max(-1.0, min(1.0, duty1)) * DUTY_FULL_SCALE)
+        d2 = round(max(-1.0, min(1.0, duty2)) * DUTY_FULL_SCALE)
         payload = d1.to_bytes(2, "big", signed=True) + d2.to_bytes(
             2, "big", signed=True
         )
@@ -245,6 +247,6 @@ class RoboClaw:
                 return True
         return False
 
-    def stop(self):
+    def stop(self) -> bool:
         """Zero duty on both channels."""
         return self.duty_m1m2(0.0, 0.0)

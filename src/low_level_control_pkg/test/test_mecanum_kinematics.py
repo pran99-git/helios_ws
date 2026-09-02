@@ -6,7 +6,7 @@ Pure pytest -- no ROS context and no serial hardware.
 import math
 
 import pytest
-from teleop.mecanum_kinematics import (
+from roboclaw.mecanum_kinematics import (
     CORNERS,
     apply_inversions,
     body_twist_to_wheel_counts,

@@ -7,8 +7,8 @@
 #
 # RoboClaw's packet-serial protocol is half-duplex on a single UART -- two
 # independent OS processes issuing transactions on the same port would
-# interleave/corrupt each other's packets. So this node does BOTH jobs that
-# used to be split across two processes:
+# interleave/corrupt each other's packets. So this node does BOTH jobs in one
+# process:
 #   - READ: polls all four quadrature encoders and publishes them as a
 #     sensor_msgs/JointState on `encoder_topic` (position = raw encoder
 #     counts, NOT radians -- perception_pkg's wheel_odometry_node does the
@@ -30,6 +30,7 @@
 # Comms watchdog: if no /cmd_vel arrives within `cmd_timeout` seconds (e.g.
 # the Bluetooth controller drops), all four wheels are zeroed.
 
+import contextlib
 import math
 
 import rclpy
@@ -37,20 +38,22 @@ from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
+from teleop.speed_limits import QppsLimit, resolve_max_qpps
 
-from teleop.mecanum_kinematics import (
+from roboclaw.mecanum_kinematics import (
     CORNERS,
     apply_inversions,
     body_twist_to_wheel_counts,
     scale_to_ceiling,
     validate_geometry,
 )
-from teleop.roboclaw_driver import RoboClaw, SerialBus
-from teleop.speed_limits import QppsLimit, resolve_max_qpps
+from roboclaw.roboclaw_driver import RoboClaw, SerialBus
 
 
 class RoboclawDriverNode(Node):
-    def __init__(self):
+    """Sole owner of both RoboClaw serial ports: /cmd_vel in, encoders out."""
+
+    def __init__(self) -> None:
         super().__init__("roboclaw_driver")
 
         # --- Connection parameters ---------------------------------------
@@ -86,7 +89,7 @@ class RoboclawDriverNode(Node):
         # 1.48 m/s, so 0.25 leaves plenty of traction margin.
         #
         # These are FALLBACK defaults, used only if no params file is loaded.
-        # Every launch path passes config/teleop.yaml, which currently raises
+        # Every launch path passes config/roboclaw.yaml, which currently raises
         # them to 0.40/0.40/0.8 -- that file, not this block, is what the rover
         # actually runs with. Same for drive_accel below (yaml: 5000).
         self.declare_parameter("max_vx", 0.25)  # m/s
@@ -131,7 +134,7 @@ class RoboclawDriverNode(Node):
         left_port = g("left_port").value
         right_port = g("right_port").value
 
-        self._buses = {}
+        self._buses: dict[str, SerialBus] = {}
         try:
             left_bus = self._get_bus(left_port, baud, timeout)
             right_bus = self._get_bus(right_port, baud, timeout)
@@ -237,7 +240,7 @@ class RoboclawDriverNode(Node):
             self._read_pid("right", self.right),
         )
 
-    def _get_bus(self, port, baud, timeout):
+    def _get_bus(self, port: str, baud: int, timeout: float) -> SerialBus:
         """Reuse one SerialBus per physical port (handles a shared bus too)."""
         if port not in self._buses:
             self._buses[port] = SerialBus(port, baud, timeout)
@@ -245,7 +248,13 @@ class RoboclawDriverNode(Node):
 
     # --- Write path -----------------------------------------------------------
 
-    def _on_cmd_vel(self, msg):
+    def _on_cmd_vel(self, msg: Twist) -> None:
+        """Stores the latest velocity command and refreshes the watchdog.
+
+        Args:
+            msg: Body-frame velocity. A non-finite component is dropped
+                without refreshing the timestamp.
+        """
         # A non-finite component would survive the clamp below and read as a
         # full-speed command: min(0.25, nan) is 0.25, because nan < 0.25 is
         # False. Drop the message without refreshing the timestamp, so the
@@ -265,7 +274,8 @@ class RoboclawDriverNode(Node):
         self.omega = max(-self.max_omega, min(self.max_omega, msg.angular.z))
         self.last_cmd_time = self.get_clock().now()
 
-    def _control_step(self):
+    def _control_step(self) -> None:
+        """Pushes one velocity command, or a ramped stop if /cmd_vel is stale."""
         age = (self.get_clock().now() - self.last_cmd_time).nanoseconds * 1e-9
         if age > self.cmd_timeout:
             vx = vy = omega = 0.0
@@ -308,7 +318,8 @@ class RoboclawDriverNode(Node):
 
     # --- Read path ------------------------------------------------------------
 
-    def _read_encoders(self):
+    def _read_encoders(self) -> None:
+        """Reads all four encoders and publishes them as a JointState."""
         left_reading = self.left.read_encoders()  # (M1, M2) or None
         right_reading = self.right.read_encoders()
 
@@ -343,18 +354,24 @@ class RoboclawDriverNode(Node):
             bus.close()
         self._buses.clear()
 
-    def destroy_node(self):
-        # Best-effort stop on shutdown -- don't leave motors spinning.
-        try:
+    def destroy_node(self) -> None:
+        """Stops the motors and closes both ports before shutting down."""
+        # Best-effort stop on shutdown -- don't leave motors spinning. Any
+        # serial failure here is already unrecoverable, and raising would skip
+        # _close_buses() below and leave both ports open.
+        with contextlib.suppress(Exception):
             self.left.stop()
             self.right.stop()
-        except Exception:  # noqa: BLE001
-            pass
         self._close_buses()
         super().destroy_node()
 
 
-def main(args=None):
+def main(args: list[str] | None = None) -> None:
+    """Spins the RoboClaw driver node until interrupted.
+
+    Args:
+        args: Command line arguments forwarded to rclpy.
+    """
     rclpy.init(args=args)
     # Bound to None first so the finally block can tell a failed construction
     # from a failed spin: a node that never finished __init__ has no
