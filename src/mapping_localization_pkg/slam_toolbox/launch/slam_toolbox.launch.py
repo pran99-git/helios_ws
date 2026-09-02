@@ -47,13 +47,18 @@ default (--map-only / --graph-only narrow it if you really want just one).
 Toggle with: rviz:=true localization:=true map_file_name:=<prefix>
              map_start_pose:="[x, y, yaw]" | map_start_at_dock:=true
 """
+
 import ast
 import os
 
 from ament_index_python.packages import get_package_share_directory
-from launch import LaunchDescription
-from launch.actions import (DeclareLaunchArgument, EmitEvent, OpaqueFunction,
-                            RegisterEventHandler)
+from launch import LaunchContext, LaunchDescription
+from launch.actions import (
+    DeclareLaunchArgument,
+    EmitEvent,
+    OpaqueFunction,
+    RegisterEventHandler,
+)
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessStart
 from launch.events import matches_action
@@ -64,11 +69,19 @@ from launch_ros.events.lifecycle import ChangeState
 from lifecycle_msgs.msg import Transition
 
 
-def _as_bool(value):
-    return str(value).strip().lower() in ('true', '1', 'yes', 'on')
+def _as_bool(value: object) -> bool:
+    """Reads a launch argument string as a boolean.
+
+    Args:
+        value: The performed LaunchConfiguration, always a string.
+
+    Returns:
+        True for "true", "1", "yes" or "on", case-insensitive.
+    """
+    return str(value).strip().lower() in ("true", "1", "yes", "on")
 
 
-def _parse_start_pose(raw):
+def _parse_start_pose(raw: object) -> list[float] | None:
     """Parses "[x, y, yaw]" (or "x, y, yaw") into a list of three floats.
 
     slam_toolbox wants map_start_pose as a real double array, and a launch
@@ -76,12 +89,21 @@ def _parse_start_pose(raw):
     OpaqueFunction rather than with a PythonExpression substitution because
     the latter would hand ROS the *string* "[0.0, 0.0, 0.0]" and the
     parameter would come out typed as a string.
+
+    Args:
+        raw: The performed map_start_pose launch argument.
+
+    Returns:
+        The three floats, or None when the argument is empty.
+
+    Raises:
+        RuntimeError: If the text is unparseable or is not exactly 3 values.
     """
     text = str(raw).strip()
     if not text:
         return None
-    if not text.startswith('['):
-        text = '[' + text + ']'
+    if not text.startswith("["):
+        text = "[" + text + "]"
     try:
         pose = [float(v) for v in ast.literal_eval(text)]
     except (ValueError, SyntaxError) as exc:
@@ -90,62 +112,83 @@ def _parse_start_pose(raw):
         ) from exc
     if len(pose) != 3:
         raise RuntimeError(
-            f'map_start_pose needs exactly 3 values [x, y, yaw], got {pose}'
+            f"map_start_pose needs exactly 3 values [x, y, yaw], got {pose}"
         )
     return pose
 
 
-def _launch_setup(context, *args, **kwargs):
-    pkg = get_package_share_directory('mapping_localization_pkg')
-    slam_yaml = os.path.join(pkg, 'slam_toolbox', 'config', 'slam_toolbox.yaml')
-    rviz_config = os.path.join(pkg, 'slam_toolbox', 'rviz', 'slam.rviz')
+def _launch_setup(context: LaunchContext, *args: object, **kwargs: object) -> list:
+    """Resolves launch arguments and builds the node list.
 
-    localization = _as_bool(LaunchConfiguration('localization').perform(context))
-    map_file_name = LaunchConfiguration('map_file_name').perform(context).strip()
-    start_at_dock = _as_bool(
-        LaunchConfiguration('map_start_at_dock').perform(context))
-    start_pose_raw = LaunchConfiguration('map_start_pose').perform(context)
+    Deferred into an OpaqueFunction because map_start_pose has to be parsed
+    into real floats, which needs the performed argument value.
 
-    overrides = {'mode': 'localization' if localization else 'mapping'}
+    Args:
+        context: Launch context the arguments are performed against.
+        *args: Unused, required by the OpaqueFunction signature.
+        **kwargs: Unused, required by the OpaqueFunction signature.
+
+    Returns:
+        The slam_toolbox lifecycle node, its transition handlers, and an
+        optional RViz node.
+    """
+    pkg = get_package_share_directory("mapping_localization_pkg")
+    slam_yaml = os.path.join(pkg, "slam_toolbox", "config", "slam_toolbox.yaml")
+    rviz_config = os.path.join(pkg, "slam_toolbox", "rviz", "slam.rviz")
+
+    localization = _as_bool(LaunchConfiguration("localization").perform(context))
+    map_file_name = LaunchConfiguration("map_file_name").perform(context).strip()
+    start_at_dock = _as_bool(LaunchConfiguration("map_start_at_dock").perform(context))
+    start_pose_raw = LaunchConfiguration("map_start_pose").perform(context)
+
+    # Heterogeneous by design: slam_toolbox takes a string mode, a bool
+    # map_start_at_dock and a double array map_start_pose.
+    overrides: dict[str, object] = {
+        "mode": "localization" if localization else "mapping"
+    }
 
     if localization:
         # Fail here, with a message that says what to do, rather than letting
         # slam_toolbox come up and quietly localize against nothing.
         if not map_file_name:
             raise RuntimeError(
-                'localization:=true requires map_file_name:=<prefix> -- the '
-                'path printed by save_slam.sh, WITHOUT the .posegraph/'
-                '.data extension.')
-        if not os.path.exists(map_file_name + '.posegraph'):
+                "localization:=true requires map_file_name:=<prefix> -- the "
+                "path printed by save_slam.sh, WITHOUT the .posegraph/"
+                ".data extension."
+            )
+        if not os.path.exists(map_file_name + ".posegraph"):
             raise RuntimeError(
-                f'No pose graph at {map_file_name}.posegraph. Note this is a '
-                'SERIALIZED pose graph, not the .pgm/.yaml that save_slam.sh '
-                'writes alongside it -- those are for AMCL and cannot be '
-                'loaded here.')
-        overrides['map_file_name'] = map_file_name
+                f"No pose graph at {map_file_name}.posegraph. Note this is a "
+                "SERIALIZED pose graph, not the .pgm/.yaml that save_slam.sh "
+                "writes alongside it -- those are for AMCL and cannot be "
+                "loaded here."
+            )
+        overrides["map_file_name"] = map_file_name
 
         # slam_toolbox refuses to configure in localization mode without one
         # of these two: "Map starting pose not specified. Set either
         # map_start_pose or map_start_at_dock."
         if start_at_dock:
-            overrides['map_start_at_dock'] = True
+            overrides["map_start_at_dock"] = True
         else:
             pose = _parse_start_pose(start_pose_raw)
             if pose is None:
                 raise RuntimeError(
-                    'localization:=true needs a starting pose: pass '
-                    'map_start_pose:="[x, y, yaw]" or map_start_at_dock:=true.')
-            overrides['map_start_pose'] = pose
+                    "localization:=true needs a starting pose: pass "
+                    'map_start_pose:="[x, y, yaw]" or map_start_at_dock:=true.'
+                )
+            overrides["map_start_pose"] = pose
 
-    executable = ('localization_slam_toolbox_node' if localization
-                  else 'async_slam_toolbox_node')
+    executable = (
+        "localization_slam_toolbox_node" if localization else "async_slam_toolbox_node"
+    )
 
     slam_node = LifecycleNode(
-        package='slam_toolbox',
+        package="slam_toolbox",
         executable=executable,
-        name='slam_toolbox',
-        namespace='',
-        output='screen',
+        name="slam_toolbox",
+        namespace="",
+        output="screen",
         parameters=[slam_yaml, overrides],
     )
 
@@ -154,10 +197,12 @@ def _launch_setup(context, *args, **kwargs):
         OnProcessStart(
             target_action=slam_node,
             on_start=[
-                EmitEvent(event=ChangeState(
-                    lifecycle_node_matcher=matches_action(slam_node),
-                    transition_id=Transition.TRANSITION_CONFIGURE,
-                )),
+                EmitEvent(
+                    event=ChangeState(
+                        lifecycle_node_matcher=matches_action(slam_node),
+                        transition_id=Transition.TRANSITION_CONFIGURE,
+                    )
+                ),
             ],
         ),
     )
@@ -166,51 +211,67 @@ def _launch_setup(context, *args, **kwargs):
     slam_activate = RegisterEventHandler(
         OnStateTransition(
             target_lifecycle_node=slam_node,
-            start_state='configuring',
-            goal_state='inactive',
+            start_state="configuring",
+            goal_state="inactive",
             entities=[
-                EmitEvent(event=ChangeState(
-                    lifecycle_node_matcher=matches_action(slam_node),
-                    transition_id=Transition.TRANSITION_ACTIVATE,
-                )),
+                EmitEvent(
+                    event=ChangeState(
+                        lifecycle_node_matcher=matches_action(slam_node),
+                        transition_id=Transition.TRANSITION_ACTIVATE,
+                    )
+                ),
             ],
         ),
     )
 
     rviz_node = Node(
-        package='rviz2',
-        executable='rviz2',
-        name='rviz2',
-        output='screen',
-        arguments=['-d', rviz_config],
-        condition=IfCondition(LaunchConfiguration('rviz')),
+        package="rviz2",
+        executable="rviz2",
+        name="rviz2",
+        output="screen",
+        arguments=["-d", rviz_config],
+        condition=IfCondition(LaunchConfiguration("rviz")),
     )
 
     return [slam_node, slam_configure, slam_activate, rviz_node]
 
 
-def generate_launch_description():
-    return LaunchDescription([
-        DeclareLaunchArgument('rviz', default_value='false',
-                              description="Launch RViz with the slam_toolbox view."),
-        DeclareLaunchArgument(
-            'localization', default_value='false',
-            description='true = load a serialized pose graph and localize '
-                        'against it (needs map_file_name + a start pose) '
-                        'instead of building a new map.'),
-        DeclareLaunchArgument(
-            'map_file_name', default_value='',
-            description='Serialized pose-graph prefix, WITHOUT the .posegraph/'
-                        '.data extension, as printed by save_slam.sh. '
-                        'Required when localization:=true.'),
-        DeclareLaunchArgument(
-            'map_start_pose', default_value='[0.0, 0.0, 0.0]',
-            description='Starting pose in the loaded map as "[x, y, yaw]" '
-                        '(metres/radians). Used only with localization:=true, '
-                        'and ignored if map_start_at_dock:=true.'),
-        DeclareLaunchArgument(
-            'map_start_at_dock', default_value='false',
-            description='Start from the pose the map was originally begun at, '
-                        'instead of map_start_pose.'),
-        OpaqueFunction(function=_launch_setup),
-    ])
+def generate_launch_description() -> LaunchDescription:
+    """Declares the launch arguments and defers the rest to _launch_setup."""
+    return LaunchDescription(
+        [
+            DeclareLaunchArgument(
+                "rviz",
+                default_value="false",
+                description="Launch RViz with the slam_toolbox view.",
+            ),
+            DeclareLaunchArgument(
+                "localization",
+                default_value="false",
+                description="true = load a serialized pose graph and localize "
+                "against it (needs map_file_name + a start pose) "
+                "instead of building a new map.",
+            ),
+            DeclareLaunchArgument(
+                "map_file_name",
+                default_value="",
+                description="Serialized pose-graph prefix, WITHOUT the .posegraph/"
+                ".data extension, as printed by save_slam.sh. "
+                "Required when localization:=true.",
+            ),
+            DeclareLaunchArgument(
+                "map_start_pose",
+                default_value="[0.0, 0.0, 0.0]",
+                description='Starting pose in the loaded map as "[x, y, yaw]" '
+                "(metres/radians). Used only with localization:=true, "
+                "and ignored if map_start_at_dock:=true.",
+            ),
+            DeclareLaunchArgument(
+                "map_start_at_dock",
+                default_value="false",
+                description="Start from the pose the map was originally begun at, "
+                "instead of map_start_pose.",
+            ),
+            OpaqueFunction(function=_launch_setup),
+        ]
+    )

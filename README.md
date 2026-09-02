@@ -129,11 +129,11 @@ helios_ws/
 │   ├── perception_pkg/            Sensors and fusion  ← a folder, NOT a package
 │   │   ├── sensor_fusion/           the EKF + the bring-up launch file
 │   │   ├── wheel_odometry/          encoder counts → position estimate
-│   │   ├── Camera/zed-ros2-wrapper/ ZED driver   (upstream submodule)
-│   │   ├── Camera/custom_covariance/ ours — adds the twist covariance the
+│   │   ├── camera/zed-ros2-wrapper/ ZED driver   (upstream submodule)
+│   │   ├── camera/custom_covariance/ ours — adds the twist covariance the
 │   │   │                            ZED driver never sets, for the EKF
-│   │   ├── LiDAR/urg_node2/         Hokuyo driver (upstream submodule)
-│   │   └── LiDAR/custom_config/    ours — the Hokuyo's parameters and launch,
+│   │   ├── lidar/urg_node2/         Hokuyo driver (upstream submodule)
+│   │   └── lidar/custom_config/    ours — the Hokuyo's parameters and launch,
 │   │                               kept out of the submodule
 │   └── mapping_localization_pkg/  Map building and localization
 │       ├── slam_toolbox/            2D laser SLAM

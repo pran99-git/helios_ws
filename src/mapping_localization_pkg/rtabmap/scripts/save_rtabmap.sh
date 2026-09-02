@@ -148,17 +148,18 @@ if [ "${DO_CLOUD}" -eq 1 ]; then
     echo "Exporting cloud from $(basename "${DB}") -> ${OUT_PREFIX}_cloud.ply"
 
     # --max_range 4 matches the depth range RTAB-Map itself trusts on a 0.120 m
-    # baseline; stereo error grows as Z^2 and is ~0.8 m at 10 m, so points
-    # beyond a few metres are noise that makes the cloud look worse, not
-    # bigger. --decimation 1 + --voxel 0.01 are FULL detail: this runs offline
-    # with no Jetson budget to respect, unlike the live RViz MapCloud which is
-    # deliberately coarser. --noise_radius/--noise_k strip the stereo flying
-    # pixels that the mapping config leaves in on purpose (tightening
-    # depth_confidence to remove them cost 5x the visual loop closures on
-    # 2026-08-24 -- clean the cloud here, never in the sensor config).
-    # --output takes the STEM only: rtabmap-export appends "_cloud" itself, so
-    # passing "..._cloud" here produced rtabmap_<name>_cloud_cloud.ply while
-    # this script reported a path that did not exist. Verified 2026-08-28.
+    # baseline; stereo error grows as Z^2 and reaches ~0.8 m at 10 m, so points
+    # beyond a few metres are noise that makes the cloud look worse, not bigger.
+    #
+    # --decimation 1 + --voxel 0.01 are FULL detail: this runs offline with no
+    # Jetson budget to respect, unlike the live RViz MapCloud.
+    #
+    # --noise_radius/--noise_k strip the stereo flying pixels that the mapping
+    # config leaves in deliberately. Removing them upstream instead, by
+    # tightening depth_confidence, costs 5x the visual loop closures, so the
+    # cloud is cleaned here and never in the sensor config.
+    #
+    # --output takes the STEM only; rtabmap-export appends "_cloud" itself.
     rtabmap-export \
         --cloud \
         --output "rtabmap_${NAME}" \

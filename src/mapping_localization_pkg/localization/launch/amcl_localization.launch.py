@@ -1,4 +1,4 @@
-"""AMCL localization in an already-built map — owns map -> odom.
+"""AMCL localization in an already-built map: owns map -> odom.
 
 The counterpart to slam_toolbox.launch.py: that one BUILDS a map, this one
 REUSES a saved one. The map is read-only -- AMCL never writes to the .pgm.
@@ -32,6 +32,7 @@ RViz tighten as it goes.
 
 Toggle with: rviz:=true use_map_topic:=false
 """
+
 import os
 
 from ament_index_python.packages import get_package_share_directory
@@ -42,31 +43,37 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
-def generate_launch_description():
-    pkg = get_package_share_directory('mapping_localization_pkg')
-    amcl_yaml = os.path.join(pkg, 'localization', 'config', 'amcl.yaml')
-    rviz_config = os.path.join(pkg, 'slam_toolbox', 'rviz', 'slam.rviz')
+def generate_launch_description() -> LaunchDescription:
+    """Builds the AMCL localization launch description.
 
-    map_yaml = LaunchConfiguration('map')
-    use_rviz = LaunchConfiguration('rviz')
-    autostart = LaunchConfiguration('autostart')
+    Returns:
+        map_server, amcl and the lifecycle_manager that activates them,
+        plus an optional RViz node.
+    """
+    pkg = get_package_share_directory("mapping_localization_pkg")
+    amcl_yaml = os.path.join(pkg, "localization", "config", "amcl.yaml")
+    rviz_config = os.path.join(pkg, "slam_toolbox", "rviz", "slam.rviz")
+
+    map_yaml = LaunchConfiguration("map")
+    use_rviz = LaunchConfiguration("rviz")
+    autostart = LaunchConfiguration("autostart")
 
     # The map path arrives as a launch argument, so it has to override what is
     # in amcl.yaml rather than being baked into it -- a saved map is a run
     # input, not a fixed property of the package.
     map_server = Node(
-        package='nav2_map_server',
-        executable='map_server',
-        name='map_server',
-        output='screen',
-        parameters=[amcl_yaml, {'yaml_filename': map_yaml}],
+        package="nav2_map_server",
+        executable="map_server",
+        name="map_server",
+        output="screen",
+        parameters=[amcl_yaml, {"yaml_filename": map_yaml}],
     )
 
     amcl = Node(
-        package='nav2_amcl',
-        executable='amcl',
-        name='amcl',
-        output='screen',
+        package="nav2_amcl",
+        executable="amcl",
+        name="amcl",
+        output="screen",
         parameters=[amcl_yaml],
     )
 
@@ -75,41 +82,50 @@ def generate_launch_description():
     # first, so a map is being served before AMCL tries to localize against
     # it) and afterwards watches them via its bond timer.
     lifecycle_manager = Node(
-        package='nav2_lifecycle_manager',
-        executable='lifecycle_manager',
-        name='lifecycle_manager_localization',
-        output='screen',
-        parameters=[{
-            'autostart': autostart,
-            'node_names': ['map_server', 'amcl'],
-        }],
+        package="nav2_lifecycle_manager",
+        executable="lifecycle_manager",
+        name="lifecycle_manager_localization",
+        output="screen",
+        parameters=[
+            {
+                "autostart": autostart,
+                "node_names": ["map_server", "amcl"],
+            }
+        ],
     )
 
     rviz = Node(
-        package='rviz2',
-        executable='rviz2',
-        name='rviz2',
-        output='screen',
-        arguments=['-d', rviz_config],
+        package="rviz2",
+        executable="rviz2",
+        name="rviz2",
+        output="screen",
+        arguments=["-d", rviz_config],
         condition=IfCondition(use_rviz),
     )
 
-    return LaunchDescription([
-        DeclareLaunchArgument(
-            'map',
-            description='REQUIRED. Path to the saved map .yaml (the file next '
-                        'to the .pgm), e.g. '
-                        'src/mapping_localization_pkg/slam_toolbox/maps/'
-                        'slam_toolbox_20260728_175429.yaml'),
-        DeclareLaunchArgument(
-            'rviz', default_value='false',
-            description='Open RViz with the SLAM layout (Map + LaserScan + TF '
-                        'are what you want to watch here).'),
-        DeclareLaunchArgument(
-            'autostart', default_value='true',
-            description='Drive map_server and amcl to active automatically.'),
-        map_server,
-        amcl,
-        lifecycle_manager,
-        rviz,
-    ])
+    return LaunchDescription(
+        [
+            DeclareLaunchArgument(
+                "map",
+                description="REQUIRED. Path to the saved map .yaml (the file next "
+                "to the .pgm), e.g. "
+                "src/mapping_localization_pkg/slam_toolbox/maps/"
+                "slam_toolbox_20260728_175429.yaml",
+            ),
+            DeclareLaunchArgument(
+                "rviz",
+                default_value="false",
+                description="Open RViz with the SLAM layout (Map + LaserScan + TF "
+                "are what you want to watch here).",
+            ),
+            DeclareLaunchArgument(
+                "autostart",
+                default_value="true",
+                description="Drive map_server and amcl to active automatically.",
+            ),
+            map_server,
+            amcl,
+            lifecycle_manager,
+            rviz,
+        ]
+    )
