@@ -15,8 +15,7 @@ ekf_filter_node:
   ros__parameters:
     frequency: 30.0             # Hz, filter output and TF publish rate
     sensor_timeout: 0.2         # s, without a measurement the filter predicts only
-    transform_time_offset: 0.1  # s, forward-dates the published TF so consumers
-                                # can look it up without waiting for the next cycle
+    transform_time_offset: 0.02  # s, future-dating of the published TF
 
     # --- Lagged measurement handling ----------------------------------------
     # The two inputs do NOT arrive with the same delay. Measured live, header
