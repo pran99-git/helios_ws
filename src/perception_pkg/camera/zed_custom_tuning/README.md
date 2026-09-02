@@ -3,7 +3,7 @@
 Workspace-owned parameter overrides for the ZED 2i.
 
 It sits next to `zed-ros2-wrapper` so that everything camera-related lives in
-`Camera/`, mirroring `LiDAR/custom_config`. But **it is our content, not the
+`camera/`, mirroring `lidar/custom_config`. But **it is our content, not the
 vendor's**: `zed-ros2-wrapper` is a git submodule pinned to `v5.4.0`, and
 anything written inside it is reverted by `git submodule update`. This package
 is outside that boundary, which is the entire reason it exists.
@@ -12,7 +12,7 @@ is outside that boundary, which is the entire reason it exists.
 config/zed_overrides.yaml    every deliberate departure from Stereolabs' defaults
 ```
 
-This is the home for ZED configuration changes going forward — not just the
+This is the home for ZED configuration changes going forward, not just the
 ones in it today. Anything that would otherwise be a hand-edit to
 `zed_wrapper/config/common_stereo.yaml` or `zed2i.yaml` belongs here instead.
 
@@ -24,17 +24,17 @@ Because the two vendors made different choices, and it is worth knowing which
 kind of vendor you are dealing with before assuming you need to fork anything.
 
 `urg_node2`'s launch file hardcodes its parameter path with no override, so the
-only way to own the Hokuyo's parameters was to own its launch file too — hence
+only way to own the Hokuyo's parameters was to own its launch file too, hence
 `custom_config/launch/lidar.launch.py`.
 
 The ZED wrapper supports overrides directly. `zed_camera.launch.py` declares a
 `ros_params_override_path` argument (line 518) and appends that file to the
 node's parameter list, so we keep using upstream's launch file unmodified and
 only supply the delta. **Don't** copy the wrapper's launch file into this
-package to achieve the same thing — it is ~700 lines of container/NITROS/SVO
+package to achieve the same thing: it is ~700 lines of container/NITROS/SVO
 plumbing that would then need hand-merging on every submodule bump.
 
-## Precedence — what this file can and cannot override
+## Precedence: what this file can and cannot override
 
 The wrapper stacks parameter sources in this order
 (`zed_camera.launch.py:415-451`), later winning:
@@ -59,7 +59,7 @@ general.camera_id              svo.svo_path
 ```
 
 Those are set as launch arguments in `sensor_fusion/launch/bringup.launch.py`
-instead — `publish_tf: 'false'` in particular, which is load-bearing for TF
+instead. `publish_tf: 'false'` in particular, which is load-bearing for TF
 ownership (the EKF owns `odom -> base_link`; see that file's comment).
 
 ## Why the file is keyed `/**:`
@@ -67,13 +67,13 @@ ownership (the EKF owns `odom -> base_link`; see that file's comment).
 Same reason as `custom_config` and the vendor's own configs: it must match
 whatever node name the wrapper ends up using. The wrapper's `node_name`
 defaults to `zed_node` but is a launch argument, and launch configurations leak
-between sibling includes in one `LaunchDescription` — this workspace has
+between sibling includes in one `LaunchDescription`; this workspace has
 already been bitten by exactly that (the LiDAR came up as `/zed_node` once).
 A wildcard cannot be bitten by it.
 
 ## What's currently overridden
 
-See the comments in `config/zed_overrides.yaml` — the reasoning lives beside
+See the comments in `config/zed_overrides.yaml`; the reasoning lives beside
 each value, not here, so it cannot drift out of sync with what is actually set.
 In summary:
 
@@ -100,7 +100,7 @@ colcon build --packages-select zed_custom_tuning --symlink-install
 source install/setup.bash
 ```
 
-It is wired into the normal bring-up already — no extra argument needed:
+It is wired into the normal bring-up already, no extra argument needed:
 
 ```bash
 ros2 launch sensor_fusion bringup.launch.py
@@ -116,7 +116,7 @@ ros2 launch zed_wrapper zed_camera.launch.py camera_model:=zed2i \
 ## Verify it actually took effect
 
 The wrapper logs `Using ROS parameters override file: <path>` at startup
-(`zed_camera.launch.py:285`) — that only proves the path was passed, not that
+(`zed_camera.launch.py:285`). That only proves the path was passed, not that
 the values landed. Read them back off the live node:
 
 ```bash
@@ -134,7 +134,7 @@ ros2 topic hz /odometry/filtered                   # must stay ~30 Hz
 
 `/zed/zed_node/odom` dropping is expected: positional tracking runs off
 processed grabs, so capping compute caps it too. The EKF runs at 30 Hz with
-`sensor_timeout: 0.2`, so 30 Hz still clears it — but with one sample of margin
+`sensor_timeout: 0.2`, so 30 Hz still clears it, but with one sample of margin
 rather than two. If `ekf_filter_node` starts logging *failed to meet update
 rate*, raise `grab_compute_capping_fps` to `40.0` before changing anything else.
 
@@ -142,11 +142,11 @@ rate*, raise `grab_compute_capping_fps` to `40.0` before changing anything else.
 
 ## Related
 
-- [`custom_covariance`](../custom_covariance/README.md) — the other half of
-  `Camera/`; a running node, not config. Fixes the ZED's all-zero twist
+- [`custom_covariance`](../custom_covariance/README.md): the other half of
+  `camera/`; a running node, not config. Fixes the ZED's all-zero twist
   covariance before the EKF sees it.
-- [`custom_config`](../../LiDAR/custom_config/README.md) — the same
+- [`custom_config`](../../lidar/custom_config/README.md): the same
   own-it-outside-the-submodule pattern for the Hokuyo, done the harder way
   because that vendor offers no override hook.
-- [`sensor_fusion`](../../sensor_fusion/README.md) — where this file is passed
+- [`sensor_fusion`](../../sensor_fusion/README.md): where this file is passed
   to the wrapper, and where the TF-ownership launch arguments live.

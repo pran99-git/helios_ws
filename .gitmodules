@@ -1,6 +1,6 @@
 [submodule "src/perception_pkg/LiDAR/urg_node2"]
-	path = src/perception_pkg/LiDAR/urg_node2
+	path = src/perception_pkg/lidar/urg_node2
 	url = https://github.com/Hokuyo-aut/urg_node2.git
 [submodule "src/perception_pkg/Camera/zed-ros2-wrapper"]
-	path = src/perception_pkg/Camera/zed-ros2-wrapper
+	path = src/perception_pkg/camera/zed-ros2-wrapper
 	url = https://github.com/stereolabs/zed-ros2-wrapper.git

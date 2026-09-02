@@ -1,4 +1,4 @@
-### Hokuyo UST-10LX (urg_node2) driver parameters — workspace-owned copy.
+### Hokuyo UST-10LX (urg_node2) driver parameters: workspace-owned copy.
 #
 # WHY THIS FILE EXISTS: urg_node2 is a git submodule pinned to an upstream
 # commit, and its own launch file hardcodes reading config/params_ether.yaml
@@ -9,45 +9,51 @@
 # submodule stays pristine and is used purely as a driver binary.
 #
 # Values below are carried over unchanged from the submodule's
-# params_ether.yaml — this started as an ownership move, not a retune.
+# params_ether.yaml. This is an ownership move, not a retune.
 
 # Keyed '/**' rather than 'urg_node2' on purpose. Launch configurations leak
 # between sibling includes, and this driver has already come up once under the
 # wrong node name (as '/zed_node', because the ZED include's 'node_name'
 # default leaked into the shared context). A node-name-keyed params file would
 # have silently applied NOTHING in that state, leaving the driver on its
-# built-in defaults — pointed at the wrong IP, with the wrong frame_id.
+# built-in defaults, pointed at the wrong IP with the wrong frame_id.
 # '/**' applies regardless of what the node ends up being called.
 /**:
   ros__parameters:
     # Ethernet connection. The UST-10LX ships as 192.168.0.10; the Jetson's
     # interface on that subnet must be up before the driver starts or it
-    # fails with "could not open ethernet port" (usually transient at boot —
+    # fails with "could not open ethernet port" (usually transient at boot;
     # the sensor's TCP control port comes up a few seconds after link).
     ip_address: '192.168.0.10'
-    ip_port: 10940
+    ip_port: 10940              # SCIP/TCP port, fixed in the UST-10LX firmware
 
     # Must match the 'laser' link in helios_description/urdf/sensors.xacro,
     # or /scan lands in a frame nothing can transform.
     frame_id: 'laser'
 
-    calibrate_time: false
-    synchronize_time: false
+    # Timestamping. Both off: the driver stamps with ROS time on arrival, which
+    # is what the EKF and slam_toolbox already assume.
+    calibrate_time: false       # measure the sensor-to-host clock offset at startup
+    synchronize_time: false     # keep tracking that offset while running
+
+    # The UST-10LX is single-echo and nothing downstream reads intensity, so
+    # both stay off to keep /scan small.
     publish_intensity: false
     publish_multiecho: false
 
-    error_limit: 4
-    error_reset_period: 5.0
-    diagnostics_tolerance: 0.05
-    diagnostics_window_time: 5.0
-    time_offset: 0.0
+    # Error handling and the diagnostics heartbeat.
+    error_limit: 4                # consecutive read errors before the driver reconnects
+    error_reset_period: 5.0       # s, cooldown before the error count is cleared
+    diagnostics_tolerance: 0.05   # fraction, allowed deviation from expected scan rate
+    diagnostics_window_time: 5.0  # s, window the scan rate is averaged over
+    time_offset: 0.0              # s, constant added to each scan stamp; 0 = none
 
     # Wider than the sensor's true ~270 deg (+-2.356 rad) FOV, deliberately:
     # the driver clamps to what the hardware reports, so these act as "no
     # crop". Narrow them only to deliberately blank out a sector (e.g. if the
     # chassis ever intrudes into the scan).
-    angle_min: -3.14
-    angle_max: 3.14
+    angle_min: -3.14            # rad, requested scan start bearing
+    angle_max: 3.14             # rad, requested scan end bearing
 
-    skip: 0
-    cluster: 1
+    skip: 0                     # scans dropped between published ones; 0 = publish all
+    cluster: 1                  # beams merged per output ray; 1 = full resolution

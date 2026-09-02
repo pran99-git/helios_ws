@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Republish the ZED's odometry with a real twist covariance attached.
 
 WHY THIS EXISTS
@@ -58,40 +57,49 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy
 
 # Order of the diagonal, matching nav_msgs/Odometry's twist covariance layout
 # and wheel_odometry.yaml's convention.
-AXES = ('vx', 'vy', 'vz', 'vroll', 'vpitch', 'vyaw')
+AXES = ("vx", "vy", "vz", "vroll", "vpitch", "vyaw")
 
 
 class ZedOdomCovariance(Node):
+    """Republishes ZED odometry with a nonzero twist covariance attached."""
 
-    def __init__(self):
-        super().__init__('zed_odom_covariance')
+    def __init__(self) -> None:
+        """Declares parameters, validates the diagonal, and wires the pub/sub.
 
-        self.declare_parameter('input_topic', '/zed/zed_node/odom')
-        self.declare_parameter('output_topic', '/zed/odom_with_cov')
+        Raises:
+            RuntimeError: If `twist_covariance_diagonal` is not six positive
+                entries, which would recreate the bug this node exists to fix.
+        """
+        super().__init__("zed_odom_covariance")
+
+        self.declare_parameter("input_topic", "/zed/zed_node/odom")
+        self.declare_parameter("output_topic", "/zed/odom_with_cov")
         self.declare_parameter(
-            'twist_covariance_diagonal', [0.02, 0.02, 1.0e+6, 1.0e+6, 1.0e+6, 0.01])
+            "twist_covariance_diagonal", [0.02, 0.02, 1.0e6, 1.0e6, 1.0e6, 0.01]
+        )
 
-        in_topic = self.get_parameter('input_topic').value
-        out_topic = self.get_parameter('output_topic').value
-        self.twist_cov = list(
-            self.get_parameter('twist_covariance_diagonal').value)
+        in_topic = self.get_parameter("input_topic").value
+        out_topic = self.get_parameter("output_topic").value
+        self.twist_cov = list(self.get_parameter("twist_covariance_diagonal").value)
 
         if len(self.twist_cov) != 6:
             raise RuntimeError(
-                'twist_covariance_diagonal must have exactly 6 entries '
-                f'({", ".join(AXES)}); got {len(self.twist_cov)}.')
+                "twist_covariance_diagonal must have exactly 6 entries "
+                f"({', '.join(AXES)}); got {len(self.twist_cov)}."
+            )
         if any(v <= 0.0 for v in self.twist_cov):
             raise RuntimeError(
-                'twist_covariance_diagonal entries must all be > 0 -- a zero '
-                'here would recreate exactly the bug this node exists to fix. '
-                f'Got {self.twist_cov}.')
+                "twist_covariance_diagonal entries must all be > 0 -- a zero "
+                "here would recreate exactly the bug this node exists to fix. "
+                f"Got {self.twist_cov}."
+            )
 
         # Match the wrapper's RELIABLE QoS; a mismatch here silently delivers
         # nothing, which looks identical to the camera not running.
         qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
 
         self.pub = self.create_publisher(Odometry, out_topic, qos)
-        self.sub = self.create_subscription(Odometry, in_topic, self.cb, qos)
+        self.sub = self.create_subscription(Odometry, in_topic, self._on_odom, qos)
 
         self.count = 0
         self._warned_upstream_fixed = False
@@ -100,27 +108,38 @@ class ZedOdomCovariance(Node):
         self._startup_timer = self.create_timer(10.0, self._check_alive)
 
         self.get_logger().info(
-            f'Republishing {in_topic} -> {out_topic} with twist covariance '
-            f'[{", ".join(f"{a}={v:g}" for a, v in zip(AXES, self.twist_cov))}]')
+            f"Republishing {in_topic} -> {out_topic} with twist covariance "
+            f"[{', '.join(f'{a}={v:g}' for a, v in zip(AXES, self.twist_cov))}]"
+        )
 
-    def _check_alive(self):
+    def _check_alive(self) -> None:
+        """Warns once if nothing arrived on the input topic within 10 s."""
         self._startup_timer.cancel()
         if self.count == 0:
             self.get_logger().warn(
-                f'No messages on {self.get_parameter("input_topic").value} '
-                'after 10 s. Is the ZED wrapper running, and is the topic name '
-                'right? The EKF gets nothing until this node forwards.')
+                f"No messages on {self.get_parameter('input_topic').value} "
+                "after 10 s. Is the ZED wrapper running, and is the topic name "
+                "right? The EKF gets nothing until this node forwards."
+            )
 
-    def cb(self, msg):
+    def _on_odom(self, msg: Odometry) -> None:
+        """Overwrites the twist covariance and republishes the message.
+
+        Args:
+            msg: Odometry from the ZED wrapper. Header, child_frame_id, pose,
+                pose covariance and twist values pass through untouched.
+        """
         # If Stereolabs ever starts populating this, our hardcoded numbers would
         # silently override real SDK data. Say so, once, rather than hiding it.
         if not self._warned_upstream_fixed and any(
-                v != 0.0 for v in msg.twist.covariance):
+            v != 0.0 for v in msg.twist.covariance
+        ):
             self._warned_upstream_fixed = True
             self.get_logger().warn(
-                'Incoming twist.covariance is NON-ZERO -- the ZED wrapper now '
-                'provides its own. This node is overriding it with config '
-                'values. Re-evaluate whether it is still needed.')
+                "Incoming twist.covariance is NON-ZERO -- the ZED wrapper now "
+                "provides its own. This node is overriding it with config "
+                "values. Re-evaluate whether it is still needed."
+            )
 
         # Replace outright rather than merging: setting only the diagonal would
         # leave any upstream off-diagonal terms mixed in with our numbers.
@@ -133,7 +152,8 @@ class ZedOdomCovariance(Node):
         self.count += 1
 
 
-def main():
+def main() -> None:
+    """Spins the covariance republisher until interrupted."""
     rclpy.init()
     node = ZedOdomCovariance()
     try:
@@ -144,5 +164,5 @@ def main():
     rclpy.shutdown()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

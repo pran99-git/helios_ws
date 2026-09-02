@@ -10,7 +10,7 @@
     launch is the only way to own the parameters.
 
     Lives beside the urg_node2 submodule so everything laser-related stays in
-    LiDAR/, mirroring Camera/custom_covariance. Nothing here is vendor content.
+    lidar/, mirroring camera/custom_covariance. Nothing here is vendor content.
   </description>
   <maintainer email="pranavupadhyay1202@gmail.com">pran</maintainer>
   <license>MIT</license>

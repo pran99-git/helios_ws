@@ -11,7 +11,7 @@
     it does not need to own the launch file the way custom_config does.
 
     Holds every deliberate departure from Stereolabs' shipped defaults, present
-    and future, with the reason recorded beside each one. Sits in Camera/
+    and future, with the reason recorded beside each one. Sits in camera/
     beside the submodule and custom_covariance; nothing here is vendor content.
   </description>
   <maintainer email="pranavupadhyay1202@gmail.com">pran</maintainer>
