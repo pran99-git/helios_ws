@@ -17,7 +17,9 @@ find_package(ament_cmake REQUIRED)
 # of GB, and a plain (non-symlink) build would copy all of them into install/
 # on every build. Both launch files read/write maps/ in the source tree.
 install(
-  DIRECTORY rtabmap/launch
+  DIRECTORY
+    rtabmap/launch
+    rtabmap/rviz
   DESTINATION share/${PROJECT_NAME}/rtabmap
 )
 

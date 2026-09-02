@@ -30,6 +30,40 @@ wheel_odometry:
     #   This rover: 51:1 gearbox -> 12 * 4 * 51 = 2448.
     counts_per_rev: 2448.0
 
+    # --- Yaw scale calibration (2026-08-26) ----------------------------------
+    # Multiplies the dtheta term ONLY. 1.0 = the pure geometric model.
+    #
+    # The geometric model divides by 4*L with L = (wheelbase+track_width)/2 =
+    # 0.275 m. Mecanum rollers slip laterally during rotation, so the EFFECTIVE
+    # lever arm is SHORTER than the geometric one and the model under-reports
+    # yaw. (Shorter, not longer: dtheta is inversely proportional to L, so an
+    # under-report means the true L is smaller.)
+    #
+    # Measured in-place, three separate spin windows, against the ZED gyro
+    # de-biased by its own measured -0.1355 deg/s stationary bias:
+    #
+    #     window    duration   wheel/truth
+    #     seg8         25.4s      0.9687
+    #     seg9         66.1s      0.9702
+    #     spin2        99.7s      0.9670
+    #                             ------
+    #                     mean    0.9686   (spread +/-0.0016)
+    #
+    # yaw_scale = 1/0.9686 = 1.032. Implied effective lever arm 0.275*0.9686 =
+    # 0.2664 m. Over the 1335 deg spin that removed a 44 deg yaw error.
+    #
+    # CAVEATS, read before trusting this on a long run:
+    #  * Calibrated during PURE IN-PLACE ROTATION. Roller slip during combined
+    #    translation+rotation may differ, so this is one scalar standing in for
+    #    what is really a motion-dependent effect.
+    #  * The reference is the ZED's own gyro, de-biased over a 42.9 s stationary
+    #    stretch. It is not an external truth. Now that slam_toolbox actually
+    #    processes rotation (its minimum_travel_distance was the reason it did
+    #    not), map->odom is a better, independent reference -- re-check this
+    #    number against it and correct if they disagree.
+    #  * Set back to 1.0 to disable, without touching the geometry above.
+    yaw_scale: 1.032
+
     # --- ROS interface -------------------------------------------------------
     # No publish_rate here -- odometry is published once per encoder message
     # received; the rate is set by roboclaw_driver_node's encoder_publish_rate.
@@ -53,4 +87,26 @@ wheel_odometry:
     # lower it back toward x only after the strafe drift is mechanically
     # fixed.
     pose_covariance_diagonal: [0.01, 0.05, 1.0e+6, 1.0e+6, 1.0e+6, 0.05]
-    twist_covariance_diagonal: [0.01, 0.05, 1.0e+6, 1.0e+6, 1.0e+6, 0.05]
+    # vyaw (last entry) RAISED 0.05 -> 0.5 on 2026-08-25. ekf.yaml fuses
+    # vyaw from BOTH this and the ZED (/zed/odom_with_cov, variance 0.01), so
+    # at 0.05 the wheels carried 1/6 of the fused yaw estimate. On a MECANUM
+    # base that is the worst possible yaw source: yaw comes from encoder
+    # differences over a geometric lever arm of (wheelbase+track_width)/2 =
+    # 0.275 m, and the rollers slip laterally, so the effective lever arm is
+    # not the geometric one. The resulting error is a SCALE BIAS, which does
+    # not average out -- it integrates.
+    #
+    # Measured on rtabmap_20260825_150118.db: over a 16.8 m loop with 1311 deg
+    # of total rotation, the fused odometry accumulated 37 deg of yaw error
+    # (~2.8%). Ground truth from LiDAR scan alignment between the first and
+    # returning node: +2.0 deg, 5 cm. That 37 deg is what twisted the map.
+    #
+    # 0.5 moves the ZED:wheel yaw weighting from 5:1 to 50:1 -- VIO owns yaw,
+    # the wheels stay as a graceful fallback if the camera drops out. This is
+    # mitigation, not a cure: the real fix is to calibrate the effective yaw
+    # lever arm (spin the rover a known number of turns in place and compare
+    # /wheel/odometry against /zed/zed_node/odom and the LiDAR).
+    #
+    # Only the TWIST entry matters here: ekf.yaml fuses indices 6,7,11
+    # (vx, vy, vyaw), all velocities, so pose_covariance_diagonal is unused.
+    twist_covariance_diagonal: [0.01, 0.05, 1.0e+6, 1.0e+6, 1.0e+6, 0.5]

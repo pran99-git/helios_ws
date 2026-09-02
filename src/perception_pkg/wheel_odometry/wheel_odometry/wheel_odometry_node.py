@@ -65,6 +65,9 @@ class WheelOdometryNode(Node):
         # Counts per WHEEL revolution = encoder_PPR(12) * 4(quadrature) * gear_ratio.
         # This rover: 51:1 -> 12*4*51 = 2448 (confirmed).
         self.declare_parameter('counts_per_rev', 2448.0)
+        # Empirical correction on the yaw term only -- see the note in
+        # config/wheel_odometry.yaml. 1.0 is the uncorrected geometric model.
+        self.declare_parameter('yaw_scale', 1.0)
 
         # --- ROS interface parameters ----------------------------------------
         self.declare_parameter('odom_frame_id', 'odom')
@@ -82,6 +85,7 @@ class WheelOdometryNode(Node):
         self.wheelbase = g('wheelbase').value
         self.track_width = g('track_width').value
         self.counts_per_rev = g('counts_per_rev').value
+        self.yaw_scale = g('yaw_scale').value
         self.odom_frame_id = g('odom_frame_id').value
         self.base_frame_id = g('base_frame_id').value
         self.publish_tf = g('publish_tf').value
@@ -124,6 +128,7 @@ class WheelOdometryNode(Node):
         self.get_logger().info(
             f'wheel_odometry (mecanum) started: encoder_topic="{encoder_topic}", '
             f'r={self.wheel_radius} m, L=lx+ly={self.l_sum:.4f} m, '
+            f'yaw_scale={self.yaw_scale}, '
             f'counts/rev={self.counts_per_rev}, topic="{g("odom_topic").value}"')
 
     def _signed(self, corner, value):
@@ -159,8 +164,11 @@ class WheelOdometryNode(Node):
                           + d['rear_left'] + d['rear_right'])
         dy_body = 0.25 * (-d['front_left'] + d['front_right']
                           + d['rear_left'] - d['rear_right'])
+        # yaw_scale corrects the geometric lever arm to the effective one; the
+        # rollers slip laterally during rotation, so 4*L understates dtheta.
         dtheta = ((-d['front_left'] + d['front_right']
-                   - d['rear_left'] + d['rear_right']) / (4.0 * self.l_sum)
+                   - d['rear_left'] + d['rear_right'])
+                  * self.yaw_scale / (4.0 * self.l_sum)
                   if self.l_sum > 0.0 else 0.0)
 
         # Integrate in the world frame using the midpoint heading.

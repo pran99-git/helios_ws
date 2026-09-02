@@ -61,16 +61,57 @@
             # vendor defaults the wrapper was serialising 60 full-resolution
             # image + depth pairs per second.
             #
-            # 15 Hz is set to what the consumers actually need, not to what the
-            # camera can emit: RTAB-Map's default Rtabmap/DetectionRate is 1 Hz
-            # and it drops every frame in between, and the EKF fuses
-            # /zed/zed_node/odom (unaffected by this setting) rather than
-            # images. Nothing downstream reads image topics faster than this.
+            # RAISED 15.0 -> 30.0 on 2026-08-25. The old value was justified
+            # here as "what the consumers actually need", on the grounds that
+            # Rtabmap/DetectionRate is 1 Hz and drops every frame in between.
+            # That is right about throughput and wrong about PAIRING, which is
+            # what actually broke.
+            #
+            # ~11.9% of depth frames have no RGB frame at the same stamp
+            # (measured 2026-08-25, both topics subscribed simultaneously).
+            # RTAB-Map's approximate-time sync pairs those with the nearest
+            # surviving RGB frame, and the geometric error that causes is
+            # yaw_rate x skew -- where skew is one PUBLISH PERIOD. Throttling
+            # does not make the drops rarer; it stretches each one from ~21 ms
+            # to ~100 ms. So the frame rate the consumer "needs" is not the
+            # keyframe rate, it is whatever keeps the skew small.
+            #
+            # rtabmap.launch.py now bounds this properly with rgbd_sync +
+            # approx_sync_max_interval 0.02, which DROPS mismatched sets. This
+            # value then governs how many clean frames survive that filter: at
+            # 30 Hz minus ~12% there is comfortable headroom over the 1 Hz
+            # keyframe rate, where 10 Hz minus 12% left the RGB-D stream as the
+            # narrowest input in a 3-way sync against a 40 Hz scan.
+            #
+            # Keep this EQUAL to grab_compute_capping_fps above. Publishing
+            # faster than the SDK processes buys nothing, and processing faster
+            # than we publish wastes the compute. If CPU becomes the binding
+            # constraint, lower BOTH together -- do not reopen a gap between
+            # them, which is exactly the mistake this note replaces.
             #
             # NOTE this does NOT reduce depth *computation* -- that is what
             # grab_compute_capping_fps above does. This only reduces the
             # serialise-and-publish cost, which is CPU on both ends.
-            pub_frame_rate: 15.0
+            pub_frame_rate: 30.0
+
+        depth:
+            # Publish depth as 16UC1 millimetres instead of 32FC1 metres.
+            #
+            # rtabmap.launch.py sets Mem/SaveDepth16Format=true so depth is
+            # stored with RVL instead of falling back to PNG (2.40 -> 0.79
+            # MB/node measured). With 32-bit float input RTAB-Map has to
+            # convert every frame first and says so:
+            #   "depth type detected is 32FC1, use 16UC1 depth format to avoid
+            #    this conversion"
+            # plus a per-frame "N depth values ignored because they are over
+            # the maximum depth allowed (65535 mm)" for the handful of
+            # infinite-depth pixels. Publishing 16UC1 directly makes the stored
+            # format native and both warnings go away.
+            #
+            # Cost: 1 mm quantisation and a 65.535 m ceiling. Irrelevant on a
+            # 0.120 m stereo baseline, where depth is already meaningless past
+            # ~15 m and the export is clipped at 4 m anyway.
+            openni_depth_mode: true
 
 # ---------------------------------------------------------------------------
 # Considered and deliberately NOT changed. Recorded so the next person does
@@ -108,7 +149,50 @@
 #       relocalisations only ever reach the EKF as a twist, never as a jump in
 #       the TF tree.
 #
+#       RE-EXAMINED 2026-08-26 and CONFIRMED, with numbers. The relocalisations
+#       are real and large: /zed/zed_node/odom's POSE was caught snapping
+#       -76.87 deg and -115.73 deg in single 33 ms frames, and in a second
+#       recording 8 jumps totalling +46 deg including +62.87 deg in 35 ms.
+#       pose/status reports spatial_memory_status = 6 (NEW_MAP) continuously,
+#       so area memory is active the whole time. SPATIAL_MEMORY_STATUS::
+#       LOOP_CLOSED is documented as "found a loop closure, relocalized within
+#       the area map, or corrected after a sudden localization loss" -- that is
+#       exactly these events.
+#
+#       They still do not reach the filter. ekf.yaml fuses indices 6,7,11
+#       (vx, vy, vyaw) -- twist only, never pose -- and the twist is clean
+#       THROUGH the jumps: integrated ZED yaw rate came to +0.03% of a de-biased
+#       gyro over 99.7 s, and +0.21 deg over a 42.9 s stationary stretch. At the
+#       jump frames themselves the reported vyaw stayed small while the pose
+#       teleported, i.e. the correction is applied to pose only.
+#
+#       So turning area_memory off would buy nothing measurable today and would
+#       cost the ZED its own drift correction. LEAVE IT ON -- but this becomes
+#       an immediate problem the moment anything consumes ZED POSE: adding pose
+#       indices to odom1_config, setting the wrapper's publish_tf, or pointing
+#       RTAB-Map's odom_topic at /zed/zed_node/odom instead of
+#       /odometry/filtered. Revisit only then.
+#
 #   mapping.mapping_enabled: false / object_detection.od_enabled: false
 #       Already off. Both are separate GPU workloads; leave them off until
 #       something actually consumes their output.
+#
+#   video.auto_exposure_time_range_max: 8000
+#       ADDED then REVERTED on 2026-08-28, never validated. The idea was to cap
+#       the auto-exposure ceiling (vendor default 30000 us) so rover motion
+#       produces less blur: at HD720 the ZED 2i spreads ~1280 px over ~104 deg,
+#       ~12 px/deg, so a 30 ms exposure at 45 deg/s smears ~17 px against
+#       RTAB-Map's 2 px Vis/PnPReprojError budget. The arithmetic still looks
+#       right and it may well be worth revisiting.
+#
+#       It is reverted only because it was added in the same batch as eight
+#       rtabmap parameters that measurably made mapping worse (see the REVERTED
+#       block in mapping_localization_pkg/rtabmap/launch/rtabmap.launch.py), and
+#       the goal was to get back to the exact configuration that produced the
+#       known-good rtabmap_20260827_134811.db -- which did NOT include this.
+#
+#       If you retry it, do it ALONE, on a real drive, and check features/node
+#       in the resulting database (median was 967 on the good run). A darker
+#       image means more gain and more noise, which costs features; that is the
+#       number that tells you whether the trade paid. Try 15000 before 8000.
 # ---------------------------------------------------------------------------

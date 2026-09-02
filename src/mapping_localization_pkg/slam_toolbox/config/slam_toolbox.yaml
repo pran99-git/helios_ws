@@ -34,7 +34,34 @@ slam_toolbox:
     max_laser_range: 10.0
     minimum_time_interval: 0.2
     resolution: 0.05
-    minimum_travel_distance: 0.2
+
+    # LOWERED 0.2 -> 0.05 on 2026-08-26. At 0.2 this node processed ZERO scans
+    # during in-place rotation and the map silently stopped updating.
+    #
+    # slam_toolbox's own pre-filter (shouldProcessScan) gates on TRANSLATION
+    # only. minimum_travel_heading below is consulted by the karto mapper, which
+    # sits DOWNSTREAM of that gate -- so a scan taken while the rover spins on
+    # the spot is discarded before anything ever looks at the heading. Rotating
+    # in place produces no translation, so no scan is ever processed.
+    #
+    # This is invisible from outside: the node stays lifecycle-'active',
+    # answers parameter queries, keeps publishing /map on its map_update_interval
+    # timer and map->odom on its transform_publish_period timer, and logs
+    # nothing. What gives it away is that map->odom is bit-exactly identity and
+    # /pose never publishes.
+    #
+    # Measured A/B, same rover, same in-place spin (odom translation stayed
+    # under 3.5 cm throughout):
+    #   0.2   -> 0 scans processed over ~1443 deg, graph 1 node / 0 edges,
+    #            map->odom identity, map frozen at 81x66 / 234 occupied cells
+    #   0.005 -> 81 scans processed, graph 85 markers, map->odom live,
+    #            map grew to 106x81 / 547 occupied cells
+    #
+    # 0.05 rather than the 0.005 used for the test: 0.005 also adds nodes very
+    # aggressively while DRIVING, which inflates the graph and the loop-closure
+    # search for no benefit. 0.05 is small enough that ordinary rotation-heavy
+    # manoeuvring keeps feeding the mapper.
+    minimum_travel_distance: 0.05
     minimum_travel_heading: 0.2
     scan_buffer_size: 10
     scan_buffer_maximum_scan_distance: 10.0

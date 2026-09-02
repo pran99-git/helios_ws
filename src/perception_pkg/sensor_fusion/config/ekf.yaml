@@ -16,6 +16,33 @@ ekf_filter_node:
     frequency: 30.0
     sensor_timeout: 0.2
     transform_time_offset: 0.1
+
+    # --- Lagged measurement handling (ADDED 2026-08-26) ---------------------
+    # The two inputs do NOT arrive with the same delay. Measured live, header
+    # stamp vs arrival:
+    #
+    #     /wheel/odometry        median   1.6 ms
+    #     /zed/odom_with_cov     median  58.1 ms   p90 69 ms   max 315 ms
+    #
+    # That is ~1.7 filter cycles of skew. Without smooth_lagged_data the ZED
+    # measurement arrives after the filter has already advanced past its own
+    # timestamp, so it is folded in with a clamped (zero) time delta instead of
+    # at the instant it describes. With it, the filter rewinds to the
+    # measurement's timestamp, applies it there, and re-integrates forward.
+    #
+    # This is the leading HYPOTHESIS for a measured discrepancy, not a proven
+    # fix. Solving  ekf = a*wheel + (1-a)*zed  on integrated yaw over a 99.7 s
+    # spin gave a = 0.33, i.e. the wheels carried a THIRD of the fused yaw. The
+    # covariances below (0.5 vs 0.01) specify a = 0.02. So the ZED is being
+    # under-weighted ~16x and this skew is the most likely reason. The other
+    # candidate is odom1_twist_rejection_threshold, relaxed below.
+    #
+    # history_length must cover the lag being compensated. 0.3 s clears the
+    # measured p90 by 4x with headroom for the outliers; it is deliberately not
+    # larger, because every lagged measurement re-integrates the whole window
+    # and this node has already logged "failed to meet update rate" under load.
+    smooth_lagged_data: true
+    history_length: 0.3
     two_d_mode: true            # flat ground + 2D LiDAR -> zero z, roll, pitch
     publish_tf: true            # owns odom -> base_link
     publish_acceleration: false
@@ -71,14 +98,28 @@ ekf_filter_node:
     odom1_relative: false
     odom1_queue_size: 10
     odom1_nodelay: true
-    # NEEDS RE-TUNING against real data. This gate computes a Mahalanobis
-    # distance using the measurement covariance, so it was previously keyed off
-    # the substituted 1e-9 and rejected ~20% of ZED measurements for no good
-    # reason. With a real covariance (~0.02) the distances collapse by ~4000x,
-    # which means this threshold is now close to inert and will not catch a
-    # genuine VIO failure. Re-measure the innovation distribution on a moving
-    # run and set it from that, rather than carrying this number forward.
-    odom1_twist_rejection_threshold: 2.0
+    # RAISED 2.0 -> 5.0 on 2026-08-26, provisionally.
+    #
+    # This gate computes a Mahalanobis distance using the measurement
+    # covariance. With vyaw variance 0.01 (sigma 0.1 rad/s), a threshold of 2.0
+    # rejects any ZED yaw rate differing from the filter's prediction by more
+    # than 0.2 rad/s = 11.5 deg/s. That is not a large margin on a rover that
+    # spins at 20-48 deg/s: the 58 ms arrival skew documented at the top of this
+    # file turns into exactly this kind of transient disagreement whenever
+    # angular acceleration is high, i.e. at the start and end of every turn.
+    #
+    # Rejecting the ZED there is backwards. Measured against a de-biased gyro
+    # over a 99.7 s spin, the ZED twist was the single most accurate yaw source
+    # on the robot (+0.03%), while the wheels read -3.3% low. It is the source
+    # that should survive the gate.
+    #
+    # 5.0 -> rejects beyond 0.5 rad/s = 28.6 deg/s of disagreement: permissive
+    # enough for normal turning transients, still tight enough to catch a gross
+    # VIO failure. STILL NOT MEASURED: the right way to set this is from the
+    # observed innovation distribution on a moving run. Do that and replace
+    # this number; note that odom0 (wheels) has no gate at all, so a bad
+    # encoder spike -- one 10987 deg/s sample was recorded -- enters unfiltered.
+    odom1_twist_rejection_threshold: 5.0
 
     # --- RAW IMU : intentionally DISABLED (anti-double-count) --------------
     # Only enable this if you turn OFF the ZED's internal IMU fusion (i.e. make
