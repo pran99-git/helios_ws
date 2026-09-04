@@ -315,12 +315,17 @@ ros2 run tf2_ros tf2_echo base_link laser
 The printed translation must match the `<origin>` you set in `sensors.xacro`,
 and the table above.
 
-**4. It looks right.** In RViz, add a *RobotModel* display with Fixed Frame
-`base_link`, and add *TF* to see the frame axes. Check that the wheels are at
-the corners, the sensors sit on the top plate, and nothing is rotated 90° or
-sunk into the chassis. Dragging the GUI sliders should spin the wheels about
-their axles. If a wheel orbits the robot instead, its joint axis or origin is
-wrong.
+**4. It looks right.** `rviz/view.rviz` opens with Fixed Frame
+`base_footprint`, RobotModel and TF, which is all this view needs. Check that
+the wheels are at the corners, the sensors sit on the top plate, and nothing is
+rotated 90° or sunk into the chassis. Dragging the GUI sliders should spin the
+wheels about their axles. If a wheel orbits the robot instead, its joint axis
+or origin is wrong.
+
+The Fixed Frame matters here. RViz draws its grid at the Fixed Frame's origin,
+so `base_link` puts the grid at wheel-axle height and the rover appears half
+sunk. `base_footprint` is the ground projection, so the wheels sit on the grid.
+Neither is a model error, but only one of them looks right.
 
 **5. On the real robot,** the practical test is whether the laser scan lines up
 with reality. Drive up to a flat wall, and in RViz the `/scan` points should

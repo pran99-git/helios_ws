@@ -203,11 +203,21 @@ def generate_launch_description() -> LaunchDescription:
                 ],
             ),
             # --- Live RViz -------------------------------------------------------
-            # Our own config, not rtabmap_launch's rgbd.rviz: that one enables a
+            # Our own config rather than rtabmap_launch's rgbd.rviz. Both enable a
             # MapCloud on /rtabmap/mapData, which carries the full RGB+depth payload
-            # of every node in working memory and costs more as the map grows.
-            # rtabmap.rviz shows only the cheap topics; MapCloud is present but
-            # starts DISABLED, at decimation 8 / 5 cm voxels / 4 m depth.
+            # of every node in working memory and costs more as the map grows; ours
+            # halves the point count with a coarser voxel:
+            #
+            #             decimation   voxel    max depth
+            #   ours          4        0.02 m     4 m
+            #   upstream      4        0.01 m     4 m
+            #
+            # MapCloud is the expensive display here. Untick it in the Displays
+            # panel if RViz is costing more than the 3D view is worth. Note it has
+            # no outlier filtering of any kind, so the live cloud always shows more
+            # stereo flying pixels than a save_rtabmap.sh export, which applies
+            # --noise_radius/--noise_k. "Filter ceiling (m)" is the one live knob
+            # that helps, and it is currently 0 (off).
             #
             # MapGraph is the display to watch while mapping: neighbour links in
             # blue, global loop closures in RED. Red links appearing on revisit is

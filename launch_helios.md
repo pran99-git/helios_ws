@@ -10,7 +10,8 @@ read [the root README](README.md) and the package READMEs it links to.
 
 ## The short version
 
-Four terminals. Order matters for the first one only.
+Four terminals to map, five to navigate. Order matters for the first one, and
+navigation needs everything below it already running.
 
 ```bash
 source ~/helios_ws/install/setup.bash        # in EVERY terminal
@@ -19,6 +20,7 @@ ros2 launch low_level_control_pkg roboclaw_driver.launch.py   # 1. motors
 ros2 launch sensor_fusion bringup.launch.py                   # 2. sensors + EKF
 ros2 launch low_level_control_pkg joy_teleop.launch.py        # 3. joystick
 ros2 launch mapping_localization_pkg slam_toolbox.launch.py   # 4. a mapper
+ros2 launch navigation_pkg navigation.launch.py               # 5. autonomy (optional)
 ```
 
 Hold the **right shoulder button (R)** to drive. Everything below is the
@@ -33,6 +35,11 @@ Each layer consumes the one below it. Nothing skips a level.
 
 ```
   ┌─────────────────────────────────────────────────────────┐
+  │  5. NAVIGATION      navigation_pkg (optional)           │
+  │     goal in, /cmd_vel out. Publishes no TF.             │
+  └───────────────────────────▲─────────────────────────────┘
+                              │  /map  /scan  /odometry/filtered
+  ┌───────────────────────────┴─────────────────────────────┐
   │  4. MAPPER          slam_toolbox | rtabmap | amcl       │
   │     owns map -> odom, exactly one at a time             │
   └───────────────────────────▲─────────────────────────────┘
@@ -61,8 +68,9 @@ duplex on a single UART. Two processes on one port interleave and corrupt each
 other's packets. Sent to a motor controller, that is a safety problem, not a
 dropped reading.
 
-Terminal 3 is numbered last but can start whenever. It only publishes
-`/cmd_vel`, so it is safe alongside anything.
+Terminal 3 can start whenever, since it only publishes `/cmd_vel`. Terminal 5
+is the opposite: it needs all four layers below it, and it must NOT run
+alongside terminal 3, because both drive `/cmd_vel`.
 
 ---
 
@@ -280,6 +288,41 @@ Heading is less forgiving than position: the default yaw spread is about
 
 ---
 
+## Terminal 5: autonomous navigation (optional)
+
+Only if you want the rover to drive itself. Skip for pure mapping runs.
+
+```bash
+ros2 launch navigation_pkg navigation.launch.py rviz:=true
+```
+
+Starts five Nav2 servers plus a lifecycle manager. Set a goal with the **Nav2
+Goal** tool in RViz.
+
+| Argument | Default | Effect |
+|---|---|---|
+| `params_file` | the package's `nav2_params.yaml` | Alternative parameter set |
+| `autostart` | `true` | `false` leaves servers unconfigured |
+| `rviz` | `false` | Navigation layout. Costs CPU. |
+
+> **Stop terminal 3 first.** `joy_teleop` and Nav2 both publish `/cmd_vel`, and
+> the driver acts on whichever arrived last. Running both interleaves human and
+> autonomous commands at 20 Hz.
+>
+> **There is no deadman button in autonomous mode.** Ctrl+C on this terminal
+> stops new commands; the driver's `cmd_timeout` (0.5 s) then ramps to a stop.
+
+Also know that **the laser plane sits 0.176 m above the ground**, so anything
+shorter than that is invisible to the costmaps. Nav2 will drive into it.
+
+```bash
+ros2 lifecycle get /controller_server    # expect: active [3]
+ros2 topic hz /local_costmap/costmap     # ~2 Hz
+ros2 topic hz /cmd_vel                   # only while a goal is active
+```
+
+---
+
 ## Saving a run
 
 ### slam_toolbox
@@ -353,11 +396,12 @@ you began in should land on itself, not beside itself.
 
 Reverse order, and Ctrl+C each terminal rather than closing the window.
 
-1. **Terminal 4 first**, especially rtabmap, which writes its database on
-   Ctrl+C.
-2. Terminal 3, the joystick.
-3. Terminal 2, the sensors.
-4. Terminal 1 last. It stops the motors and closes the serial ports on the way
+1. **Terminal 5 first** if navigation is running, so no further `/cmd_vel`
+   is issued while the rest comes down.
+2. **Terminal 4**, especially rtabmap, which writes its database on Ctrl+C.
+3. Terminal 3, the joystick.
+4. Terminal 2, the sensors.
+5. Terminal 1 last. It stops the motors and closes the serial ports on the way
    out.
 
 Check nothing is left holding a port before relaunching:
@@ -405,6 +449,9 @@ ros2 launch mapping_localization_pkg slam_toolbox.launch.py rviz:=true
 ros2 launch mapping_localization_pkg rtabmap.launch.py rviz:=true
 ros2 launch mapping_localization_pkg amcl_localization.launch.py map:=<path>.yaml
 
+# 5  autonomy (optional; stop terminal 3 first, both publish /cmd_vel)
+ros2 launch navigation_pkg navigation.launch.py rviz:=true
+
 # save
 ~/helios_ws/src/mapping_localization_pkg/slam_toolbox/scripts/save_slam.sh <name>
 ~/helios_ws/src/mapping_localization_pkg/rtabmap/scripts/save_rtabmap.sh <name> --map-only
@@ -419,3 +466,4 @@ ros2 launch mapping_localization_pkg amcl_localization.launch.py map:=<path>.yam
 - [`low_level_control_pkg`](src/low_level_control_pkg/README.md): motors, teleop, calibration
 - [`perception_pkg`](src/perception_pkg/README.md): sensors and sensor fusion
 - [`mapping_localization_pkg`](src/mapping_localization_pkg/README.md): the three mappers in depth
+- [`navigation_pkg`](src/navigation_pkg/README.md): Nav2, and the mecanum-specific tuning

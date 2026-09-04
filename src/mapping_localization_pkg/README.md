@@ -398,8 +398,9 @@ so the poses are identical and only the grid source changes:
 
 Obstacles more than halve and free space drops ~40%, because a ~110° camera
 cone replaces a 270° laser sweep. It becomes worth revisiting only when
-navigation must see obstacles below the ~0.126 m laser plane, and even then
-`Grid/RangeMax` must be passed explicitly: its auto-set to unlimited is
+navigation must see obstacles below the **0.176 m** laser plane (`base_link`
+sits 0.076 m up at axle height, and `laser_mount_joint` adds 0.100 m). Even
+then, `Grid/RangeMax` must be passed explicitly: its auto-set to unlimited is
 conditional on `Grid/Sensor` being 0, so grid range silently drops 10 m to 5 m.
 
 **`Icp/PointToPlane false`.** The theory was that a single-plane 2D sweep cannot
