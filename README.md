@@ -242,8 +242,9 @@ stops. **Keep the rover still for the first ~5 seconds** after terminal 2
 starts, while the ZED aligns against gravity.
 
 Exactly one terminal-4 mapper at a time: all three publish `map -> odom`.
-Stop terminal 3 before starting terminal 5, since teleop and Nav2 both publish
-`/cmd_vel`.
+Terminals 3 and 5 can run together: `twist_mux` gives the joystick priority
+over Nav2, so holding the deadman overrides autonomy and releasing it hands
+control back.
 
 > **[launch_helios.md](launch_helios.md) is the full runbook.** Pre-flight
 > checks, every launch argument, what to verify at each stage, how to save a

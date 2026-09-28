@@ -4,7 +4,7 @@
 #                                 rtabmap, or amcl over a saved map)
 #            /odometry/filtered   from perception_pkg's EKF
 #            /scan                from the Hokuyo UST-10LX, frame 'laser'
-# Produces:  /cmd_vel             consumed by low_level_control_pkg
+# Produces:  /cmd_vel_smoothed    into twist_mux, which owns /cmd_vel
 #
 # TF ownership is unchanged: the EKF owns odom -> base_link, whichever mapper is
 # running owns map -> odom. Nav2 publishes NO transforms.
@@ -196,8 +196,9 @@ bt_navigator:
     # hardcoding a path into nav2_bt_navigator's share dir breaks on upgrade.
 
 # ----------------------------------------------------------- velocity smoother ---
-# Sits between the controller and the driver: controller -> /cmd_vel_nav ->
-# smoother -> /cmd_vel. Remapped in navigation.launch.py.
+# controller -> /cmd_vel_nav -> smoother -> /cmd_vel_smoothed, remapped in
+# navigation.launch.py. twist_mux (started with the driver) is what forwards
+# it to /cmd_vel, and the joystick outranks it there.
 velocity_smoother:
   ros__parameters:
     smoothing_frequency: 20.0         # Hz, matches controller_frequency

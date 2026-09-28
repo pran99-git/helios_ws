@@ -1,0 +1,39 @@
+### Priority multiplexer on the way into the RoboClaw driver.
+#
+# Consumes:  /cmd_vel_joy        teleop_joy_node
+#            /cmd_vel_smoothed   Nav2's velocity_smoother
+#            /cmd_vel_lock       e-stop gate (nothing publishes it yet)
+# Produces:  /cmd_vel            the only thing roboclaw_driver listens to
+#
+# Before this existed, teleop and Nav2 both wrote /cmd_vel and the driver acted
+# on whichever arrived last, so the two had to be run one at a time. Priority
+# makes the joystick an override instead of a competitor.
+
+twist_mux:
+  ros__parameters:
+    # The rover's driver takes geometry_msgs/Twist, not TwistStamped.
+    use_stamped: false
+
+    topics:
+      # Highest priority: a human reaching for the joystick always wins,
+      # without having to stop the autonomy stack first.
+      joystick:
+        topic: cmd_vel_joy
+        timeout: 0.5      # s of silence before this input is ignored
+        priority: 100
+
+      # Nav2, and through it the VLA policy, which reaches the motors only
+      # via controller_server.
+      navigation:
+        topic: cmd_vel_smoothed
+        timeout: 0.5      # s
+        priority: 10
+
+    # A lock publishes std_msgs/Bool; true blocks every input below its
+    # priority. Nothing publishes this yet: it is the hook a hardware e-stop
+    # or the battery monitor plugs into.
+    locks:
+      estop:
+        topic: cmd_vel_lock
+        timeout: 0.0      # s, 0 means a stale lock never expires
+        priority: 255

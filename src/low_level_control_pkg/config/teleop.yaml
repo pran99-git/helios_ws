@@ -25,6 +25,6 @@ teleop_joy:
     max_vy: 0.40       # m/s strafe
     max_omega: 0.8     # rad/s
     deadzone: 0.08       # fraction of stick travel treated as centred
-    cmd_topic: 'cmd_vel'
+    cmd_topic: 'cmd_vel_joy'   # into twist_mux, not straight to the driver
     publish_rate: 20.0   # Hz, /cmd_vel republish rate while the deadman is held
     joy_timeout: 0.5     # s without a /joy message before commands are zeroed

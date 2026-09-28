@@ -38,7 +38,7 @@ above nothing, because there is nothing above it.
    │                                                    ▼   │
    │                                        velocity_smoother│
    └────────────────────────────────────────────┬───────────┘
-             ▲              ▲                   │ /cmd_vel
+             ▲              ▲                   │ /cmd_vel_smoothed
      /map    │      /scan   │  /odometry/filtered
              │              │                   ▼
    mapping_localization  perception_pkg   low_level_control_pkg
@@ -89,7 +89,7 @@ the lifecycle manager:
 | `planner_server` | SmacPlanner2D global planning, owns the global costmap |
 | `behavior_server` | Recovery behaviors: spin, backup, drive_on_heading, wait |
 | `bt_navigator` | Runs the behavior tree that sequences the above |
-| `velocity_smoother` | Ramps `/cmd_vel_nav` into `/cmd_vel` |
+| `velocity_smoother` | Ramps `/cmd_vel_nav` into `/cmd_vel_smoothed` |
 | `lifecycle_manager_navigation` | Drives all five configure to activate |
 
 **Activation order matters and is not alphabetical.** The manager transitions
@@ -125,20 +125,27 @@ The controller does not talk to the motors directly. It is routed through the
 smoother so the driver only ever receives ramped commands:
 
 ```
-controller_server ──► /cmd_vel_nav ──► velocity_smoother ──► /cmd_vel
-                                                                │
-                                                                ▼
-                                              roboclaw_driver_node
+controller_server ──► /cmd_vel_nav ──► velocity_smoother ──► /cmd_vel_smoothed
+                                                                      │
+                          teleop_joy_node ──► /cmd_vel_joy ──┐        │
+                                              (priority 100) │        │ (10)
+                                                             ▼        ▼
+                                                          twist_mux
+                                                              │ /cmd_vel
+                                                              ▼
+                                                    roboclaw_driver_node
 ```
 
-`/cmd_vel` is the topic `roboclaw_driver_node` already subscribes to, so nothing
-in `low_level_control_pkg` changes.
+`twist_mux` is started with the driver in `low_level_control_pkg` and is the
+only publisher of `/cmd_vel`. Nav2 never writes that topic directly, which is
+what lets the joystick override a goal in progress.
 
-> ### Do not run teleop and navigation at the same time
+> ### Teleop outranks navigation, by design
 >
-> `joy_teleop` also publishes `/cmd_vel`. Running both means the driver acts on
-> whichever message arrived last, interleaving human and autonomous commands at
-> 20 Hz.
+> Both feed `twist_mux`, which is started with the driver and is the only
+> publisher of `/cmd_vel`. The joystick sits at priority 100 and Nav2 at 10, so
+> holding the deadman overrides a goal in progress and releasing it hands
+> control back. Run them together.
 >
 > **There is also no deadman button in autonomous mode.** Teleop requires you to
 > hold R for the rover to move. Nav2 does not. Keep a hand on the kill path and
@@ -270,10 +277,13 @@ ros2 topic hz /local_plan         # MPPI's chosen trajectory, ~20 Hz
 
 ```bash
 ros2 topic hz /cmd_vel_nav        # controller output
-ros2 topic hz /cmd_vel            # smoothed, what the driver consumes
+ros2 topic hz /cmd_vel_smoothed   # smoothed, into twist_mux
+ros2 topic hz /cmd_vel            # twist_mux output, what the driver consumes
 ```
 
-If `/cmd_vel_nav` publishes but `/cmd_vel` does not, the smoother is not active.
+If `/cmd_vel_nav` publishes but `/cmd_vel_smoothed` does not, the smoother is
+not active. If `/cmd_vel_smoothed` publishes but `/cmd_vel` does not, either
+`twist_mux` is not running or the joystick is holding priority.
 
 **5. It strafes.** Give it a goal directly to one side in an open space. A
 correctly configured omni setup will translate sideways rather than turning,

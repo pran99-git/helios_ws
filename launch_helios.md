@@ -84,6 +84,8 @@ One-time setup, each owned by a package README:
 | Laser on the `192.168.0.0/24` subnet | [`perception_pkg`](src/perception_pkg/README.md) |
 | udev rule pinning the RoboClaw ports | [`low_level_control_pkg`](src/low_level_control_pkg/README.md) |
 | Gamepad paired, axis mapping confirmed | [`low_level_control_pkg`](src/low_level_control_pkg/README.md) |
+| `sudo apt install ros-jazzy-twist-mux` | started with the driver; without it nothing publishes `/cmd_vel` |
+| VLA virtualenv and checkpoint (only for terminal 6) | [`vla_pkg`](src/vla_pkg/README.md) |
 
 Then build:
 
@@ -329,12 +331,13 @@ Goal** tool in RViz.
 | `autostart` | `true` | `false` leaves servers unconfigured |
 | `rviz` | `false` | Navigation layout. Costs CPU. |
 
-> **Stop terminal 3 first.** `joy_teleop` and Nav2 both publish `/cmd_vel`, and
-> the driver acts on whichever arrived last. Running both interleaves human and
-> autonomous commands at 20 Hz.
+> **Leave terminal 3 running.** `twist_mux` ranks the joystick above Nav2, so
+> holding the deadman takes over mid-goal and releasing it hands control back.
+> That is your fastest manual override.
 >
-> **There is no deadman button in autonomous mode.** Ctrl+C on this terminal
-> stops new commands; the driver's `cmd_timeout` (0.5 s) then ramps to a stop.
+> **There is still no deadman in autonomous mode.** Nothing has to be held for
+> Nav2 to drive. Ctrl+C on this terminal stops new commands; the driver's
+> `cmd_timeout` (0.5 s) then ramps to a stop.
 
 Also know that **the laser plane sits 0.176 m above the ground**, so anything
 shorter than that is invisible to the costmaps. Nav2 will drive into it.
@@ -389,7 +392,8 @@ For a pose goal, point RViz's **2D Goal Pose** tool at `/vla/goal_pose`.
 > the same controller. That is why the pose goal here is `/vla/goal_pose` and
 > not `/goal_pose`, which `bt_navigator` owns.
 >
-> **Stop terminal 3 first**, same as for terminal 5.
+> **Leave terminal 3 running**, same as for terminal 5. The joystick outranks
+> the policy, so holding the deadman is how you take a VLA run away from it.
 
 **Run the ZED with depth off in this mode.** The policy needs RGB only, and
 NEURAL_LIGHT depth is the documented cause of the EKF starvation described in
@@ -543,7 +547,7 @@ ros2 launch mapping_localization_pkg slam_toolbox.launch.py rviz:=true
 ros2 launch mapping_localization_pkg rtabmap.launch.py rviz:=true
 ros2 launch mapping_localization_pkg amcl_localization.launch.py map:=<path>.yaml
 
-# 5  autonomy (optional; stop terminal 3 first, both publish /cmd_vel)
+# 5  autonomy (optional; leave 3 running, the joystick outranks it)
 ros2 launch navigation_pkg navigation.launch.py rviz:=true
 
 # 6  VLA policy (optional; needs 5 running)

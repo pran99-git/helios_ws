@@ -15,9 +15,16 @@
 # Left stick  -> vx (forward/back), vy (strafe)
 # Right stick -> omega (rotate)
 #
-# Stick deflection is scaled into TRUE SI units before publishing: /cmd_vel
-# carries m/s and rad/s, not a normalized [-1, 1] range. Full deflection maps
-# to max_vx/max_vy/max_omega from the config.
+# Stick deflection is scaled into TRUE SI units before publishing:
+# /cmd_vel_joy carries m/s and rad/s, not a normalized [-1, 1] range. Full
+# deflection maps to max_vx/max_vy/max_omega from the config.
+#
+# Output goes to twist_mux at the highest priority, NOT straight to the
+# driver. Holding the deadman therefore overrides Nav2 without having to shut
+# the autonomy stack down; releasing it hands control back. That is why this
+# node goes SILENT on release rather than streaming zeros: a steady zero at
+# top priority would pin the mux to teleop and autonomy would never reach the
+# wheels.
 #
 # A deadman button must be HELD for any nonzero output. This is what makes
 # it safe to verify the axis mapping via `ros2 topic echo /joy` first: an
@@ -25,7 +32,7 @@
 # motion, until the deadman button is actually pressed.
 #
 # Also watches for a stale/missing /joy stream (controller powered off or
-# Bluetooth dropped) and forces zero output in that case -- this is
+# Bluetooth dropped) and treats it exactly like a release -- this is
 # independent of, and in addition to, roboclaw_driver_node's own /cmd_vel
 # watchdog, since that one only protects against *this* node itself dying.
 
@@ -63,9 +70,12 @@ class TeleopJoyNode(Node):
         self.declare_parameter("max_omega", 0.5)  # rad/s
 
         self.declare_parameter("deadzone", 0.08)
-        self.declare_parameter("cmd_topic", "cmd_vel")
+        self.declare_parameter("cmd_topic", "cmd_vel_joy")
         self.declare_parameter("publish_rate", 20.0)
         self.declare_parameter("joy_timeout", 0.5)  # s; stale/missing joy -> zero
+        # Seconds of zeros to emit after the deadman is released, before going
+        # silent. Must cover twist_mux's own timeout for this input.
+        self.declare_parameter("release_hold", 0.5)  # s
 
         g = self.get_parameter
         self.axis_vx = g("axis_vx").value
@@ -77,6 +87,7 @@ class TeleopJoyNode(Node):
         self.deadman_button = g("deadman_button").value
         self.deadzone = g("deadzone").value
         self.joy_timeout = g("joy_timeout").value
+        self.release_hold = float(g("release_hold").value)
         # Magnitudes, matching the driver's handling of the same parameter
         # names: direction belongs to the invert_* flags alone, so a negative
         # limit here must not silently flip an axis.
@@ -89,6 +100,8 @@ class TeleopJoyNode(Node):
         self.create_subscription(Joy, "joy", self._on_joy, qos)
 
         self._latest = Twist()
+        self._held = False
+        self._released_at: Time | None = None
         self._last_joy_time: Time | None = None
 
         rate = g("publish_rate").value
@@ -145,6 +158,10 @@ class TeleopJoyNode(Node):
             and msg.buttons[self.deadman_button] == 1
         )
 
+        if held and not self._held:
+            self._released_at = None
+        self._held = held
+
         if held:
             # Axis deflection is unitless; scale it into m/s and rad/s.
             twist.linear.x = self.max_vx * self._axis(msg, self.axis_vx, self.invert_vx)
@@ -156,16 +173,33 @@ class TeleopJoyNode(Node):
         self._latest = twist
 
     def _publish(self) -> None:
-        """Publishes the latest Twist, or a zero Twist if /joy went stale."""
-        # Republish at a fixed rate rather than only on /joy callback, so
-        # roboclaw_driver_node's own watchdog sees a steady stream and doesn't
-        # trip between individual joystick updates.
+        """Publishes while the deadman is held, then falls silent.
+
+        Silence is the point. This feeds twist_mux at the highest priority, so
+        streaming zeros whenever the deadman is up would pin the mux to teleop
+        forever and autonomy would never reach the wheels.
+
+        On release the node still emits zeros for `release_hold` seconds. Going
+        straight to silence would leave the driver holding the last nonzero
+        command until its own watchdog expired, so the rover would coast.
+        """
+        now = self.get_clock().now()
         stale = (
             self._last_joy_time is None
-            or (self.get_clock().now() - self._last_joy_time).nanoseconds * 1e-9
-            > self.joy_timeout
+            or (now - self._last_joy_time).nanoseconds * 1e-9 > self.joy_timeout
         )
-        self.cmd_pub.publish(Twist() if stale else self._latest)
+
+        if self._held and not stale:
+            # Republish at a fixed rate rather than only on /joy callback, so
+            # the driver's watchdog sees a steady stream and doesn't trip
+            # between individual joystick updates.
+            self.cmd_pub.publish(self._latest)
+            return
+
+        if self._released_at is None:
+            self._released_at = now
+        if (now - self._released_at).nanoseconds * 1e-9 <= self.release_hold:
+            self.cmd_pub.publish(Twist())
 
 
 def main(args: list[str] | None = None) -> None:

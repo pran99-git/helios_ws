@@ -26,7 +26,8 @@ So:
 
 - `wheel_odometry_node` (in `perception_pkg`) needs encoder counts → it
   subscribes to `roboclaw/wheel_encoders`, and never opens a port.
-- Teleop needs to drive → it publishes `/cmd_vel`, and never opens a port.
+- Teleop needs to drive → it publishes `/cmd_vel_joy` into `twist_mux`, and
+  never opens a port.
 - The two direct-serial helper scripts here (`wheel_monitor`, `calibrate_qpps`)
   **require the driver node to be stopped first**. They say so on startup.
 
@@ -35,12 +36,17 @@ and `teleop.launch.py` together reintroduces the problem, because
 `teleop.launch.py` bundles its own copy of the driver.
 
 ```
-     joystick                    (future: path planner)
-        │                                 │
-        ▼                                 ▼
-  teleop_joy_node ───── /cmd_vel ─────────┘
-                            │
-                            ▼
+     joystick                         Nav2 / VLA policy
+        │                                    │
+        ▼                                    ▼
+  teleop_joy_node                    velocity_smoother
+        │ /cmd_vel_joy                       │ /cmd_vel_smoothed
+        │ priority 100                       │ priority 10
+        └──────────────┬─────────────────────┘
+                       ▼
+                   twist_mux   ◄── sole publisher of /cmd_vel
+                       │
+                       ▼
                    roboclaw_driver_node  ◄── sole owner of both serial ports
                        │           │
               motor commands   roboclaw/wheel_encoders
@@ -83,8 +89,8 @@ Three source folders, split by hardware boundary: what generates a command,
 what talks to the controllers, and what measures them.
 
 ```
-teleop/                     Generates /cmd_vel. Knows nothing about serial.
-  teleop_joy_node.py        Joystick → /cmd_vel.
+teleop/                     Generates commands. Knows nothing about serial.
+  teleop_joy_node.py        Joystick → /cmd_vel_joy.
   speed_limits.py           Decides the QPPS ceiling. No ROS.
 roboclaw/                   Everything that talks to or models the controllers.
   roboclaw_driver_node.py   The ROS node. Owns both serial ports.
@@ -159,16 +165,19 @@ fails.
 
 ### `teleop/teleop_joy_node.py`
 
-Converts `sensor_msgs/Joy` into `/cmd_vel`. Axis and button indices come from
-config rather than being hardcoded, because they depend on which mode the
+Converts `sensor_msgs/Joy` into `/cmd_vel_joy`. Axis and button indices come
+from config rather than being hardcoded, because they depend on which mode the
 gamepad is paired in and which backend `joy_node` picks up.
 
 Stick deflection is scaled into SI units before publishing: full deflection maps
 to `max_vx` / `max_vy` / `max_omega`.
 
-This node knows nothing about what consumes `/cmd_vel`. A future path planner
-would be a second, independent publisher of the same topic and would not touch
-the driver.
+**It goes silent when the deadman is released**, after emitting zeros for
+`release_hold` (0.5 s). That silence is load-bearing. This node feeds
+`twist_mux` at the highest priority, so streaming zeros whenever the deadman is
+up would pin the mux to teleop and autonomy would never reach the wheels. The
+zero burst exists so the driver stops immediately instead of coasting on its
+last command until its own watchdog expires.
 
 ### `calibration/wheel_monitor.py` and `calibration/calibrate_qpps.py`
 
@@ -422,10 +431,11 @@ Turn a wheel by hand and confirm its count changes.
 
 ```bash
 ros2 topic echo /joy            # sticks and buttons respond
-ros2 topic echo /cmd_vel        # silent until the deadman is held
+ros2 topic echo /cmd_vel_joy    # silent until the deadman is held
+ros2 topic echo /cmd_vel        # twist_mux output, what the driver consumes
 ```
 
-`/joy` responding but `/cmd_vel` staying silent while the deadman is held means
+`/joy` responding but `/cmd_vel_joy` staying silent while the deadman is held means
 `deadman_button` is the wrong index.
 
 **4. Command directions are right, wheels off the ground.** Hold the deadman

@@ -16,9 +16,10 @@ Six servers are launched, not the nine nav2_bringup would start. smoother_server
 waypoint_follower and docking_server are omitted because nothing here uses them
 and this Jetson is already CPU-bound by the ZED. Add them when a use appears.
 
-DO NOT run joy_teleop at the same time. Both publish /cmd_vel and the driver
-takes whichever arrives last, which interleaves human and autonomous commands.
-Teleop also has a deadman button; Nav2 does not. See the README.
+joy_teleop can run alongside this. twist_mux, started with the driver, ranks
+the joystick above Nav2, so holding the deadman overrides a goal in progress
+and releasing it hands control back. Teleop has a deadman; Nav2 does not.
+See the README.
 
 Toggle with: rviz:=true autostart:=false params_file:=/custom/nav2.yaml
 """
@@ -73,7 +74,8 @@ def generate_launch_description() -> LaunchDescription:
 
     # controller_server publishes to cmd_vel by default. Routing it through the
     # smoother instead means the driver only ever sees ramped commands:
-    #     controller -> /cmd_vel_nav -> velocity_smoother -> /cmd_vel
+    #     controller -> /cmd_vel_nav -> velocity_smoother -> /cmd_vel_smoothed
+    # and twist_mux, started with the driver, is what forwards it to /cmd_vel.
     # /cmd_vel is what roboclaw_driver_node subscribes to (roboclaw.yaml).
     controller_server = Node(
         package="nav2_controller",
@@ -115,7 +117,7 @@ def generate_launch_description() -> LaunchDescription:
         name="velocity_smoother",
         output="screen",
         parameters=[params_file],
-        remappings=[("cmd_vel", "cmd_vel_nav"), ("cmd_vel_smoothed", "cmd_vel")],
+        remappings=[("cmd_vel", "cmd_vel_nav")],
     )
 
     # Every server above is a lifecycle node and none self-activates. The manager
