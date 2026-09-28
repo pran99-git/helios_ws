@@ -292,3 +292,7 @@ To understand it, in this order:
    mapping approaches, localizing in a saved map, and how maps are saved
 5. [`navigation_pkg`](src/navigation_pkg/README.md): Nav2, and the
    mecanum-specific tuning that a differential-drive config would get wrong
+6. [`mobile_gateway`](src/mobile_gateway/README.md): optional authenticated,
+   mobile odometry and lidar summary API, opt-in managed runbook operations,
+   TLS deployment, and a hardware-free client fixture
+   - [Pranav’s complete phone setup and handoff](src/mobile_gateway/PRANAV_SETUP.md)
