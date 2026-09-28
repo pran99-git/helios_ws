@@ -1,9 +1,14 @@
 """Standalone bench-test bundle: joystick teleop + RoboClaw driver together.
 
 Chain: joy_node (raw controller -> sensor_msgs/Joy)
-       -> teleop_joy (Joy -> /cmd_vel, deadman-gated)
+       -> teleop_joy (Joy -> /cmd_vel_joy, deadman-gated)
+       -> twist_mux (priority merge -> /cmd_vel)
        -> roboclaw_driver (/cmd_vel -> RoboClaw speed commands,
           + publishes roboclaw/wheel_encoders)
+
+       estop_node also runs, from roboclaw_driver.launch.py: L latches an
+       emergency stop, Start held for a second clears it. Its lock is a
+       heartbeat, so with estop_node dead nothing drives at all.
 
 Bundles joy_teleop.launch.py + roboclaw_driver.launch.py for convenience when
 bench-testing low_level_control_pkg in isolation (e.g. wheels off the ground,
