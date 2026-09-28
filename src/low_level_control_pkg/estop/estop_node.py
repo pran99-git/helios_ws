@@ -8,10 +8,12 @@ Engaging does two things at once, because neither alone is sufficient:
                      ramp immediately (~0.09 m from 0.40 m/s), where waiting
                      for the driver's own cmd_timeout would cost ~0.28 m.
 
-    /cmd_vel_lock    latched true at priority 200, which blocks teleop (100)
-                     and Nav2 (10). It outlives this node: twist_mux holds the
-                     lock with timeout 0, so a crash here leaves the rover
-                     blocked rather than handing control straight back.
+    /cmd_vel_lock    Bool at lock priority 200, blocking teleop (100) and
+                     Nav2 (10). Published CONTINUOUSLY, false as well as true,
+                     because twist_mux treats it as a heartbeat: its 0.5 s lock
+                     timeout means that if this node dies the lock engages by
+                     itself. The rover moves only while the safety node is
+                     alive and actively saying it may.
 
 Escape hatch, and a hazard worth knowing: the latch lives in memory, so
 RESTARTING THIS NODE CLEARS IT. That is how you recover if the gamepad is

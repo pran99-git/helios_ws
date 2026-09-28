@@ -178,7 +178,7 @@ Engaging publishes **two** things, because neither alone is enough:
 | Topic | Priority | Why |
 |---|---|---|
 | `/cmd_vel_estop` (zeroed Twist) | **250**, above the lock | Stops the rover *now*. A commanded zero starts the driver's ramp immediately, ~0.09 m from 0.40 m/s. Letting the lock silence the mux instead would mean waiting out `cmd_timeout` first, ~0.28 m |
-| `/cmd_vel_lock` (latched Bool) | lock at **200** | Blocks teleop (100) and Nav2 (10), and **outlives this node**: twist_mux holds it with `timeout: 0`, so a crash here leaves the rover blocked rather than handing control straight back |
+| `/cmd_vel_lock` (Bool heartbeat) | lock at **200** | Blocks teleop (100) and Nav2 (10). Published continuously, false as well as true: twist_mux's 0.5 s lock timeout means **if this node dies the lock engages by itself**. The rover moves only while the safety node is alive and saying it may |
 
 The zeros sit *above* the lock deliberately, so the lock does not block the very
 command that does the stopping.
@@ -195,6 +195,10 @@ message on a topic.
 > **The latch lives in memory, so restarting the node clears it.** That is the
 > escape hatch when the gamepad is dead, and it is also a hazard: the rover
 > becomes drivable again the moment the node comes back.
+>
+> **With `estop_node` not running at all, nothing drives the rover.** The lock
+> is a heartbeat, so its absence is treated as engaged. That is correct for a
+> safety interlock, but it looks like "the rover ignores me" if you forget it.
 
 Button indices are config, not code. 8BitDo mappings shift between X-input,
 D-input and Switch modes, so confirm with `ros2 topic echo /joy` before

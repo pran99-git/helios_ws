@@ -43,11 +43,17 @@ twist_mux:
     # above it. Held by estop_node, and by the battery monitor when that
     # exists.
     #
-    # timeout 0 means the lock never expires, so it outlives the node that
-    # raised it: if estop_node dies while engaged, the rover stays blocked
-    # instead of being handed straight back to whatever was driving.
+    # timeout > 0 makes this a HEARTBEAT, not just a latch: twist_mux expects
+    # the lock to keep arriving, and engages the lock by itself if the
+    # publisher dies. estop_node publishes false at 20 Hz while clear, so the
+    # rover moves only while the safety node is alive and actively saying so.
+    #
+    # The consequence is deliberate and worth knowing: with estop_node dead or
+    # not started, NOTHING drives the rover. That is the correct default for a
+    # safety interlock, but it will look like "the rover ignores me" if you
+    # forget it. /estop/engaged and the twist_mux log both say so.
     locks:
       estop:
         topic: cmd_vel_lock
-        timeout: 0.0      # s, 0 means a stale lock never expires
+        timeout: 0.5      # s; publisher must stay alive or the lock engages
         priority: 200
