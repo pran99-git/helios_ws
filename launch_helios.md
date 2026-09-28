@@ -347,6 +347,70 @@ ros2 topic hz /cmd_vel                   # only while a goal is active
 
 ---
 
+## Terminal 6: VLA navigation (optional)
+
+Drive to a goal given as a **sentence**, a **photo**, or a **2D pose**, using a
+learned policy instead of the global planner.
+
+**Needs terminal 5 already running.** This bypasses Nav2's planner but still
+hands its paths to `controller_server`, so MPPI and the costmaps are what keep
+the rover off obstacles. Without them the policy drives blind.
+
+One-time setup (virtualenv, 415 MB checkpoint, submodule) is in
+[`src/vla_pkg/README.md`](src/vla_pkg/README.md).
+
+```bash
+ros2 launch vla_bridge vla_navigation.launch.py
+```
+
+Starts three processes: the policy server (outside ROS, in its own
+virtualenv), `vla_bridge_node`, and `path_arbiter_node`.
+
+Then give it a goal, exactly one kind at a time:
+
+```bash
+# language
+ros2 topic pub --once /vla/goal_text std_msgs/msg/String "{data: 'the blue chair'}"
+
+# clear it
+ros2 topic pub --once /vla/goal_text std_msgs/msg/String "{data: ''}"
+```
+
+For a pose goal, point RViz's **2D Goal Pose** tool at `/vla/goal_pose`.
+
+| Argument | Default | Effect |
+|---|---|---|
+| `start_server` | `true` | `false` to use an already-running policy server |
+| `endpoint` | `http://127.0.0.1:8777/act` | A workstation IP also works |
+| `params_file` | the package's `vla_bridge.yaml` | Alternative parameter set |
+| `workspace` | `~/helios_ws` | Where `.venvs/` and `src/vla_pkg/` live |
+
+> **Do not use the Nav2 Goal tool while this is running.** Both would command
+> the same controller. That is why the pose goal here is `/vla/goal_pose` and
+> not `/goal_pose`, which `bt_navigator` owns.
+>
+> **Stop terminal 3 first**, same as for terminal 5.
+
+**Run the ZED with depth off in this mode.** The policy needs RGB only, and
+NEURAL_LIGHT depth is the documented cause of the EKF starvation described in
+the rtabmap README. Pair this with AMCL rather than RTAB-Map.
+
+The policy is **frozen and un-adapted to this rover**: it has never seen this
+camera height or field of view, it will not strafe, and it knows nothing about
+the 0.25 m/s cap. Treat its first outings as experiments.
+
+```bash
+curl -s localhost:8777/health            # {"ready":true,...}
+ros2 topic hz   /vla/plan                # ~5 Hz once a goal is set
+ros2 topic echo /vla/status --once       # ok modality=7 policy=95ms warm=True
+ros2 topic echo /vla/arbiter_status --once
+```
+
+First time out, put a Path display on `/vla/plan` in RViz **with the motors
+unplugged** and check the trajectory points where the camera is looking.
+
+---
+
 ## Saving a run
 
 ### slam_toolbox
@@ -482,6 +546,10 @@ ros2 launch mapping_localization_pkg amcl_localization.launch.py map:=<path>.yam
 # 5  autonomy (optional; stop terminal 3 first, both publish /cmd_vel)
 ros2 launch navigation_pkg navigation.launch.py rviz:=true
 
+# 6  VLA policy (optional; needs 5 running)
+ros2 launch vla_bridge vla_navigation.launch.py
+ros2 topic pub --once /vla/goal_text std_msgs/msg/String "{data: 'the blue chair'}"
+
 # save
 ~/helios_ws/src/mapping_localization_pkg/slam_toolbox/scripts/save_slam.sh <name>
 ~/helios_ws/src/mapping_localization_pkg/rtabmap/scripts/save_rtabmap.sh <name> --map-only
@@ -497,3 +565,4 @@ ros2 launch navigation_pkg navigation.launch.py rviz:=true
 - [`perception_pkg`](src/perception_pkg/README.md): sensors and sensor fusion
 - [`mapping_localization_pkg`](src/mapping_localization_pkg/README.md): the three mappers in depth
 - [`navigation_pkg`](src/navigation_pkg/README.md): Nav2, and the mecanum-specific tuning
+- [`vla_pkg`](src/vla_pkg/README.md): the OmniVLA policy, and how it feeds Nav2

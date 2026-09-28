@@ -55,7 +55,7 @@ class VlaBridgeNode(Node):
         super().__init__("vla_bridge")
 
         self.declare_parameter("image_topic", "/zed/zed_node/rgb/color/rect/image")
-        self.declare_parameter("goal_pose_topic", "/goal_pose")
+        self.declare_parameter("goal_pose_topic", "/vla/goal_pose")
         self.declare_parameter("goal_text_topic", "/vla/goal_text")
         self.declare_parameter("goal_image_topic", "/vla/goal_image")
         self.declare_parameter("plan_topic", "/vla/plan")

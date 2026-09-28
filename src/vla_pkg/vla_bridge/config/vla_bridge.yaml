@@ -1,0 +1,78 @@
+### OmniVLA navigation policy bridge for the Helios A4WD3 mecanum rover.
+#
+# Consumes:  /zed/zed_node/rgb/color/rect/image   RGB only; depth is not used
+#            /goal_pose | /vla/goal_text | /vla/goal_image
+#            TF map -> odom -> base_link          read only
+# Produces:  /vla/plan                            nav_msgs/Path, odom frame
+#                                                 consumed by path_arbiter
+#
+# The policy runs in omnivla_server, a separate process outside ROS. This node
+# publishes NO transforms.
+
+vla_bridge:
+  ros__parameters:
+    image_topic: "/zed/zed_node/rgb/color/rect/image"  # RGB only, depth unused
+    # NOT /goal_pose: bt_navigator subscribes to that, so an RViz goal
+    # click would start a Nav2 NavigateToPose AND a VLA run, two
+    # controllers fighting over the rover. Point RViz's "2D Goal Pose"
+    # tool at this topic instead.
+    goal_pose_topic: "/vla/goal_pose"
+    goal_text_topic: "/vla/goal_text"   # std_msgs/String, empty string clears
+    goal_image_topic: "/vla/goal_image" # sensor_msgs/Image, egocentric goal view
+    plan_topic: "/vla/plan"
+    status_topic: "/vla/status"
+
+    endpoint: "http://127.0.0.1:8777/act"  # loopback; a workstation IP also works
+
+    # Must stay below staleness_timeout, or a slow server produces a late plan
+    # instead of degrading to an empty one.
+    request_timeout: 0.30               # s
+
+    # How long a plan stands after the policy stops answering. Past this the
+    # path is retracted once and the roboclaw watchdog takes over.
+    staleness_timeout: 1.00             # s
+
+    # Measured ceiling on this Jetson is 10.5 Hz (OmniVLA-edge, 95 ms). Held
+    # at half that to leave GPU headroom for the ZED. The policy itself was
+    # designed for 3 Hz, so this is already generous.
+    inference_rate: 5.0                 # Hz
+
+    context_frames: 6                   # checkpoint's context_size 5, plus current
+
+    # TUNING PARAMETER, not a value from the checkpoint. The vendor demo feeds
+    # six identical frames, so the spacing used in training is undocumented.
+    # 1/3 s matches the policy's 3 Hz design rate.
+    context_stride: 0.333               # s between admitted frames
+
+    # Largest resolution the model consumes (its CLIP branch). Frames are
+    # scaled to this before the wire; anything larger is discarded server-side.
+    # Costs ~0.2% positional deviation from the JPEG round trip, i.e. ~2 mm
+    # over a 1 m chunk.
+    wire_size: 224                      # px
+
+    # odom, never map: map -> odom jumps on AMCL relocalisation and a 2.4 s
+    # path that teleports mid-execution makes the controller lurch.
+    path_frame: "odom"
+    base_frame: "base_link"
+    tf_timeout: 0.10                    # s to wait on a TF lookup
+
+path_arbiter:
+  ros__parameters:
+    plan_topic: "/vla/plan"
+    status_topic: "/vla/arbiter_status"
+    action_name: "follow_path"          # controller_server's action
+
+    # These three MUST match navigation_pkg/config/nav2_params.yaml. A mismatch
+    # is accepted by the server and then fails with INVALID_CONTROLLER.
+    controller_id: "FollowPath"
+    goal_checker_id: "goal_checker"
+    progress_checker_id: "progress_checker"
+
+    # How far the comparison waypoint must move before preempting the active
+    # goal. Every preemption throws away MPPI's warm optimiser state, and the
+    # policy republishes at inference_rate regardless.
+    divergence_threshold: 0.15          # m
+    divergence_index: 4                 # mid-chunk; first barely moves, last is noisiest
+
+    reissue_timeout: 1.00               # s before resending even an unchanged path
+    server_timeout: 5.00                # s to wait for controller_server at startup
