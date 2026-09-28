@@ -28,3 +28,7 @@ teleop_joy:
     cmd_topic: 'cmd_vel_joy'   # into twist_mux, not straight to the driver
     publish_rate: 20.0   # Hz, /cmd_vel republish rate while the deadman is held
     joy_timeout: 0.5     # s without a /joy message before commands are zeroed
+    # s of zeros emitted after the deadman is released, before going silent.
+    # Silence is what lets twist_mux fall through to autonomy; the zeros are so
+    # the driver stops now instead of coasting on its last command.
+    release_hold: 0.5    # s
