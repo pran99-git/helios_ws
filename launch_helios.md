@@ -401,7 +401,7 @@ the rtabmap README. Pair this with AMCL rather than RTAB-Map.
 
 The policy is **frozen and un-adapted to this rover**: it has never seen this
 camera height or field of view, it will not strafe, and it knows nothing about
-the 0.25 m/s cap. Treat its first outings as experiments.
+the 0.40 m/s cap. Treat its first outings as experiments.
 
 ```bash
 curl -s localhost:8777/health            # {"ready":true,...}

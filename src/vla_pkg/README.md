@@ -145,7 +145,7 @@ ros2 topic pub --once /vla/goal_text std_msgs/msg/String "{data: 'the blue chair
 
 **The edge checkpoint is frozen.** The vendor ships no training script for it,
 only inference. It carries the nonholonomic prior of its training mix, so it
-will not strafe and knows nothing about the 0.25 m/s cap. Fine-tuning requires
+will not strafe and knows nothing about the 0.40 m/s cap. Fine-tuning requires
 the 7.5B model, LoRA, and a 48 GB GPU.
 
 **Frozen means un-adapted.** It has never seen this rover, this camera height,
