@@ -1,0 +1,42 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>vla_bridge</name>
+  <version>0.1.0</version>
+  <description>
+    ROS adapter for the OmniVLA navigation policy. Feeds the policy server an
+    observation history and a goal (2D pose, egocentric image, or language),
+    decodes the returned waypoint chunk into a nav_msgs/Path in the odom
+    frame, and hands that to Nav2's existing MPPI controller via FollowPath.
+
+    The policy itself runs in omnivla_server, a separate non-ROS process, so
+    nothing here imports torch. All geometry and decoding lives in plain
+    Python modules beside the nodes; the node files handle only parameters,
+    pub/sub, TF, action clients and message conversion.
+
+    Publishes no transforms. The EKF keeps odom -> base_link and the active
+    mapper keeps map -> odom, exactly as with Nav2.
+  </description>
+  <maintainer email="upadhyp1@uci.edu">pran</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>nav2_msgs</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>tf2_geometry_msgs</exec_depend>
+  <exec_depend>cv_bridge</exec_depend>
+  <exec_depend>python3-requests</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
