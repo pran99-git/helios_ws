@@ -1,0 +1,9 @@
+# Vendor submodules are excluded from linting and formatting: they are
+# upstream code we do not edit. OmniVLA additionally ships a malformed
+# pyproject.toml (a missing comma in its dependency array), which ruff
+# cannot parse and which would otherwise break `ruff check .` outright.
+extend-exclude = [
+    "src/vla_pkg/omnivla",
+    "src/perception_pkg/camera/zed-ros2-wrapper",
+    "src/perception_pkg/lidar/urg_node2",
+]
