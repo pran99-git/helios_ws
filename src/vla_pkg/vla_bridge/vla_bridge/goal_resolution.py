@@ -49,3 +49,34 @@ def relative_pose(observer: Pose2D, target: Pose2D) -> Pose2D:
         y=-dx * sin_yaw + dy * cos_yaw,
         yaw=wrap_angle(target.yaw - observer.yaw),
     )
+
+
+def compose_pose(base: Pose2D, local: Pose2D) -> Pose2D:
+    """Express `local` (given in `base`'s body frame) in `base`'s parent frame.
+
+    The inverse of `relative_pose`. Used to lift policy waypoints out of
+    base_link and into odom before publishing them as a path.
+
+    Args:
+        base: Pose of the body frame, in the parent frame.
+        local: Pose within that body frame.
+
+    Returns:
+        `local` re-expressed in the parent frame.
+    """
+    cos_yaw = math.cos(base.yaw)
+    sin_yaw = math.sin(base.yaw)
+    return Pose2D(
+        x=base.x + local.x * cos_yaw - local.y * sin_yaw,
+        y=base.y + local.x * sin_yaw + local.y * cos_yaw,
+        yaw=wrap_angle(base.yaw + local.yaw),
+    )
+
+
+def yaw_from_quaternion(x: float, y: float, z: float, w: float) -> float:
+    """Extract the yaw of a quaternion, discarding roll and pitch.
+
+    Standard ZYX extraction. The rover is planar, so the other two axes carry
+    only sensor noise.
+    """
+    return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))

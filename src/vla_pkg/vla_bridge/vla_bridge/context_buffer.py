@@ -33,13 +33,21 @@ class ContextBuffer(Generic[Frame]):
         self._stride = stride
         self._last_stamp: float | None = None
 
+    def would_accept(self, stamp: float) -> bool:
+        """Whether `push` at this stamp would admit rather than drop.
+
+        Lets the caller skip encoding a frame that is about to be discarded;
+        the camera runs roughly ten times faster than the stride.
+        """
+        return self._last_stamp is None or stamp - self._last_stamp >= self._stride
+
     def push(self, frame: Frame, stamp: float) -> bool:
         """Offer a frame, admitting it only if the stride has elapsed.
 
         Returns:
             True if the frame was admitted.
         """
-        if self._last_stamp is not None and stamp - self._last_stamp < self._stride:
+        if not self.would_accept(stamp):
             return False
         self._frames.append(frame)
         self._last_stamp = stamp

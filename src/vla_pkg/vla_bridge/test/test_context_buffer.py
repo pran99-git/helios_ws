@@ -65,3 +65,13 @@ def test_clear_resets_the_stride_clock():
 def test_size_must_be_positive():
     with pytest.raises(ValueError):
         ContextBuffer(size=0)
+
+
+def test_would_accept_agrees_with_push():
+    """The node calls this to avoid JPEG-encoding a frame that will be dropped."""
+    buf = buffer(size=3, stride=1.0)
+    assert buf.would_accept(0.0) is True
+    buf.push("a", 0.0)
+    assert buf.would_accept(0.5) is False
+    assert buf.push("b", 0.5) is False
+    assert buf.would_accept(1.0) is True
