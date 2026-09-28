@@ -50,13 +50,17 @@ roboclaw_driver:
     # release, shutdown. At 5000, braking from max_vx (0.40 m/s) takes
     # ~0.41 s and ~0.082 m; at 1000 it would take ~2.05 s and ~0.41 m.
     #
-    # Two stop paths, with different totals:
-    #   deadman released / joy goes stale -> teleop_joy keeps publishing at
-    #     20 Hz with zeroed values, so braking starts within ~50 ms:
-    #     ~0.09 m total.
-    #   /cmd_vel stream stops outright (teleop node dies, comms drop) -> the
-    #     watchdog waits up to cmd_timeout (0.5 s) at full speed first:
-    #     ~0.20 m coasting + ~0.082 m braking = ~0.28 m total.
+    # Three stop paths, with different totals:
+    #   deadman released, controller still connected -> the /joy callback fires
+    #     with the button up and zeroes the command immediately, so braking
+    #     starts within ~50 ms: ~0.09 m total.
+    #   /joy goes stale (Bluetooth drops, controller powers off) -> NO callback
+    #     fires, so teleop keeps republishing the last nonzero command until
+    #     joy_timeout (0.5 s) expires: ~0.20 m at speed + ~0.082 m braking =
+    #     ~0.28 m total. This is NOT the 0.09 m case; nothing knows the stick
+    #     let go.
+    #   /cmd_vel stream stops outright (teleop node dies) -> the watchdog waits
+    #     up to cmd_timeout (0.5 s) at full speed first: ~0.28 m total.
     #
     # Trade traction against stopping distance deliberately, and recompute
     # these numbers whenever max_vx or drive_accel changes.

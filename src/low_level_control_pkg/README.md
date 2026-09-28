@@ -254,8 +254,26 @@ The total stopping distance depends on *how* the stop was triggered:
 
 | Trigger | What happens | Distance from 0.40 m/s |
 |---|---|---|
-| Deadman released, or joystick goes stale | `teleop_joy` keeps publishing at 20 Hz with zeroed values, so braking starts within ~50 ms | ~0.09 m |
-| `/cmd_vel` stops entirely (teleop dies, comms drop) | The watchdog waits up to `cmd_timeout` (0.5 s) at full speed first | ~0.28 m |
+| Deadman released, controller still connected | The `/joy` callback fires with the button up and zeroes the command, so braking starts within ~50 ms | ~0.09 m |
+| **`/joy` goes stale** (Bluetooth drops, controller powers off) | **No callback fires.** Teleop keeps republishing the last nonzero command until `joy_timeout` (0.5 s) expires, then zeroes | **~0.28 m** |
+| `/cmd_vel` stops entirely (teleop node dies) | The driver's watchdog waits up to `cmd_timeout` (0.5 s) at full speed first | ~0.28 m |
+
+A dropped controller is **not** the same as letting go. Releasing the deadman
+produces a message saying so; a dropped link produces no message at all, and
+nothing downstream can tell the difference between "the stick is still where
+you left it" and "the stick is gone" until `joy_timeout` expires.
+
+> ### A dropped link hands control to autonomy
+>
+> Once teleop falls silent, `twist_mux` times out `/cmd_vel_joy` after 0.5 s
+> and falls through to `/cmd_vel_smoothed`. **If Nav2 is running, it resumes
+> driving**, roughly 1.5 s after the link dropped. The rover brakes, pauses,
+> then carries on toward its goal.
+>
+> That is the same behaviour as deliberately releasing the deadman, which is
+> the point of the mux, but it is worth knowing that losing a controller
+> mid-override is not a stop. **The fix is a physical e-stop on
+> `/cmd_vel_lock`**, which does not depend on the joystick being alive.
 
 Recompute these whenever `max_vx` or `drive_accel` changes. The numbers are in
 `config/roboclaw.yaml`'s comments too, and both should be updated together.
