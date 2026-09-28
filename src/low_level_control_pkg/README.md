@@ -37,13 +37,18 @@ and `teleop.launch.py` together reintroduces the problem, because
 
 ```
      joystick                         Nav2 / VLA policy
-        │                                    │
-        ▼                                    ▼
-  teleop_joy_node                    velocity_smoother
-        │ /cmd_vel_joy                       │ /cmd_vel_smoothed
-        │ priority 100                       │ priority 10
-        └──────────────┬─────────────────────┘
-                       ▼
+        │         │                          │
+        │         ▼                          ▼
+        │    estop_node               velocity_smoother
+        │         │ /cmd_vel_estop (zeros)   │ /cmd_vel_smoothed
+        │         │ priority 250             │ priority 10
+        │         │ /cmd_vel_lock  lock 200  │
+        ▼         │                          │
+  teleop_joy_node │                          │
+        │ /cmd_vel_joy                       │
+        │ priority 100                       │
+        └─────────┴──────────┬───────────────┘
+                             ▼
                    twist_mux   ◄── sole publisher of /cmd_vel
                        │
                        ▼
@@ -92,6 +97,9 @@ what talks to the controllers, and what measures them.
 teleop/                     Generates commands. Knows nothing about serial.
   teleop_joy_node.py        Joystick → /cmd_vel_joy.
   speed_limits.py           Decides the QPPS ceiling. No ROS.
+estop/                      Latching emergency stop.
+  estop_node.py             Gamepad or /estop/request → zeros + lock.
+  estop_state.py            The latch itself. No ROS.
 roboclaw/                   Everything that talks to or models the controllers.
   roboclaw_driver_node.py   The ROS node. Owns both serial ports.
   roboclaw_driver.py        Packet-serial protocol implementation. No ROS.
@@ -162,6 +170,35 @@ Turns what the two controllers report into the single QPPS ceiling the rover is
 allowed to command. Kept separate from the protocol layer because it is policy,
 not wire format. Carries a measured fallback (7590) used only when a live read
 fails.
+
+### `estop/` and the emergency stop
+
+Engaging publishes **two** things, because neither alone is enough:
+
+| Topic | Priority | Why |
+|---|---|---|
+| `/cmd_vel_estop` (zeroed Twist) | **250**, above the lock | Stops the rover *now*. A commanded zero starts the driver's ramp immediately, ~0.09 m from 0.40 m/s. Letting the lock silence the mux instead would mean waiting out `cmd_timeout` first, ~0.28 m |
+| `/cmd_vel_lock` (latched Bool) | lock at **200** | Blocks teleop (100) and Nav2 (10), and **outlives this node**: twist_mux holds it with `timeout: 0`, so a crash here leaves the rover blocked rather than handing control straight back |
+
+The zeros sit *above* the lock deliberately, so the lock does not block the very
+command that does the stopping.
+
+**It latches.** One press engages until someone deliberately clears it.
+Clearing is made harder than engaging: hold a *different* button (Start) for
+`clear_hold` seconds, and releasing early restarts the hold from zero. A
+momentary stop that releases when you let go is not an emergency stop.
+
+`/estop/request` is an engage-only input for an app or a GPIO button later.
+Clearing a latched stop should take a deliberate physical action, not a stray
+message on a topic.
+
+> **The latch lives in memory, so restarting the node clears it.** That is the
+> escape hatch when the gamepad is dead, and it is also a hazard: the rover
+> becomes drivable again the moment the node comes back.
+
+Button indices are config, not code. 8BitDo mappings shift between X-input,
+D-input and Switch modes, so confirm with `ros2 topic echo /joy` before
+trusting the defaults (L = 4 engages, Start = 7 clears, R = 5 is the deadman).
 
 ### `teleop/teleop_joy_node.py`
 
@@ -451,7 +488,12 @@ Turn a wheel by hand and confirm its count changes.
 ros2 topic echo /joy            # sticks and buttons respond
 ros2 topic echo /cmd_vel_joy    # silent until the deadman is held
 ros2 topic echo /cmd_vel        # twist_mux output, what the driver consumes
+ros2 topic echo /estop/engaged  # false, then true the moment L is pressed
 ```
+
+**4. The e-stop latches:** press L, release it, and confirm `/estop/engaged`
+stays `true` and `/cmd_vel` goes silent. Then tap Start briefly and check it
+does **not** clear; only a full hold should.
 
 `/joy` responding but `/cmd_vel_joy` staying silent while the deadman is held means
 `deadman_button` is the wrong index.

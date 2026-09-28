@@ -15,7 +15,16 @@ twist_mux:
     use_stamped: false
 
     topics:
-      # Highest priority: a human reaching for the joystick always wins,
+      # Above the lock on purpose, so the e-stop's own zeros are NOT blocked by
+      # the lock it raises. A commanded zero starts the driver's ramp at once
+      # (~0.09 m from 0.40 m/s); letting the lock silence the mux instead would
+      # mean waiting out cmd_timeout first (~0.28 m).
+      estop:
+        topic: cmd_vel_estop
+        timeout: 0.5      # s
+        priority: 250
+
+      # A human reaching for the joystick outranks autonomy,
       # without having to stop the autonomy stack first.
       joystick:
         topic: cmd_vel_joy
@@ -29,11 +38,16 @@ twist_mux:
         timeout: 0.5      # s
         priority: 10
 
-    # A lock publishes std_msgs/Bool; true blocks every input below its
-    # priority. Nothing publishes this yet: it is the hook a hardware e-stop
-    # or the battery monitor plugs into.
+    # A lock publishes std_msgs/Bool; true blocks every input BELOW its
+    # priority. At 200 that is teleop and navigation, but not cmd_vel_estop
+    # above it. Held by estop_node, and by the battery monitor when that
+    # exists.
+    #
+    # timeout 0 means the lock never expires, so it outlives the node that
+    # raised it: if estop_node dies while engaged, the rover stays blocked
+    # instead of being handed straight back to whatever was driving.
     locks:
       estop:
         topic: cmd_vel_lock
         timeout: 0.0      # s, 0 means a stale lock never expires
-        priority: 255
+        priority: 200

@@ -7,9 +7,10 @@ and subscribes to /cmd_vel (true m/s and rad/s) for closed-loop speed control.
 Also starts twist_mux, which is the only publisher of /cmd_vel. Everything
 that wants to drive goes through it by priority:
 
+    /cmd_vel_estop      estop_node, zeroed        priority 250
     /cmd_vel_joy        teleop_joy_node           priority 100
     /cmd_vel_smoothed   Nav2's velocity_smoother  priority  10
-    /cmd_vel_lock       e-stop gate (unused yet)  priority 255
+    /cmd_vel_lock       estop_node, latched lock  lock     200
 
 The joystick outranks autonomy, so grabbing it overrides Nav2 without having
 to shut the nav stack down. It lives here rather than in a launch file of its
@@ -42,6 +43,7 @@ def generate_launch_description() -> LaunchDescription:
     pkg = get_package_share_directory("low_level_control_pkg")
     config = os.path.join(pkg, "config", "roboclaw.yaml")
     mux_config = os.path.join(pkg, "config", "twist_mux.yaml")
+    estop_config = os.path.join(pkg, "config", "estop.yaml")
 
     return LaunchDescription(
         [
@@ -59,6 +61,13 @@ def generate_launch_description() -> LaunchDescription:
                 output="screen",
                 parameters=[mux_config],
                 remappings=[("cmd_vel_out", "cmd_vel")],
+            ),
+            Node(
+                package="low_level_control_pkg",
+                executable="estop_node",
+                name="estop",
+                output="screen",
+                parameters=[estop_config],
             ),
         ]
     )

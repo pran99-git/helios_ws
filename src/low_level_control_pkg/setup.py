@@ -25,6 +25,7 @@ setup(
     entry_points={
         "console_scripts": [
             "teleop_joy_node = teleop.teleop_joy_node:main",
+            "estop_node = estop.estop_node:main",
             "roboclaw_driver_node = roboclaw.roboclaw_driver_node:main",
             "wheel_monitor = calibration.wheel_monitor:main",
             "calibrate_qpps = calibration.calibrate_qpps:main",

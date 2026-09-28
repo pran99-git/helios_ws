@@ -127,11 +127,33 @@ ls /dev/input/js0                  # gamepad is paired and awake
 ros2 launch low_level_control_pkg roboclaw_driver.launch.py
 ```
 
-Starts the sole owner of both serial ports. It subscribes to `/cmd_vel` and
-publishes raw encoder counts on `roboclaw/wheel_encoders`.
+Starts three things: the sole owner of both serial ports, `twist_mux`, and the
+emergency stop. The driver subscribes to `/cmd_vel` and publishes raw encoder
+counts on `roboclaw/wheel_encoders`.
+
+`twist_mux` is the only publisher of `/cmd_vel`. Everything that wants to drive
+goes through it by priority, so the joystick outranks autonomy and the e-stop
+outranks both.
+
+| Input | Priority |
+|---|---|
+| `/cmd_vel_estop` zeros, from `estop_node` | 250 |
+| `/cmd_vel_lock` latched lock, from `estop_node` | lock at 200 |
+| `/cmd_vel_joy` teleop | 100 |
+| `/cmd_vel_smoothed` Nav2 and the VLA | 10 |
+
+> **Press L on the gamepad to stop everything.** It latches: teleop and
+> autonomy stay blocked until you hold **Start** for a second to clear it.
+> `/estop/engaged` reports the state.
+>
+> This needs terminal 3 running, since the trigger is a gamepad button today.
+> `/estop/request` works without it, and is where a GPIO button or an app will
+> plug in later. Your battery cut switch remains the true last resort, at the
+> cost of losing encoder counts and having to re-localise.
 
 No launch arguments. Everything is in
-`low_level_control_pkg/config/roboclaw.yaml`.
+`low_level_control_pkg/config/roboclaw.yaml`, `twist_mux.yaml` and
+`estop.yaml`.
 
 **Expect on startup:** a line reporting each controller's QPPS. A value near
 **7590** is correct. A wildly different number means the controller's EEPROM
@@ -139,6 +161,8 @@ was reflashed, and every speed command will be scaled wrong.
 
 ```bash
 ros2 topic hz roboclaw/wheel_encoders     # ~30 Hz
+ros2 topic info /cmd_vel --verbose        # publisher should be twist_mux
+ros2 topic echo /estop/engaged --once     # false
 ```
 
 ---

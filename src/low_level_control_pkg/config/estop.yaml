@@ -1,0 +1,35 @@
+### Latching emergency stop, on the gamepad for now.
+#
+# Consumes:  /joy              the gamepad
+#            /estop/request    std_msgs/Bool, engage-only, for an app or a
+#                              GPIO button later
+# Produces:  /cmd_vel_estop    zeroed Twist, priority 250 in twist_mux
+#            /cmd_vel_lock     latched Bool, lock priority 200
+#            /estop/engaged    std_msgs/Bool, published on change
+#
+# Engaging publishes both: the zeros stop the rover now, the lock keeps it
+# stopped even if this node dies. See config/twist_mux.yaml for why 250 sits
+# above the lock's 200.
+
+estop:
+  ros__parameters:
+    joy_topic: "/joy"
+
+    # 8BitDo button indices shift between X-input, D-input and Switch modes.
+    # Confirm with `ros2 topic echo /joy` before trusting these.
+    engage_button: 4     # L shoulder. R (5) is the teleop deadman.
+    clear_button: 7      # Start. Deliberately not the engage button: a bounce
+                         # or double-press must never re-arm the rover.
+
+    # Seconds the clear button must be held continuously. Releasing early
+    # restarts the hold from zero.
+    clear_hold: 1.0      # s
+
+    request_topic: "/estop/request"
+    estop_cmd_topic: "/cmd_vel_estop"
+    lock_topic: "/cmd_vel_lock"
+    status_topic: "/estop/engaged"
+
+    # Must be fast enough that twist_mux never times out cmd_vel_estop
+    # (0.5 s in twist_mux.yaml) while the stop is engaged.
+    publish_rate: 20.0   # Hz
