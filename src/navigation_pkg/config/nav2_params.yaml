@@ -277,7 +277,18 @@ local_costmap:
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
-        observation_sources: scan
+        # Two sources at different heights. The laser sweeps 270 deg but only at
+        # 0.176 m, so anything shorter is invisible to it and the rover drives
+        # into it. The ZED sits LOWER (0.126 m) and sees a ~110 deg forward
+        # wedge in 3D, which is what catches low obstacles ahead.
+        #
+        # Heights below are z in the costmap's global_frame (odom). The EKF runs
+        # two_d_mode, so odom z = 0 is exactly the base_link plane, and
+        # base_link sits at wheel-axle height (wheel_radius 0.076 m). Therefore:
+        #     real ground        z = -0.076
+        #     ZED optical centre z = +0.050
+        #     laser plane        z = +0.100
+        observation_sources: scan zed_cloud
         scan:
           topic: /scan
           sensor_frame: laser
@@ -289,6 +300,29 @@ local_costmap:
           obstacle_min_range: 0.05    # m
           raytrace_max_range: 7.0     # m
           raytrace_min_range: 0.05    # m
+        zed_cloud:
+          topic: /zed/zed_node/point_cloud/cloud_registered
+          # sensor_frame deliberately blank: taken from the cloud header, which
+          # is also the ray origin used for clearing. Hardcoding it wrong makes
+          # the rays start in the wrong place and clear the wrong cells.
+          data_type: "PointCloud2"
+          clearing: true
+          marking: true
+          # TUNE THIS FIRST if the rover either walls itself in or still hits
+          # low objects. -0.040 is 36 mm above the real floor, so obstacles
+          # taller than ~4 cm mark and the floor itself does not. Raise it
+          # (towards 0) if stereo noise starts marking the floor; lower it
+          # (towards -0.076) to catch flatter objects, at that risk.
+          min_obstacle_height: -0.040  # m, = 36 mm above the floor
+          max_obstacle_height: 0.50    # m, well past the laser plane: catches
+                                       # tabletops and overhangs the laser misses
+          # Much shorter than the laser's 6 m. Stereo depth error grows with the
+          # square of range, and beyond ~2.5 m the noise would mark phantom
+          # obstacles faster than raytracing clears them.
+          obstacle_max_range: 2.5     # m
+          obstacle_min_range: 0.25    # m, the ZED cannot resolve depth closer
+          raytrace_max_range: 3.0     # m, clears slightly beyond what it marks
+          raytrace_min_range: 0.25    # m
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         inflation_radius: 0.45        # m

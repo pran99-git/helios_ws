@@ -47,7 +47,7 @@ amcl:
     # seeding a particle near the true pose. 2000 is a reasonable ceiling for
     # a Jetson that is already running the ZED.
     min_particles: 500      # floor on the cloud size
-    max_particles: 2000     # ceiling; the cost and global-localization knob
+    max_particles: 20000     # ceiling; the cost and global-localization knob
 
     # KLD sampling decides how far the cloud may shrink once it is confident.
     pf_err: 0.05            # max allowed error between true and estimated distribution

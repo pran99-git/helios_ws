@@ -294,20 +294,53 @@ not `Omni` or `PreferForwardCritic` has crept back in.
 
 ## Known limitations
 
+### Low obstacles, and what now covers them
+
+The laser sweeps 270 deg but only at one height, so anything shorter than it
+was simply invisible and the rover drove into it. The **local** costmap now
+takes a second obstacle source from the ZED, which sits *lower* than the laser
+and sees in 3D.
+
+All heights are z in the costmap's `global_frame` (`odom`). The EKF runs
+`two_d_mode`, so odom z = 0 is exactly the `base_link` plane, and `base_link`
+sits at wheel-axle height:
+
+| | z in `odom` | above real ground |
+|---|---|---|
+| Real ground | -0.076 m | 0 |
+| ZED optical centre | +0.050 m | 0.126 m |
+| Laser plane | +0.100 m | 0.176 m |
+
+| Source | Arc | Height band | Range |
+|---|---|---|---|
+| `scan` | 270 deg | single plane at 0.176 m | 6 m |
+| `zed_cloud` | ~110 deg forward | 0.036 m to 0.58 m above ground | 2.5 m |
+
+`min_obstacle_height: -0.040` is the parameter to tune first. It sits 36 mm
+above the floor, so objects taller than about 4 cm mark and the floor itself
+does not. Raise it toward 0 if stereo noise starts painting the floor; lower it
+toward -0.076 to catch flatter things, at that risk.
+
+The short 2.5 m range is deliberate. Stereo depth error grows with the square
+of distance, and further out the noise would mark phantom obstacles faster than
+raytracing clears them.
+
+> **This costs GPU that was previously free.** `publish_point_cloud` only
+> advertises; the SDK computes nothing until something subscribes, and until
+> now only RViz ever did. The costmap subscribes permanently. `point_cloud_res`
+> is set to `REDUCED` to halve that, which loses nothing when everything ends
+> up in 0.05 m cells anyway.
+
+### What this still does not fix
+
 | Limitation | Consequence |
 |---|---|
-| The laser plane sits **0.176 m above the ground** (`base_link` is 0.076 m up, `laser_mount_joint` adds 0.100 m) | Obstacles shorter than 17.6 cm are invisible. Nav2 will drive into them. |
+| **The ZED is forward-only (~110 deg); the laser is 270 deg** | Low obstacles to the side and behind are still invisible, and **this rover strafes**. MPPI's Omni model will drive sideways into them |
+| Stereo has a near blind zone (~0.25 m) | Nothing is seen right at the bumper. Costmap memory covers most of this, since you normally see an object before you get that close |
+| **Global** costmap is still `scan` only | The planner routes through low obstacles and MPPI has to fight it locally. Add `zed_cloud` to the global `obstacle_layer` if that becomes a problem, but keep the range short: a non-rolling costmap keeps noise forever |
+| Not in the slam_toolbox map | slam_toolbox consumes `/scan` only, so a saved map never contains low obstacles. For *permanent* low structure, paint it into the `.pgm` by hand so the planner sees it |
 | No `collision_monitor` | There is no independent last-resort stop below the controller |
-| No ZED voxel layer | Depth is not used for obstacles; see below |
-| Costmaps use `/scan` only | Glass and low-contrast surfaces the laser misses are not avoided |
-
-The low-obstacle gap is the one that matters. The fix is a voxel layer fed by
-`/zed/zed_node/point_cloud/cloud_registered`, which sees below the laser plane.
-It is deliberately not enabled yet: reprocessing showed a camera-sourced grid
-more than halved observed obstacles compared with the laser when used for
-*mapping*, and the point cloud costs real CPU. For *navigation* the trade is
-different, since the two sources would be additive rather than substitutes. It
-is the obvious next addition.
+| Glass and low-contrast surfaces | Missed by the laser, and often by stereo too |
 
 ---
 

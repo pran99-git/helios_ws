@@ -113,6 +113,24 @@
             # ~15 m and the export is clipped at 4 m anyway.
             openni_depth_mode: true
 
+            # The local costmap now subscribes to point_cloud/cloud_registered
+            # as a second obstacle source, to see the low objects the laser
+            # plane at 0.176 m misses entirely. See navigation_pkg's
+            # nav2_params.yaml obstacle_layer.
+            #
+            # That subscription is what MAKES the cloud: publish_point_cloud
+            # only advertises, and the SDK computes nothing until someone
+            # subscribes. So this stopped being free the moment the costmap
+            # asked for it, on a Jetson whose ZED contention is already the
+            # documented cause of the RTAB-Map frame drops.
+            #
+            # REDUCED is half resolution. The costmap bins everything into
+            # 0.05 m cells, so full resolution buys nothing and costs GPU.
+            point_cloud_res: 'REDUCED'
+            # 2x the local costmap's 5 Hz update. Faster only ages out marks
+            # sooner than the costmap can use them.
+            point_cloud_freq: 10.0        # Hz
+
 # ---------------------------------------------------------------------------
 # Considered and deliberately NOT changed. Recorded so the next person does
 # not have to re-derive the reasoning, and so re-opening one of these is a
@@ -138,11 +156,11 @@
 #       for rendering. Clean the cloud at export time instead (cloud_max_depth,
 #       voxel + noise filtering in rtabmap-databaseViewer), never here.
 #
-#   depth.point_cloud_freq: 10.0
-#       Only RViz subscribes to cloud_registered, and the wrapper publishes it
-#       lazily (publish_point_cloud advertises; nothing is computed until
-#       someone subscribes). Costs nothing on a headless run, so capping it
-#       would buy nothing where it hurts.
+#   depth.point_cloud_freq / point_cloud_res
+#       NO LONGER "considered and not changed" -- both are set above. This
+#       entry used to read "only RViz subscribes to cloud_registered, so the
+#       lazy publish costs nothing on a headless run". That stopped being true
+#       when the local costmap took it as an obstacle source.
 #
 #   pos_tracking.area_memory: true
 #       ZED-internal loop closure. Harmless: publish_tf is false, so the ZED's

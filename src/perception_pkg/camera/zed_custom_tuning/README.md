@@ -82,6 +82,8 @@ In summary:
 | `general.grab_compute_capping_fps` | `0.0` (no cap) | `30.0` | Halve depth compute while the sensor keeps capturing at 60 fps, so exposure stays short and turns stay unblurred |
 | `general.pub_frame_rate` | `0.0` (= grab rate, 60) | `30.0` | Stops serialising 60 image+depth pairs/s, while keeping the RGB-D publish period short enough that a mispaired frame is ~21 ms of skew, not ~100 ms |
 | `depth.openni_depth_mode` | `false` (32FC1 metres) | `true` (16UC1 mm) | Matches RTAB-Map's `Mem/SaveDepth16Format`, so depth stores with RVL natively instead of being converted every frame |
+| `depth.point_cloud_res` | `COMPACT` | `REDUCED` | The local costmap bins the cloud into 0.05 m cells, so full resolution costs GPU and buys nothing |
+| `depth.point_cloud_freq` | `10.0` | `10.0` (explicit) | 2x the local costmap's 5 Hz. Pinned rather than inherited, because the costmap now depends on it |
 
 **Keep `pub_frame_rate` equal to `grab_compute_capping_fps`.** Publishing faster
 than the SDK processes buys nothing; processing faster than we publish wastes the
@@ -95,7 +97,7 @@ binding constraint, lower **both** together.
 The file also records, as comments, the things that were **considered and
 deliberately left alone**, so re-opening one of those is a decision rather than a
 rediscovery: `depth_mode`, `depth_confidence` / `depth_texture_conf` (tried and
-reverted: it cut flying pixels and starved loop closure 5x), `point_cloud_freq`,
+reverted: it cut flying pixels and starved loop closure 5x),
 `area_memory` (re-examined and confirmed, with numbers), `mapping_enabled`,
 `od_enabled`, and `video.auto_exposure_time_range_max` (added and reverted
 un-validated; the arithmetic still looks right).
