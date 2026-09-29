@@ -298,6 +298,25 @@ The total stopping distance depends on *how* the stop was triggered:
 | Deadman released, controller still connected | The `/joy` callback fires with the button up and zeroes the command, so braking starts within ~50 ms | ~0.09 m |
 | **`/joy` goes stale** (Bluetooth drops, controller powers off) | **No callback fires.** Teleop keeps republishing the last nonzero command until `joy_timeout` (0.5 s) expires, then zeroes | **~0.28 m** |
 | `/cmd_vel` stops entirely (teleop node dies) | The driver's watchdog waits up to `cmd_timeout` (0.5 s) at full speed first | ~0.28 m |
+| **This driver dies, or the serial link wedges** | Nothing in this package runs. The **controllers' own serial timeout** (`hardware_stop_timeout`, 0.3 s) cuts the motors | **~0.12 m** |
+
+> ### The hardware dead-man is the only stop that is not software
+>
+> The deadman button, `cmd_timeout`, the e-stop and the shutdown hook all run
+> inside `roboclaw_driver_node`. If that process dies or its serial link
+> wedges, **every one of them fails at once**, and a RoboClaw holds its last
+> speed command indefinitely. That combination is how a rover ends up needing
+> its battery switch to stop.
+>
+> So the driver arms the controllers' own serial timeout at startup **and
+> reads it back to prove it took**. If either controller will not arm or will
+> not confirm, the driver **refuses to start**: a rover with no stop that
+> survives a crashed process should not be drivable. Set
+> `hardware_stop_timeout: 0` to override that, knowingly.
+>
+> **What it does not cover:** any packet refreshes the timeout, including the
+> 30 Hz encoder reads. It catches "driver dead" and "link dead", not "writes
+> failing while reads succeed".
 
 A dropped controller is **not** the same as letting go. Releasing the deadman
 produces a message saying so; a dropped link produces no message at all, and

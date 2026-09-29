@@ -9,9 +9,11 @@ import pytest
 from roboclaw import roboclaw_driver
 from roboclaw.roboclaw_driver import (
     CMD_DUTY_M1M2,
+    CMD_GET_SERIAL_TIMEOUT,
     CMD_READ_ENCODERS,
     CMD_READ_ISPEEDS,
     CMD_READ_M1_VELOCITY_PID,
+    CMD_SET_SERIAL_TIMEOUT,
     CMD_SPEED_ACCEL_M1M2,
     UINT32_MAX,
     RoboClaw,
@@ -75,6 +77,8 @@ def test_command_numbers_match_the_protocol():
     assert CMD_DUTY_M1M2 == 34
     assert CMD_SPEED_ACCEL_M1M2 == 40
     assert CMD_READ_M1_VELOCITY_PID == 55
+    assert CMD_SET_SERIAL_TIMEOUT == 14
+    assert CMD_GET_SERIAL_TIMEOUT == 15
 
 
 def test_accel_field_is_unsigned_full_width(fake_port):
@@ -244,3 +248,77 @@ def test_short_read_returns_none(fake_port):
     rc = RoboClaw(bus, ADDRESS, retries=1)
 
     assert rc.read_encoders() is None
+
+
+# --- Hardware dead-man --------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("seconds", "units"),
+    [
+        (0.0, 0),  # explicit disable
+        (-1.0, 0),  # nonsense treated as disable, never as a huge timeout
+        (0.1, 1),
+        (0.3, 3),
+        (0.25, 3),  # rounds UP: a shorter timeout than asked cuts mid-drive
+        (0.01, 1),  # anything positive arms at least one step
+        (25.5, 255),
+        (99.0, 255),  # clamped to the controller's ceiling
+    ],
+)
+def test_serial_timeout_encodes_hundred_millisecond_units(fake_port, seconds, units):
+    """The controller stores whole 100 ms steps, and rounding must go up.
+
+    Rounding down would arm a timeout shorter than requested, which cuts the
+    motors during normal driving rather than only when the host dies.
+    """
+    bus, fake = fake_port
+    claw = RoboClaw(bus, ADDRESS)
+    fake.to_read.extend(b"\xff")
+    assert claw.set_serial_timeout(seconds) is True
+    assert fake.written[0] == ADDRESS
+    assert fake.written[1] == CMD_SET_SERIAL_TIMEOUT
+    assert fake.written[2] == units
+
+
+def test_serial_timeout_frame_carries_a_valid_crc(fake_port):
+    bus, fake = fake_port
+    claw = RoboClaw(bus, ADDRESS)
+    fake.to_read.extend(b"\xff")
+    claw.set_serial_timeout(0.3)
+    frame = bytes(fake.written)
+    assert crc16(frame[:3]) == int.from_bytes(frame[3:5], "big")
+
+
+def test_set_serial_timeout_retries_then_reports_failure(fake_port):
+    """An unacknowledged arm must report False, never be assumed to have worked."""
+    bus, fake = fake_port
+    claw = RoboClaw(bus, ADDRESS)
+    assert claw.set_serial_timeout(0.3) is False
+    assert fake.buffer_resets == claw._retries
+
+
+def test_read_serial_timeout_returns_seconds(fake_port):
+    bus, fake = fake_port
+    claw = RoboClaw(bus, ADDRESS)
+    payload = bytes([3])
+    crc = crc16(bytes([ADDRESS, CMD_GET_SERIAL_TIMEOUT]) + payload)
+    fake.to_read.extend(payload + crc.to_bytes(2, "big"))
+    assert claw.read_serial_timeout() == pytest.approx(0.3)
+
+
+def test_read_serial_timeout_reports_a_disabled_deadman_as_zero(fake_port):
+    """0 means the controller will hold its last speed forever. Must not read as None."""
+    bus, fake = fake_port
+    claw = RoboClaw(bus, ADDRESS)
+    payload = bytes([0])
+    crc = crc16(bytes([ADDRESS, CMD_GET_SERIAL_TIMEOUT]) + payload)
+    fake.to_read.extend(payload + crc.to_bytes(2, "big"))
+    assert claw.read_serial_timeout() == 0.0
+
+
+def test_read_serial_timeout_returns_none_on_bad_crc(fake_port):
+    bus, fake = fake_port
+    claw = RoboClaw(bus, ADDRESS)
+    fake.to_read.extend(bytes([3]) + b"\x00\x00")
+    assert claw.read_serial_timeout() is None

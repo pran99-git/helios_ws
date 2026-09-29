@@ -105,6 +105,8 @@ class RoboclawDriverNode(Node):
 
         self.declare_parameter("cmd_topic", "cmd_vel")
         self.declare_parameter("cmd_timeout", 0.5)  # s; watchdog e-stop
+        # The controllers' OWN dead-man, armed at startup. 0 disables it.
+        self.declare_parameter("hardware_stop_timeout", 0.3)  # s
         self.declare_parameter("control_rate", 20.0)  # Hz, write-path rate
 
         # --- Encoder publishing ---------------------------------------------
@@ -148,6 +150,12 @@ class RoboclawDriverNode(Node):
 
         self.left = RoboClaw(left_bus, g("left_address").value)
         self.right = RoboClaw(right_bus, g("right_address").value)
+
+        # --- Hardware dead-man -----------------------------------------------
+        # Armed before anything can command motion, and before the speed
+        # ceiling read below, because it is the only stop that survives this
+        # process dying.
+        self._arm_hardware_stop(float(g("hardware_stop_timeout").value))
 
         # --- Speed ceiling ---------------------------------------------------
         # Read before any command goes out: this is the per-wheel ceiling that
@@ -353,6 +361,55 @@ class RoboclawDriverNode(Node):
         for bus in self._buses.values():
             bus.close()
         self._buses.clear()
+
+    def _arm_hardware_stop(self, seconds: float) -> None:
+        """Arms the controllers' serial timeout and proves it took effect.
+
+        Refuses to start if it cannot be armed. Every other stop on this rover
+        runs inside this process, so without this one a crashed driver or a
+        wedged serial link leaves the wheels turning at their last commanded
+        speed until someone cuts the battery. A rover in that state should not
+        be drivable, so failing to start is the correct outcome.
+
+        Args:
+            seconds: Requested timeout. 0 disables the dead-man, which is
+                allowed but warned about loudly.
+
+        Raises:
+            RuntimeError: If either controller will not arm or will not
+                confirm the armed value.
+        """
+        if seconds <= 0.0:
+            self.get_logger().warning(
+                "hardware_stop_timeout is 0, so the controllers' dead-man is "
+                "DISABLED. If this node dies or the serial link wedges, the "
+                "wheels keep turning at their last commanded speed until "
+                "battery power is cut."
+            )
+            return
+
+        for name, controller in (("left", self.left), ("right", self.right)):
+            if not controller.set_serial_timeout(seconds):
+                self._close_buses()
+                self.get_logger().fatal(
+                    f"{name} RoboClaw refused SETSERIALTIMEOUT; refusing to start "
+                    "without a hardware stop"
+                )
+                raise RuntimeError(f"cannot arm the hardware stop on {name} RoboClaw")
+
+            armed = controller.read_serial_timeout()
+            if armed is None or armed <= 0.0:
+                self._close_buses()
+                self.get_logger().fatal(
+                    f"{name} RoboClaw did not confirm its serial timeout "
+                    f"(read back {armed}); refusing to start on an unverified "
+                    "safety interlock"
+                )
+                raise RuntimeError(f"hardware stop unverified on {name} RoboClaw")
+
+            self.get_logger().info(
+                f"{name} RoboClaw hardware stop armed at {armed:.1f} s"
+            )
 
     def destroy_node(self) -> None:
         """Stops the motors and closes both ports before shutting down."""

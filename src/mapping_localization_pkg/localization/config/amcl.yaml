@@ -47,7 +47,7 @@ amcl:
     # seeding a particle near the true pose. 2000 is a reasonable ceiling for
     # a Jetson that is already running the ZED.
     min_particles: 500      # floor on the cloud size
-    max_particles: 20000     # ceiling; the cost and global-localization knob
+    max_particles: 5000     # ceiling; the cost and global-localization knob
 
     # KLD sampling decides how far the cloud may shrink once it is confident.
     pf_err: 0.05            # max allowed error between true and estimated distribution
@@ -82,7 +82,13 @@ amcl:
     # usable return; -1.0 means "use whatever the sensor reports".
     laser_min_range: -1.0    # m, -1.0 = use whatever the sensor reports
     laser_max_range: 10.0    # m, matches slam_toolbox.yaml's max_laser_range
-    max_beams: 60            # rays subsampled per scan for the update
+    # Raised 60 -> 100 on 2026-09-29, paid for by dropping max_particles.
+    # Cost is particles x beams, so this is roughly cost-neutral against the
+    # old 2000 x 60. More beams sharpens each particle's likelihood, which
+    # kills wrong hypotheses faster; more particles only samples the same
+    # blurry likelihood more densely. Do not push far past ~120: an
+    # over-peaked likelihood causes particle depletion.
+    max_beams: 100           # rays subsampled per scan for the update
 
     # Beam likelihood mixture. z_hit + z_rand + z_max + z_short is the whole
     # probability mass for one ray, split across the four ways a return can be

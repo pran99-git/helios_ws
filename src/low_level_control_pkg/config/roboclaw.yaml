@@ -61,6 +61,10 @@ roboclaw_driver:
     #     let go.
     #   /cmd_vel stream stops outright (teleop node dies) -> the watchdog waits
     #     up to cmd_timeout (0.5 s) at full speed first: ~0.28 m total.
+    #   this driver dies, or the serial link wedges -> nothing here runs at
+    #     all. The controllers' own serial timeout (hardware_stop_timeout
+    #     below) cuts the motors after 0.3 s: ~0.12 m coasting. Without it
+    #     armed, the controllers hold the last speed forever.
     #
     # Trade traction against stopping distance deliberately, and recompute
     # these numbers whenever max_vx or drive_accel changes.
@@ -68,6 +72,27 @@ roboclaw_driver:
 
     cmd_topic: 'cmd_vel'
     cmd_timeout: 0.5   # s; ramped stop if /cmd_vel goes stale
+
+    # The controllers' OWN dead-man, armed over serial at every driver start
+    # and read back to prove it took. This is the only stop on the rover that
+    # does not run inside this process: the deadman button, cmd_timeout, the
+    # e-stop and the shutdown hook are all software here, so a crashed driver
+    # or a wedged serial link used to leave the wheels turning at their last
+    # commanded speed until someone cut battery power.
+    #
+    # 0.3 s is six times the 50 ms write period at control_rate 20 Hz, so
+    # scheduling jitter on a loaded Jetson cannot trip it, while a dead driver
+    # still stops the rover inside ~0.12 m at 0.40 m/s. The controller stores
+    # whole 100 ms steps, so anything finer is rounded up.
+    #
+    # CAVEAT: any packet refreshes it, including the 30 Hz encoder reads. It
+    # therefore covers "driver dead" and "link dead", but NOT "writes failing
+    # while reads still succeed".
+    #
+    # 0 disables it. The driver then starts with a loud warning instead of
+    # refusing, because a controller whose firmware lacks commands 14/15 should
+    # still be usable, knowingly.
+    hardware_stop_timeout: 0.3   # s
     control_rate: 20.0 # Hz, rate commands are pushed to the controllers
 
     # Encoder read/publish path -- consumed by perception_pkg's

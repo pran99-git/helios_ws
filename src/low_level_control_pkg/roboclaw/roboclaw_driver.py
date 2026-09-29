@@ -19,6 +19,7 @@
 # means the command was not applied).
 
 import contextlib
+import math
 import threading
 
 import serial
@@ -29,6 +30,12 @@ CMD_READ_ISPEEDS = 79  # returns Speed1 (4B), Speed2 (4B), CRC (2B), counts/sec
 CMD_DUTY_M1M2 = 34  # payload: Duty1 (2B signed), Duty2 (2B signed)
 CMD_SPEED_ACCEL_M1M2 = 40  # payload: Accel (4B unsigned), Speed1, Speed2 (4B signed)
 CMD_READ_M1_VELOCITY_PID = 55  # returns P, I, D, QPPS (4x 4B), CRC (2B)
+CMD_SET_SERIAL_TIMEOUT = 14  # payload: timeout (1B) in 100 ms units, 0 = off
+CMD_GET_SERIAL_TIMEOUT = 15  # returns timeout (1B), CRC (2B)
+
+# The controller stores its serial timeout as whole 100 ms units, 0 to 255.
+SERIAL_TIMEOUT_STEP_S = 0.1
+SERIAL_TIMEOUT_MAX_UNITS = 255
 
 DUTY_FULL_SCALE = 32767  # signed 16-bit; +-DUTY_FULL_SCALE = +-100% duty
 
@@ -196,6 +203,58 @@ class RoboClaw:
             d / PID_FIXED_POINT_SCALE,
             qpps,
         )
+
+    def set_serial_timeout(self, seconds: float) -> bool:
+        """Arms the controller's own dead-man.
+
+        This is the only stop on the rover that does not depend on the host.
+        Every other one -- the deadman button, cmd_timeout, the e-stop, the
+        shutdown hook -- is software running in the driver process. Without
+        this armed, a crashed driver or a wedged serial link leaves the
+        controller holding its last speed command indefinitely, and only
+        cutting battery power stops the wheels.
+
+        Not written to NVM, so it is re-armed on every driver start and the
+        controller behaves stock if used elsewhere. The gap that leaves is
+        between controller power-on and driver start, when nothing is
+        commanding motion anyway.
+
+        Args:
+            seconds: 0 disables it. Otherwise rounded UP to the next 100 ms,
+                never down: a shorter timeout than asked for risks cutting the
+                motors mid-drive. Clamped to the controller's 25.5 s ceiling.
+
+        Returns:
+            True if the controller acknowledged.
+        """
+        units = (
+            0
+            if seconds <= 0.0
+            else min(
+                SERIAL_TIMEOUT_MAX_UNITS, math.ceil(seconds / SERIAL_TIMEOUT_STEP_S)
+            )
+        )
+        for _ in range(self._retries):
+            if self._bus.write_transaction(
+                self._address, CMD_SET_SERIAL_TIMEOUT, bytes([units])
+            ):
+                return True
+        return False
+
+    def read_serial_timeout(self) -> float | None:
+        """Reads back the controller's dead-man in seconds, 0.0 meaning off.
+
+        Worth calling after every set: an unverified safety interlock is worse
+        than a known-absent one, because it is believed in.
+
+        Returns:
+            The armed timeout, or None if every retry failed.
+        """
+        for _ in range(self._retries):
+            payload = self._bus.transaction(self._address, CMD_GET_SERIAL_TIMEOUT, 1)
+            if payload is not None:
+                return payload[0] * SERIAL_TIMEOUT_STEP_S
+        return None
 
     def speed_accel_m1m2(self, accel: float, speed_m1: float, speed_m2: float) -> bool:
         """Commands both channels to a target speed under an acceleration ramp.
