@@ -555,8 +555,8 @@ session instead.
 
 ### Then drive
 
-AMCL only runs a filter update after `update_min_d` (0.20 m) or `update_min_a`
-(0.20 rad) of motion. **A stationary rover never converges.** Drive a few
+AMCL only runs a filter update after `update_min_d` (0.10 m) or `update_min_a`
+(0.10 rad) of motion. **A stationary rover never converges.** Drive a few
 metres past distinctive geometry and watch `/particlecloud` tighten in RViz.
 
 Teleop is the normal way to do this by hand. Pushing the rover works just as
@@ -565,6 +565,52 @@ well: AMCL reads odometry, not commands.
 **You normally do not have to.** `amcl_recovery` starts with AMCL and does all
 of the above by itself, including the very first convergence at startup. See
 [It re-localizes itself](#it-re-localizes-itself) below.
+
+### Convergence tuning, and how to measure it
+
+Recovery worked but converged slowly, so five parameters were retuned on
+**2026-09-29**. All are in `config/amcl.yaml` with the old value recorded in a
+comment beside each, so any one can be reverted alone.
+
+| Parameter | Was | Now | Why |
+|---|---|---|---|
+| `z_hit` / `z_rand` | 0.5 / 0.5 | **0.8 / 0.2** | Nav2 defaults, never tuned. Half the model being uniform noise flattened the likelihood field, so wrong particles kept too much weight to be resampled away. **Free, and the biggest single win** |
+| `update_min_d` / `_a` | 0.20 | **0.10** | A 2*pi survey bought only ~31 updates and a 1.5 m leg only ~7. Halving doubles the updates for the same driving |
+| `alpha1-4` / `alpha5` | 0.2 / 0.4 | **0.1 / 0.2** | Every prediction blurred the cloud faster than the scan could re-tighten it. The 2:1 strafe ratio is preserved; it came from measured off-axis drift |
+| `sigma_hit` | 0.2 | **0.15** | A 20 cm std let a particle 20 cm off still score well |
+| `survey_yaw` | 2*pi | **pi** | Rotating does not move the viewpoint, so a survey constrains heading but barely helps position |
+| `leg_speed` | 0.2 | **0.3** | Translation to new viewpoints is what disambiguates position |
+
+**Revert order if something regresses.** `update_min_*` first: it is the only
+one that costs CPU, on a Jetson that has already logged `ekf_filter_node:
+Failed to meet update rate`. Then the alphas, whose symptom is a filter that
+grows confident and then jumps when scan matching disagrees. `z_rand` last, and
+only toward 0.3 if a cluttered room full of unmapped obstacles makes it diverge.
+
+#### Measuring, instead of guessing
+
+Five knobs moved at once. Only a measured number can say which earned its
+place, so there is a tool:
+
+```bash
+# start it BEFORE AMCL, then drive or let recovery drive, then Ctrl+C
+python3 src/mapping_localization_pkg/localization/scripts/amcl_convergence.py
+python3 .../amcl_convergence.py --csv run_a.csv    # to plot two runs together
+```
+
+It watches `/amcl_pose` and reports **time to converge**, using the same
+thresholds `amcl_recovery` uses to declare success, so the number matches the
+moment recovery would stop driving.
+
+```
+    2.3s  update   10  std x= 0.15 y= 0.15 yaw= 0.06   <<< CONVERGED
+--- summary ---
+updates seen        : 21
+TIME TO CONVERGE    : 2.3 s
+```
+
+Change one parameter, re-run, compare. If no `/amcl_pose` ever arrives, the
+rover has not moved far enough to trigger an update.
 
 ### It re-localizes itself
 
