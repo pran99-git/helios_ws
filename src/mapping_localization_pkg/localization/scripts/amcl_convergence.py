@@ -45,6 +45,12 @@ class ConvergenceTimer(Node):
             self._csv.writerow(["elapsed_s", "std_x_m", "std_y_m", "std_yaw_rad"])
 
         self._t0: float | None = None
+        # AMCL publishes once when seeded or scattered, then only after
+        # update_min_d/_a of motion. So the SECOND pose is the first the rover
+        # earned by moving, and timing from there excludes however long it sat
+        # still before the driver started. Timing from the first pose made a
+        # 28 s convergence read as 237 s.
+        self._t_motion: float | None = None
         self._converged_at: float | None = None
         self._updates = 0
         self._best = math.inf
@@ -62,6 +68,8 @@ class ConvergenceTimer(Node):
         now = time.time()
         if self._t0 is None:
             self._t0 = now
+        elif self._t_motion is None:
+            self._t_motion = now
         elapsed = now - self._t0
         self._updates += 1
 
@@ -82,7 +90,7 @@ class ConvergenceTimer(Node):
             and position < self._converged_std
             and syaw < self._converged_yaw
         ):
-            self._converged_at = elapsed
+            self._converged_at = now - (self._t_motion or self._t0)
             mark = "   <<< CONVERGED"
         print(
             f"{elapsed:7.1f}s  update {self._updates:4d}  "
@@ -107,15 +115,19 @@ class ConvergenceTimer(Node):
             )
         else:
             total = time.time() - self._t0
+            idle = (self._t_motion - self._t0) if self._t_motion else 0.0
+            driving = max(total - idle, 1e-6)
             out.append(f"updates seen        : {self._updates}")
-            out.append(
-                f"update rate         : {self._updates / max(total, 1e-6):.2f} Hz"
-            )
+            out.append(f"idle before motion  : {idle:.1f} s (excluded)")
+            out.append(f"update rate driving : {self._updates / driving:.2f} Hz")
             out.append(f"best position std   : {self._best:.2f} m")
             if self._converged_at is not None:
-                out.append(f"TIME TO CONVERGE    : {self._converged_at:.1f} s")
+                out.append(
+                    f"TIME TO CONVERGE    : {self._converged_at:.1f} s "
+                    f"(from first motion)"
+                )
             else:
-                out.append(f"TIME TO CONVERGE    : never (watched {total:.1f} s)")
+                out.append(f"TIME TO CONVERGE    : never (drove {driving:.1f} s)")
         print("\n".join(out), flush=True)
 
 
