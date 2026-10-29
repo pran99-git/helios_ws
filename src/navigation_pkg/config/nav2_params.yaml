@@ -59,7 +59,15 @@ controller_server:
       # Sampling spread, per axis. Too small and the optimizer cannot find its way
       # around obstacles; too large and the command is noisy.
       vx_std: 0.20                    # m/s
-      vy_std: 0.20                    # m/s, nonzero ONLY because this rover strafes
+      # RETUNED 2026-10-29 for nose-first driving. At vy_std 0.20 / vy_max 0.40
+      # a sideways slide cost the optimiser no more than driving forward, so
+      # the rover crabbed to its goal instead of facing it. Strafe is now a
+      # fine-correction axis: enough to slide around an obstacle, never enough
+      # to carry a manoeuvre.
+      #
+      # This deliberately trades away most of the mecanum advantage. Put both
+      # back to 0.20 / 0.40 to get omnidirectional motion again.
+      vy_std: 0.05                    # m/s
       wz_std: 0.40                    # rad/s
 
       # Ceilings, matching low_level_control_pkg/config/roboclaw.yaml. Keeping
@@ -67,8 +75,21 @@ controller_server:
       # command Nav2 believed it had issued.
       vx_max: 0.40                    # m/s forward
       vx_min: -0.35                   # m/s reverse, slightly tighter (no rear sensor)
-      vy_max: 0.40                    # m/s strafe
+      vy_max: 0.10                    # m/s strafe, fine correction only
       wz_max: 0.80                    # rad/s
+
+      # Acceleration limits. Previously unset, so MPPI used its permissive
+      # defaults (~3 m/s^2) and could ask for a near-instant stop that the
+      # driver then had to absorb: that is the jerky halt at the goal.
+      # ax_min shapes the approach, bringing 0.40 m/s to rest over ~0.67 s
+      # and ~0.13 m instead of slamming.
+      #
+      # All four sit inside velocity_smoother's [0.80, 0.80, 2.00] ceilings,
+      # so the smoother never fights the optimiser.
+      ax_max: 0.60                    # m/s^2
+      ax_min: -0.60                   # m/s^2, the braking ramp into the goal
+      ay_max: 0.30                    # m/s^2
+      az_max: 1.50                    # rad/s^2
 
       temperature: 0.3                # softmax sharpness; lower = greedier
       gamma: 0.015                    # control-cost weight, penalises large commands
@@ -105,17 +126,25 @@ controller_server:
       GoalAngleCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 3.0              # pull toward the goal heading
-        threshold_to_consider: 0.5    # m from goal before heading matters
+        # 3.0 -> 6.0, engaged from 0.8 m instead of 0.5 m. Starting the final
+        # heading correction earlier blends it into the approach, instead of
+        # leaving a spin to do once the rover has already stopped.
+        cost_weight: 6.0
+        threshold_to_consider: 0.8    # m from goal before heading matters
       PathAlignCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 10.0             # stay ON the planned path
+        # 10.0 -> 6.0. SmacPlanner2D emits 8-connected grid paths, which
+        # zigzag; at 10.0 the optimiser chased every jog. At 6.0 it follows the
+        # path's direction while PathFollowCritic drives progress along it.
+        cost_weight: 6.0
         max_path_occupancy_ratio: 0.05
         trajectory_point_step: 4
         threshold_to_consider: 0.5    # m from goal after which path following stops
         offset_from_furthest: 20
-        use_path_orientations: false  # false suits omni: position matters, heading is free
+        # false -> true: with nose-first driving the path's heading is
+        # information worth using, not a free variable.
+        use_path_orientations: true
       PathFollowCritic:
         enabled: true
         cost_power: 1
@@ -125,20 +154,30 @@ controller_server:
       PathAngleCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 6.0
+        # 6.0 -> 12.0. This is the critic that decides rotate-then-go versus
+        # curve-while-going: it penalises heading error against the path
+        # ahead, so a large error (goal behind) makes turning on the spot
+        # cheaper than driving, while a small one is absorbed into a curve.
+        cost_weight: 12.0
         offset_from_furthest: 4
         threshold_to_consider: 0.5     # m
-        max_angle_to_furthest: 0.35    # rad
-        mode: 0                       # 1 = no forward preference; correct for omni
+        max_angle_to_furthest: 0.25    # rad (20 deg -> 14 deg): correct sooner
+        mode: 0                       # forward preference: drive nose-first
       PreferForwardCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 8.0
+        # 8.0 -> 25.0. Penalises reverse travel, so a goal behind the rover is
+        # reached by turning to face it rather than backing toward it. With
+        # PathAngleCritic above, that turn happens on the spot.
+        cost_weight: 25.0
         threshold_to_consider: 0.5
       TwirlingCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 10.0             # penalise spinning that does not serve the path
+        # 10.0 -> 6.0. Right for aimless spinning, but at 10.0 it also fought
+        # the deliberate turn-on-the-spot we now want. Lowered, not removed:
+        # without it the heading wanders while driving.
+        cost_weight: 6.0
 
 # ------------------------------------------------------------------- planner ---
 planner_server:

@@ -50,21 +50,46 @@ above nothing, because there is nothing above it.
 
 ---
 
-## The mecanum decisions
+## Driving style: nose-first, not crabbing
 
-Most Nav2 configurations you will find assume a differential-drive robot. Three
-choices here exist specifically because Helios can strafe.
+Helios *can* strafe, and for a long time this config let it. The result was a
+rover that slid sideways toward its goal rather than facing it. Retuned
+**2026-10-29** to drive nose-first, with strafe demoted to a correction axis.
 
-| Setting | Value | Why |
-|---|---|---|
-| `motion_model` | `"Omni"` | `DiffDrive` forbids `vy` outright, discarding the whole point of mecanum |
-| `vy_std` / `vy_max` | 0.20 / 0.40 | The optimizer must be allowed to sample sideways motion |
-| `PreferForwardCritic` | **omitted** | It penalises any motion that is not forward, which is a penalty on strafing |
-| `PathAngleCritic.mode` | `1` | Mode 0 assumes a forward-facing preference; mode 1 has none |
-| `use_final_approach_orientation` | `false` | The planner does not need to shape the final heading; MPPI can strafe into it |
+Worth knowing why it looked erratic rather than merely omnidirectional: the
+config had drifted into a hybrid. `PreferForwardCritic` was enabled at 8.0 and
+`PathAngleCritic.mode` was 0, both of which ask for forward-facing motion,
+while `vy_max` stayed at 0.40 making a sideways slide free. The two pulled
+against each other every cycle. The settings below are at least coherent.
 
-`TwirlingCritic` is kept and weighted 10.0. Omni robots can rotate freely at any
-moment, and without this they tend to spin while translating for no benefit.
+| Setting | Was | Now | Why |
+|---|---|---|---|
+| `vy_max` / `vy_std` | 0.40 / 0.20 | **0.10 / 0.05** | Strafe still available to slide around an obstacle, never enough to carry a manoeuvre |
+| `PreferForwardCritic` | 8.0 | **25.0** | A goal behind is reached by turning to face it, not by reversing |
+| `PathAngleCritic` | 6.0, 0.35 rad | **12.0, 0.25 rad** | Decides rotate-then-go versus curve-while-going. Large heading error makes turning on the spot cheaper than driving |
+| `PathAlignCritic` | 10.0 | **6.0** | SmacPlanner2D emits zigzagging 8-connected paths; at 10.0 the optimiser chased every jog |
+| `use_path_orientations` | false | **true** | With nose-first driving the path's heading is information, not a free variable |
+| `TwirlingCritic` | 10.0 | **6.0** | Still suppresses aimless spin, no longer fights a deliberate turn-on-the-spot |
+| `GoalAngleCritic` | 3.0 @ 0.5 m | **6.0 @ 0.8 m** | Blends the final heading into the approach instead of spinning after stopping |
+| `ax_max` / `ax_min` / `ay_max` / `az_max` | unset | **0.60 / -0.60 / 0.30 / 1.50** | Were defaulting to ~3 m/s², so MPPI could demand a near-instant stop. `ax_min` is the braking ramp: 0.40 m/s to rest over ~0.67 s and ~0.13 m |
+
+`motion_model` stays `"Omni"`. `DiffDrive` would forbid `vy` outright; the goal
+is to deprioritise strafe, not remove it.
+
+All four acceleration limits sit inside `velocity_smoother`'s
+`[0.80, 0.80, 2.00]` ceilings, so the smoother is never fighting the optimiser.
+
+> **This trades away most of the mecanum advantage.** It is the right call for
+> predictable motion and it suits the VLA later, whose training data is
+> nonholonomic. To get omnidirectional driving back, restore `vy_max` 0.40 /
+> `vy_std` 0.20 and drop `PreferForwardCritic` toward 5.0.
+
+### Still open
+
+Paths come from `SmacPlanner2D`, which is grid-based and jagged. A
+`smoother_server` would clean them up, but it needs a custom behaviour tree to
+invoke `SmoothPath`, so lowering `PathAlignCritic` is the cheap stand-in for
+now.
 
 ---
 
