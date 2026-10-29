@@ -587,6 +587,46 @@ Failed to meet update rate`. Then the alphas, whose symptom is a filter that
 grows confident and then jumps when scan matching disagrees. `z_rand` last, and
 only toward 0.3 if a cluttered room full of unmapped obstacles makes it diverge.
 
+#### Measured results, 2026-10-29
+
+Retuned config, lab map (9.35 x 13.65 m). Raw traces in `datasets/amcl_tuning/`
+(gitignored).
+
+| Scenario | Time to converge |
+|---|---|
+| Teleop, fixed route | 28.3 s |
+| `amcl_recovery` driving itself | **7.1 s** |
+
+Recovery is faster than a human route because it surveys and picks headings
+from the costmap, which generates filter updates far quicker than driving
+across open floor.
+
+**Five autonomous trials, cold start each time:**
+
+| Run | Converged after | Correct? |
+|---|---|---|
+| 1 | mid-leg 1 | **NO - wrong place** |
+| 2 | after spanning the map | yes |
+| 3 | during the survey spin, 0 legs | yes |
+| 4 | mid-leg 1 | yes |
+| 5 | mid-leg 1 | yes |
+
+**1 wrong in 5.** At n=5 the 95% interval spans roughly 4% to 62%, so this
+establishes that the failure happens, not how often.
+
+> **The failure is silent.** The wrong pose reported ~0.10 m std, the same as
+> every correct one. `is_converged` is an instantaneous threshold check with
+> no sustain and no minimum-travel requirement, so nothing in software can
+> distinguish a right answer from a confidently wrong one. Only an operator
+> looking at RViz caught it.
+
+**A prediction was made and falsified.** Run 3 converged during the survey
+spin with essentially no translation, and was correct. The reasoning behind
+`survey_yaw` 2*pi -> pi was that rotation cannot disambiguate position; that
+is wrong. A 270 deg scan from one point in a furnished room is close to a
+unique signature, and the spin also sweeps the 90 deg blind sector through the
+scene. **That change should be reverted.**
+
 #### Measuring, instead of guessing
 
 Five knobs moved at once. Only a measured number can say which earned its
