@@ -79,6 +79,35 @@ OmniVLA-edge, JetPack 7.2.1, CUDA 13.2, sm_87. Measured, not estimated.
 
 The policy was designed for 3 Hz, so there is real headroom.
 
+## Measured under load, 2026-10-29
+
+The worry was that a 108 M policy and the ZED would fight over the GPU. They
+do not. Staged on the bench, wheels up:
+
+| Load | Policy latency | GPU | RAM | new EKF misses |
+|---|---|---|---|---|
+| idle GPU | 93.7 ms / 10.7 Hz | - | - | - |
+| ZED + point cloud | 93.4 ms / 10.7 Hz | 91% | 6.38 GB | - |
+| + lidar, EKF, AMCL, Nav2 (controller idle) | 98.2 ms / 10.2 Hz | 98-99% | 6.74 GB | 0 |
+| **+ MPPI actively optimising** | **100.2 ms / 10.0 Hz** | 25% | 6.79 GB | **0** |
+
+**7% penalty from idle to full load, still 2x the 5 Hz the bridge asks for.**
+No new `ekf_filter_node` rate misses at any stage, and `controller_server`
+held 19.992 Hz with 0.6 ms std dev while the policy ran beside it.
+
+The last row matters: MPPI only optimises while following a path, so it was
+driven with a synthetic 20 m path sent to the `follow_path` action, the same
+route `path_arbiter_node` uses. Without that the largest CPU consumer in the
+stack is idle and the number flatters itself.
+
+> **The camera costs more than the policy.** The point cloud added for
+> low-obstacle costmapping takes the GPU from 0% to 65% on its own. The policy
+> adds less than the ZED already does.
+
+Incidental confirmation of the nose-first MPPI retune: with the optimiser
+tracking, the commanded twist was `vx 0.0006, vy -0.0017, wz -0.094`. Yaw
+dominates strafe by roughly 50x, as intended.
+
 ## Goal modalities
 
 The checkpoint defines a fixed set. Combinations outside it are refused with
