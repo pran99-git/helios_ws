@@ -42,9 +42,8 @@ roboclaw_driver:
 
     # Acceleration ramp, counts/sec^2, applied by the controller. At 5126
     # counts/m (2448 counts/rev over a 0.478 m circumference), 5000 is
-    # ~0.98 m/s^2. This is the parameter that removes the torque step an
-    # unramped duty command used to apply, so lowering it reduces slip on a
-    # hard start.
+    # ~0.98 m/s^2. Ramping removes the torque step of a raw duty command, so
+    # lowering this reduces wheel slip on a hard start.
     #
     # It is also the DECELERATION for every stop -- watchdog trip, deadman
     # release, shutdown. At 5000, braking from max_vx (0.40 m/s) takes
@@ -75,10 +74,10 @@ roboclaw_driver:
 
     # The controllers' OWN dead-man, armed over serial at every driver start
     # and read back to prove it took. This is the only stop on the rover that
-    # does not run inside this process: the deadman button, cmd_timeout, the
-    # e-stop and the shutdown hook are all software here, so a crashed driver
-    # or a wedged serial link used to leave the wheels turning at their last
-    # commanded speed until someone cut battery power.
+    # does not run inside this process. The deadman button, cmd_timeout, the
+    # e-stop and the shutdown hook are all software here, so without this a
+    # crashed driver or wedged serial link leaves the wheels turning at their
+    # last commanded speed until battery power is cut.
     #
     # 0.3 s is six times the 50 ms write period at control_rate 20 Hz, so
     # scheduling jitter on a loaded Jetson cannot trip it, while a dead driver

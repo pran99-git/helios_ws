@@ -32,8 +32,8 @@ vla_bridge:
     # path is retracted once and the roboclaw watchdog takes over.
     staleness_timeout: 1.00             # s
 
-    # Measured ceiling on this Jetson is 10.5 Hz (OmniVLA-edge, 95 ms). Held
-    # at half that to leave GPU headroom for the ZED. The policy itself was
+    # The policy caps out near 10 Hz on this Jetson (OmniVLA-edge, ~95 ms).
+    # Held at half that to leave GPU headroom for the ZED; the policy was
     # designed for 3 Hz, so this is already generous.
     inference_rate: 5.0                 # Hz
 

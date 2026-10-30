@@ -11,10 +11,10 @@ from teleop.speed_limits import (
 
 
 def test_default_matches_the_measured_hardware():
-    """Pins the fallback to what this rover actually reported.
+    """Pins the fallback to what this rover's controllers actually report.
 
-    Measured 2026-07-29. rover_control assumes 45000, which is 5.9x too high
-    for these controllers; this test exists so that value cannot drift back in.
+    rover_control assumes 45000, which is 5.9x too high for these controllers.
+    This test exists so that value cannot drift back in.
     """
     assert DEFAULT_MAX_QPPS == 7590
 

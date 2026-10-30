@@ -11,9 +11,9 @@ summary on Ctrl+C:
     python3 amcl_convergence.py
     python3 amcl_convergence.py --converged-std 0.20 --csv run_a.csv
 
-Change one parameter in amcl.yaml, re-run, compare. That is the whole point:
-five knobs were changed at once on 2026-09-29 and only a measured time-to-
-converge can tell which of them actually earned its place.
+Change one parameter in amcl.yaml, re-run, compare. Tuning several knobs at
+once is untraceable: only a measured time-to-converge shows which of them
+earned its place.
 """
 
 from __future__ import annotations

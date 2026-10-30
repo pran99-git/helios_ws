@@ -30,7 +30,7 @@ wheel_odometry:
     #   This rover: 51:1 gearbox -> 12 * 4 * 51 = 2448.
     counts_per_rev: 2448.0
 
-    # --- Yaw scale calibration (2026-08-26) ----------------------------------
+    # --- Yaw scale calibration ----------------------------------------------
     # Multiplies the dtheta term ONLY. 1.0 = the pure geometric model.
     #
     # The geometric model divides by 4*L with L = (wheelbase+track_width)/2 =
@@ -87,19 +87,13 @@ wheel_odometry:
     # lower it back toward x only after the strafe drift is mechanically
     # fixed.
     pose_covariance_diagonal: [0.01, 0.05, 1.0e+6, 1.0e+6, 1.0e+6, 0.05]
-    # vyaw (last entry) RAISED 0.05 -> 0.5 on 2026-08-25. ekf.yaml fuses
-    # vyaw from BOTH this and the ZED (/zed/odom_with_cov, variance 0.01), so
-    # at 0.05 the wheels carried 1/6 of the fused yaw estimate. On a MECANUM
-    # base that is the worst possible yaw source: yaw comes from encoder
-    # differences over a geometric lever arm of (wheelbase+track_width)/2 =
-    # 0.275 m, and the rollers slip laterally, so the effective lever arm is
-    # not the geometric one. The resulting error is a SCALE BIAS, which does
-    # not average out -- it integrates.
-    #
-    # Measured on rtabmap_20260825_150118.db: over a 16.8 m loop with 1311 deg
-    # of total rotation, the fused odometry accumulated 37 deg of yaw error
-    # (~2.8%). Ground truth from LiDAR scan alignment between the first and
-    # returning node: +2.0 deg, 5 cm. That 37 deg is what twisted the map.
+    # vyaw (last entry) is deliberately loose. ekf.yaml fuses vyaw from both
+    # this and the ZED (/zed/odom_with_cov, variance 0.01), and on a mecanum
+    # base the wheels are the worst available yaw source: yaw comes from
+    # encoder differences over a geometric lever arm of 0.275 m, but the
+    # rollers slip laterally so the effective arm is not the geometric one.
+    # That error is a SCALE BIAS, which integrates rather than averaging out,
+    # and left weighted it twists the map over a long loop.
     #
     # 0.5 moves the ZED:wheel yaw weighting from 5:1 to 50:1 -- VIO owns yaw,
     # the wheels stay as a graceful fallback if the camera drops out. This is

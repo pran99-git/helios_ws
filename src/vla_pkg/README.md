@@ -79,7 +79,7 @@ OmniVLA-edge, JetPack 7.2.1, CUDA 13.2, sm_87. Measured, not estimated.
 
 The policy was designed for 3 Hz, so there is real headroom.
 
-## Measured under load, 2026-10-29
+## Measured under load
 
 The worry was that a 108 M policy and the ZED would fight over the GPU. They
 do not. Staged on the bench, wheels up:
@@ -103,10 +103,6 @@ stack is idle and the number flatters itself.
 > **The camera costs more than the policy.** The point cloud added for
 > low-obstacle costmapping takes the GPU from 0% to 65% on its own. The policy
 > adds less than the ZED already does.
-
-Incidental confirmation of the nose-first MPPI retune: with the optimiser
-tracking, the commanded twist was `vx 0.0006, vy -0.0017, wz -0.094`. Yaw
-dominates strafe by roughly 50x, as intended.
 
 ## Goal modalities
 

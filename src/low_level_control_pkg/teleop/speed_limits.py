@@ -8,9 +8,9 @@
 
 from typing import Final, NamedTuple
 
-# Measured on this rover 2026-07-29: both controllers reported qpps 7590.
-# That is ~1.48 m/s at the wheel -- 7590 counts/s over 2448 counts-per-rev is
-# 3.10 wheel rev/s, times the 0.478 m circumference (2 * pi * 0.076 m radius).
+# Measured on this rover: both controllers report qpps 7590, which is
+# ~1.48 m/s at the wheel (7590 counts/s over 2448 counts-per-rev is 3.10 wheel
+# rev/s, times the 0.478 m circumference of a 0.076 m radius wheel).
 #
 # Used only when a live read fails or is non-positive. A wrong value here does
 # not scale commanded velocity -- the physical kinematics do that -- but it

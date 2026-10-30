@@ -568,18 +568,17 @@ of the above by itself, including the very first convergence at startup. See
 
 ### Convergence tuning, and how to measure it
 
-Recovery worked but converged slowly, so five parameters were retuned on
-**2026-09-29**. All are in `config/amcl.yaml` with the old value recorded in a
-comment beside each, so any one can be reverted alone.
+Six parameters in `config/amcl.yaml` govern how fast global localization
+converges. Each carries its reasoning in a comment beside it.
 
-| Parameter | Was | Now | Why |
-|---|---|---|---|
-| `z_hit` / `z_rand` | 0.5 / 0.5 | **0.8 / 0.2** | Nav2 defaults, never tuned. Half the model being uniform noise flattened the likelihood field, so wrong particles kept too much weight to be resampled away. **Free, and the biggest single win** |
-| `update_min_d` / `_a` | 0.20 | **0.10** | A 2*pi survey bought only ~31 updates and a 1.5 m leg only ~7. Halving doubles the updates for the same driving |
-| `alpha1-4` / `alpha5` | 0.2 / 0.4 | **0.1 / 0.2** | Every prediction blurred the cloud faster than the scan could re-tighten it. The 2:1 strafe ratio is preserved; it came from measured off-axis drift |
-| `sigma_hit` | 0.2 | **0.15** | A 20 cm std let a particle 20 cm off still score well |
-| `survey_yaw` | 2*pi | **pi** | Rotating does not move the viewpoint, so a survey constrains heading but barely helps position |
-| `leg_speed` | 0.2 | **0.3** | Translation to new viewpoints is what disambiguates position |
+| Parameter | Value | Why |
+|---|---|---|
+| `z_hit` / `z_rand` | **0.8 / 0.2** | The largest single lever, and free. Nav2's 0.5 / 0.5 default makes half the model uniform noise, flattening the likelihood field so wrong particles keep too much weight to be resampled away |
+| `update_min_d` / `_a` | **0.10** | Filter updates are gated on motion, so low values buy more reweight and resample chances per metre driven |
+| `alpha1-4` / `alpha5` | **0.1 / 0.2** | Every prediction blurs the cloud faster than the scan can re-tighten it. The 2:1 strafe ratio reflects measured off-axis drift |
+| `sigma_hit` | **0.15** | Width of the match window: too wide and a particle well off the true pose still scores well |
+| `survey_yaw` | **pi** | Half turn before the first leg, trading surround coverage for time |
+| `leg_speed` | **0.3** | Translation to new viewpoints is what disambiguates position |
 
 **Revert order if something regresses.** `update_min_*` first: it is the only
 one that costs CPU, on a Jetson that has already logged `ekf_filter_node:
@@ -587,7 +586,7 @@ Failed to meet update rate`. Then the alphas, whose symptom is a filter that
 grows confident and then jumps when scan matching disagrees. `z_rand` last, and
 only toward 0.3 if a cluttered room full of unmapped obstacles makes it diverge.
 
-#### Measured results, 2026-10-29
+#### Measured results
 
 Retuned config, lab map (9.35 x 13.65 m). Raw traces in `datasets/amcl_tuning/`
 (gitignored).

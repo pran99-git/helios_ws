@@ -203,17 +203,14 @@ def generate_launch_description() -> LaunchDescription:
                             #  * Optimizer/GravitySigma needs imu_topic below AND
                             #    sensors.publish_imu_tf on the ZED side, or it is inert and the
                             #    graph holds zero Gravity links.
-                            #  * Grid/Sensor is set EXPLICITLY. RTAB-Map 0.22's own
-                            #    default is 1 (camera depth), and neither upstream's
-                            #    launch file nor this one used to override it, so the
-                            #    occupancy grid was built from a ~110 deg camera cone
-                            #    rather than the Hokuyo's 270 deg sweep. Measured by
-                            #    reprocessing one database with only the grid source
-                            #    changed: obstacle cells 3.43 MB from the laser vs
-                            #    1.65 MB from depth, free space down ~40%. Grid/RangeMax
-                            #    must be explicit alongside it, because RTAB-Map only
-                            #    auto-widens it to the sensor's range when Grid/Sensor
-                            #    is 0, and its own default is 5 m against a 10 m laser.
+                            #  * Grid/Sensor must be set EXPLICITLY. RTAB-Map's default
+                            #    is 1 (camera depth), which builds the occupancy grid
+                            #    from a ~110 deg camera cone instead of the Hokuyo's
+                            #    270 deg sweep: roughly half the obstacle cells and 40%
+                            #    less free space. Grid/RangeMax must be explicit
+                            #    alongside it, because RTAB-Map only auto-widens it to
+                            #    the sensor range when Grid/Sensor is 0, and defaults to
+                            #    5 m against a 10 m laser.
                             "args": "--Optimizer/Strategy 2 --Reg/Strategy 2 "
                             "--Optimizer/GravitySigma 0.3 "
                             "--RGBD/NeighborLinkRefining true "

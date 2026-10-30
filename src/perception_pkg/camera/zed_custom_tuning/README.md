@@ -87,12 +87,14 @@ In summary:
 
 **Keep `pub_frame_rate` equal to `grab_compute_capping_fps`.** Publishing faster
 than the SDK processes buys nothing; processing faster than we publish wastes the
-compute. It was 15.0 until 2026-08-25, on the reasoning that RTAB-Map's keyframe
-rate is 1 Hz so nothing needed more. That was right about throughput and wrong
-about pairing: ~11.9% of depth frames have no RGB frame at the same stamp, and
-throttling does not make those drops rarer, it stretches each one from ~21 ms to
-~100 ms of skew. The geometric error is `yaw_rate x skew`. If CPU becomes the
-binding constraint, lower **both** together.
+compute.
+
+Set this by **pairing**, not throughput. RTAB-Map's keyframe rate is only 1 Hz,
+which suggests a low publish rate would do, but around 12% of depth frames have
+no RGB frame at the same stamp. Throttling does not make those drops rarer, it
+stretches each one, and the geometric error is `yaw_rate x skew` where skew is
+one publish period. If CPU becomes the binding constraint, lower **both**
+together.
 
 The file also records, as comments, the things that were **considered and
 deliberately left alone**, so re-opening one of those is a decision rather than a

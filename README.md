@@ -24,12 +24,14 @@ the bottom are reference material that assumes you have read this.*
 | Fused odometry (wheels + camera + IMU) | Yes |
 | 2D map from the laser scanner | Yes |
 | 3D map from the camera + laser | Yes, quality still being tuned |
-| Localize in a map it already has | Yes (AMCL), start pose given in RViz |
-| Drive itself to a goal | Yes (Nav2), configured but not yet driven end to end |
+| Localize in a map it already has | Yes (AMCL), and it re-localizes itself |
+| Drive itself to a goal | Yes (Nav2), driving style still being tuned |
+| Emergency stop | Yes, latching, from a gamepad button |
+| Drive to a goal given as a sentence or photo | Policy runs, not yet validated on a drive |
 
-So: Helios can be driven around, will produce a map, and can work out where it
-is inside a map it made earlier. The Nav2 layer is configured and launches, but
-it has not yet been validated on a full drive to a goal.
+So: Helios can be driven around, will produce a map, can work out where it is
+inside a map it made earlier, and will drive itself to a goal. The VLA layer
+runs at rate but has not yet completed a goal under its own direction.
 
 ---
 

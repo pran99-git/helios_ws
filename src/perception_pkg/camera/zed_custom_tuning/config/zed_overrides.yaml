@@ -61,22 +61,15 @@
             # vendor defaults the wrapper was serialising 60 full-resolution
             # image + depth pairs per second.
             #
-            # RAISED 15.0 -> 30.0 on 2026-08-25. The old value was justified
-            # here as "what the consumers actually need", on the grounds that
-            # Rtabmap/DetectionRate is 1 Hz and drops every frame in between.
-            # That is right about throughput and wrong about PAIRING, which is
-            # what actually broke.
+            # Set by PAIRING, not by throughput. Around 12% of depth frames
+            # have no RGB frame at the same stamp. RTAB-Map's approximate-time
+            # sync pairs those with the nearest surviving RGB frame, and the
+            # geometric error that causes is yaw_rate x skew, where skew is one
+            # PUBLISH PERIOD. Throttling does not make the drops rarer, it
+            # stretches each one: the rate the consumer needs is whatever keeps
+            # the skew small, not the 1 Hz keyframe rate.
             #
-            # ~11.9% of depth frames have no RGB frame at the same stamp
-            # (measured 2026-08-25, both topics subscribed simultaneously).
-            # RTAB-Map's approximate-time sync pairs those with the nearest
-            # surviving RGB frame, and the geometric error that causes is
-            # yaw_rate x skew -- where skew is one PUBLISH PERIOD. Throttling
-            # does not make the drops rarer; it stretches each one from ~21 ms
-            # to ~100 ms. So the frame rate the consumer "needs" is not the
-            # keyframe rate, it is whatever keeps the skew small.
-            #
-            # rtabmap.launch.py now bounds this properly with rgbd_sync +
+            # rtabmap.launch.py bounds this with rgbd_sync +
             # approx_sync_max_interval 0.02, which DROPS mismatched sets. This
             # value then governs how many clean frames survive that filter: at
             # 30 Hz minus ~12% there is comfortable headroom over the 1 Hz
@@ -132,85 +125,40 @@
             point_cloud_freq: 10.0        # Hz
 
 # ---------------------------------------------------------------------------
-# Considered and deliberately NOT changed. Recorded so the next person does
-# not have to re-derive the reasoning, and so re-opening one of these is a
-# decision rather than a discovery:
+# Deliberately left at vendor defaults. Recorded so re-opening one of these is
+# a decision rather than a discovery.
 #
 #   depth.depth_mode: 'NEURAL_LIGHT'
-#       The single largest consumer on the robot. Dropping to a classical
-#       stereo mode would cut more CPU than everything above combined, but it
-#       costs depth accuracy, which is the whole point of running RTAB-Map.
-#       Try grab_compute_capping_fps first; revisit this only if that is not
-#       enough.
+#       The largest GPU consumer on the robot. A classical stereo mode would
+#       save more than everything above combined but costs depth accuracy,
+#       which is the point of running RTAB-Map. Try grab_compute_capping_fps
+#       first.
 #
 #   depth.depth_confidence: 95 / depth.depth_texture_conf: 100
-#       TRIED AND REVERTED 2026-08-24. Set to 50/90 to clean up flying pixels
-#       and smeared textureless surfaces in the RTAB-Map cloud. It did reduce
-#       depth noise -- and it also starved RTAB-Map's loop-closure front end.
-#       Visual (GlobalClosure) loop closures fell 5x per node, 0.113 -> 0.022,
-#       measured across rtabmap_20260824_155711.db and _181256.db, because PnP
-#       verification needs depth AT the keypoints: the log went from healthy
-#       registration to "Not enough inliers 6/20 (matches=132)" and a new
-#       "Missing visual features or missing raw data" warning. The same depth
-#       map feeds BOTH the 3D cloud and SLAM geometry, so it cannot be tuned
-#       for rendering. Clean the cloud at export time instead (cloud_max_depth,
-#       voxel + noise filtering in rtabmap-databaseViewer), never here.
-#
-#   depth.point_cloud_freq / point_cloud_res
-#       NO LONGER "considered and not changed" -- both are set above. This
-#       entry used to read "only RViz subscribes to cloud_registered, so the
-#       lazy publish costs nothing on a headless run". That stopped being true
-#       when the local costmap took it as an obstacle source.
+#       Do NOT tighten these to clean up the cloud. The same depth map feeds
+#       both the 3D cloud and SLAM geometry, and PnP verification needs depth
+#       AT the keypoints: tightening them cuts visual loop closures roughly 5x
+#       and produces "Not enough inliers" registration failures. Clean the
+#       cloud at export time instead (cloud_max_depth, voxel and noise
+#       filtering in rtabmap-databaseViewer).
 #
 #   pos_tracking.area_memory: true
-#       ZED-internal loop closure. Harmless: publish_tf is false, so the ZED's
-#       relocalisations only ever reach the EKF as a twist, never as a jump in
-#       the TF tree.
-#
-#       RE-EXAMINED 2026-08-26 and CONFIRMED, with numbers. The relocalisations
-#       are real and large: /zed/zed_node/odom's POSE was caught snapping
-#       -76.87 deg and -115.73 deg in single 33 ms frames, and in a second
-#       recording 8 jumps totalling +46 deg including +62.87 deg in 35 ms.
-#       pose/status reports spatial_memory_status = 6 (NEW_MAP) continuously,
-#       so area memory is active the whole time. SPATIAL_MEMORY_STATUS::
-#       LOOP_CLOSED is documented as "found a loop closure, relocalized within
-#       the area map, or corrected after a sudden localization loss" -- that is
-#       exactly these events.
-#
-#       They still do not reach the filter. ekf.yaml fuses indices 6,7,11
-#       (vx, vy, vyaw) -- twist only, never pose -- and the twist is clean
-#       THROUGH the jumps: integrated ZED yaw rate came to +0.03% of a de-biased
-#       gyro over 99.7 s, and +0.21 deg over a 42.9 s stationary stretch. At the
-#       jump frames themselves the reported vyaw stayed small while the pose
-#       teleported, i.e. the correction is applied to pose only.
-#
-#       So turning area_memory off would buy nothing measurable today and would
-#       cost the ZED its own drift correction. LEAVE IT ON -- but this becomes
-#       an immediate problem the moment anything consumes ZED POSE: adding pose
-#       indices to odom1_config, setting the wrapper's publish_tf, or pointing
-#       RTAB-Map's odom_topic at /zed/zed_node/odom instead of
-#       /odometry/filtered. Revisit only then.
+#       ZED-internal loop closure. Its relocalisations snap the POSE on
+#       /zed/zed_node/odom by tens of degrees within a single frame, but
+#       ekf.yaml fuses indices 6, 7, 11 (vx, vy, vyaw) only, and the twist
+#       stays clean through those jumps. Safe as long as nothing consumes ZED
+#       pose. It stops being safe the moment pose indices are added to
+#       odom1_config, the wrapper's publish_tf is enabled, or RTAB-Map's
+#       odom_topic is pointed at /zed/zed_node/odom.
 #
 #   mapping.mapping_enabled: false / object_detection.od_enabled: false
-#       Already off. Both are separate GPU workloads; leave them off until
-#       something actually consumes their output.
+#       Separate GPU workloads. Leave off until something consumes their output.
 #
-#   video.auto_exposure_time_range_max: 8000
-#       ADDED then REVERTED on 2026-08-28, never validated. The idea was to cap
-#       the auto-exposure ceiling (vendor default 30000 us) so rover motion
-#       produces less blur: at HD720 the ZED 2i spreads ~1280 px over ~104 deg,
-#       ~12 px/deg, so a 30 ms exposure at 45 deg/s smears ~17 px against
-#       RTAB-Map's 2 px Vis/PnPReprojError budget. The arithmetic still looks
-#       right and it may well be worth revisiting.
-#
-#       It is reverted only because it was added in the same batch as eight
-#       rtabmap parameters that measurably made mapping worse (see the REVERTED
-#       block in mapping_localization_pkg/rtabmap/launch/rtabmap.launch.py), and
-#       the goal was to get back to the exact configuration that produced the
-#       known-good rtabmap_20260827_134811.db -- which did NOT include this.
-#
-#       If you retry it, do it ALONE, on a real drive, and check features/node
-#       in the resulting database (median was 967 on the good run). A darker
-#       image means more gain and more noise, which costs features; that is the
-#       number that tells you whether the trade paid. Try 15000 before 8000.
+#   video.auto_exposure_time_range_max: 30000 (vendor default)
+#       Capping the auto-exposure ceiling would reduce motion blur: at HD720
+#       the ZED 2i spreads ~1280 px over ~104 deg, so a 30 ms exposure at
+#       45 deg/s smears ~17 px against RTAB-Map's 2 px Vis/PnPReprojError
+#       budget. Untested here. If evaluated, change it ALONE and check
+#       features/node in the resulting database, since a darker image costs
+#       features to gain sharpness. Try 15000 before 8000.
 # ---------------------------------------------------------------------------

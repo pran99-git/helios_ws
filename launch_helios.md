@@ -536,6 +536,8 @@ pgrep -a -f "ros2 launch|roboclaw_driver_node|zed" || echo "clean"
 | `could not open ethernet port` | Laser's TCP port not ready yet | Wait a few seconds and relaunch. Confirm with `ping 192.168.0.10` |
 | `Gravity alignment issues detected` | Rover moved during ZED startup | Keep it still ~5 s while terminal 2 starts, then relaunch |
 | Rover will not move | Deadman not held, or gamepad asleep | Hold R. Check `ros2 topic echo /joy` responds |
+| Rover will not move, and R does nothing | The e-stop is latched | `ros2 topic echo /estop/engaged`. Hold **Start** for a second to clear |
+| Rover rotates back and forth without arriving | `controller_server` aborting on the progress checker, so the behavior tree runs `Spin` and `BackUp` against the controller | Check the log for `Failed to make progress`. `progress_checker` must be `PoseProgressChecker`, which counts rotation as progress |
 | Wheels move wrong direction | Sign or axis mapping | `invert_*` in `roboclaw.yaml` fixes wheels; `invert_vx` etc. in `teleop.yaml` fixes sticks |
 | Two robot positions in RViz | Two nodes publishing one transform | Only one terminal-4 mapper at a time |
 | Laser node appears as `/zed_node` | Launch-argument leak between includes | Already handled in `bringup.launch.py`; if it recurs, check `node_name` is still passed explicitly |
