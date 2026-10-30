@@ -32,3 +32,16 @@ datasets/*
 # under site-packages as a ROS package.
 .venvs/*
 !.venvs/COLCON_IGNORE
+
+# Tool caches. These self-ignore today, but only because each tool writes its
+# own .gitignore inside; list them so that does not have to hold.
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Debug and merge artifacts
+frames.pdf
+frames.gv
+rosbag2_*/
+*.orig
+*.rej
