@@ -32,7 +32,7 @@ from rclpy.time import Time
 from sensor_msgs.msg import Image
 from std_msgs.msg import String
 
-from vla_bridge.chunk_decoding import Waypoint
+from vla_bridge.chunk_decoding import DEFAULT_PATH_SPACING, Waypoint, densify
 from vla_bridge.context_buffer import ContextBuffer
 from vla_bridge.goal_resolution import (
     Pose2D,
@@ -67,6 +67,11 @@ class VlaBridgeNode(Node):
         self.declare_parameter("context_frames", 6)
         self.declare_parameter("context_stride", 0.333)  # s
         self.declare_parameter("wire_size", 224)  # px
+        # Nav2's critics address the path by INDEX (PathFollowCritic reads
+        # offset 15, PathAlignCritic 20), tuned for SmacPlanner2D's 5 cm
+        # spacing. The policy's 8 waypoints over ~1 m leave those indices off
+        # the end, so forward progress goes unscored and the rover sits still.
+        self.declare_parameter("path_point_spacing", DEFAULT_PATH_SPACING)  # m
         self.declare_parameter("path_frame", "odom")
         self.declare_parameter("base_frame", "base_link")
         self.declare_parameter("tf_timeout", 0.10)  # s
@@ -80,6 +85,7 @@ class VlaBridgeNode(Node):
         self._path_frame = text("path_frame")
         self._base_frame = text("base_frame")
         self._wire_size = int(self.get_parameter("wire_size").value)
+        self._path_spacing = flt("path_point_spacing")
         self._staleness = flt("staleness_timeout")
         self._tf_timeout = Duration(seconds=flt("tf_timeout"))
 
@@ -226,7 +232,7 @@ class VlaBridgeNode(Node):
         path = Path()
         path.header.frame_id = self._path_frame
         path.header.stamp = self.get_clock().now().to_msg()
-        for wp in waypoints:
+        for wp in densify(waypoints, self._path_spacing):
             world = compose_pose(base, Pose2D(wp.x, wp.y, wp.yaw))
             pose = PoseStamped()
             pose.header = path.header

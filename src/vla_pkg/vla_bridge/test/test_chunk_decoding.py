@@ -1,9 +1,10 @@
 """Unit tests for waypoint chunk decoding. Pure pytest, no ROS."""
 
 import math
+from itertools import pairwise
 
 import pytest
-from vla_bridge.chunk_decoding import ROW_WIDTH, decode_chunk
+from vla_bridge.chunk_decoding import ROW_WIDTH, Waypoint, decode_chunk, densify
 
 
 def test_displacements_pass_through_unchanged():
@@ -45,3 +46,61 @@ def test_real_chunk_from_the_checkpoint():
 def test_wrong_row_width_is_rejected():
     with pytest.raises(ValueError, match=f"expected {ROW_WIDTH}"):
         decode_chunk([[1.0, 2.0]])
+
+
+# --- densify ------------------------------------------------------------------
+
+REAL_CHUNK = [
+    Waypoint(0.137, 0.002, 0.0),
+    Waypoint(0.248, 0.010, 0.0),
+    Waypoint(0.364, 0.021, 0.0),
+    Waypoint(0.476, 0.035, 0.0),
+    Waypoint(0.581, 0.046, 0.0),
+    Waypoint(0.685, 0.064, 0.0),
+    Waypoint(0.799, 0.085, 0.0),
+    Waypoint(1.042, 0.177, 0.0),
+]
+
+
+def test_densify_reaches_the_indices_nav2_critics_address():
+    """PathFollowCritic reads path index 15 and PathAlignCritic index 20.
+
+    A raw 8-pose chunk has neither, so the critic scoring forward progress
+    contributes nothing and the goal aborts with FAILED_TO_MAKE_PROGRESS.
+    """
+    dense = densify(REAL_CHUNK, 0.05)
+    assert len(dense) > 20
+
+
+def test_densify_anchors_at_the_robot():
+    """Nav2 expects a path starting where the robot is, not 0.14 m ahead."""
+    assert densify(REAL_CHUNK, 0.05)[0] == Waypoint(
+        0.0, 0.0, pytest.approx(0.0146, abs=1e-3)
+    )
+
+
+def test_densify_preserves_the_final_waypoint_exactly():
+    """Rounding must never move the goal the policy actually chose."""
+    assert densify(REAL_CHUNK, 0.05)[-1] == REAL_CHUNK[-1]
+
+
+def test_densify_respects_the_spacing():
+    dense = densify(REAL_CHUNK, 0.05)
+    gaps = [math.dist((a.x, a.y), (b.x, b.y)) for a, b in pairwise(dense)]
+    assert max(gaps) <= 0.05 + 1e-6
+
+
+def test_densify_does_not_move_the_curve():
+    """Every original waypoint must still lie on the resampled polyline."""
+    dense = densify(REAL_CHUNK, 0.05)
+    for wp in REAL_CHUNK:
+        assert min(math.dist((wp.x, wp.y), (d.x, d.y)) for d in dense) < 0.026
+
+
+def test_densify_handles_a_single_waypoint():
+    assert len(densify([Waypoint(0.5, 0.0, 0.0)], 0.05)) >= 2
+
+
+def test_densify_rejects_nonpositive_spacing():
+    with pytest.raises(ValueError, match="spacing must be positive"):
+        densify(REAL_CHUNK, 0.0)
