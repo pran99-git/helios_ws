@@ -11,10 +11,10 @@ owns `odom -> base_link`, and a Jetson that is already busy.
 **Read [the root README](../../README.md) first** for the system overview, and
 [launch_helios.md](../../launch_helios.md) for how to run the whole stack.
 
-> **Status: configured, not yet validated on a full drive.** Every server
-> launches and reaches `active`, and the parameters below are reasoned from this
-> robot's measured geometry and limits. Nothing here has been confirmed against
-> a real goal-to-goal run, so treat the tuning values as starting points.
+> **Status: drives to goals; the rotation shim is not yet validated.** Nav2
+> reaches goals under the MPPI tuning here. `RotationShimController` and
+> `PoseProgressChecker` are configured and load cleanly, but have not yet been
+> confirmed on a real drive, so treat those two as unproven.
 
 ---
 
@@ -31,7 +31,8 @@ above nothing, because there is nothing above it.
    │  navigation_pkg                                        │
    │    bt_navigator ──► planner_server ──► global path     │
    │          │                                             │
-   │          └────────► controller_server (MPPI) ──────┐   │
+   │          └────────► controller_server ─────────────┐   │
+   │                     (RotationShim + MPPI)          │   │
    │                            │                       │   │
    │                     behavior_server            /cmd_vel_nav
    │                     (spin/backup/wait)             │   │
@@ -52,45 +53,78 @@ above nothing, because there is nothing above it.
 
 ## Driving style: nose-first, not crabbing
 
-Helios *can* strafe, and for a long time this config let it. The result was a
-rover that slid sideways toward its goal rather than facing it. Retuned
-**2026-10-29** to drive nose-first, with strafe demoted to a correction axis.
+Helios *can* strafe, but sliding sideways toward a goal is hard to predict and
+hard to watch. The controller is configured to drive nose-first instead: face
+where you are going, and keep strafe as a correction axis only.
 
-Worth knowing why it looked erratic rather than merely omnidirectional: the
-config had drifted into a hybrid. `PreferForwardCritic` was enabled at 8.0 and
-`PathAngleCritic.mode` was 0, both of which ask for forward-facing motion,
-while `vy_max` stayed at 0.40 making a sideways slide free. The two pulled
-against each other every cycle. The settings below are at least coherent.
+Two cases, and they are handled by two different pieces:
 
-| Setting | Was | Now | Why |
-|---|---|---|---|
-| `vy_max` / `vy_std` | 0.40 / 0.20 | **0.10 / 0.05** | Strafe still available to slide around an obstacle, never enough to carry a manoeuvre |
-| `PreferForwardCritic` | 8.0 | **25.0** | A goal behind is reached by turning to face it, not by reversing |
-| `PathAngleCritic` | 6.0, 0.35 rad | **12.0, 0.25 rad** | Decides rotate-then-go versus curve-while-going. Large heading error makes turning on the spot cheaper than driving |
-| `PathAlignCritic` | 10.0 | **6.0** | SmacPlanner2D emits zigzagging 8-connected paths; at 10.0 the optimiser chased every jog |
-| `use_path_orientations` | false | **true** | With nose-first driving the path's heading is information, not a free variable |
-| `TwirlingCritic` | 10.0 | **6.0** | Still suppresses aimless spin, no longer fights a deliberate turn-on-the-spot |
-| `GoalAngleCritic` | 3.0 @ 0.5 m | **6.0 @ 0.8 m** | Blends the final heading into the approach instead of spinning after stopping |
-| `ax_max` / `ax_min` / `ay_max` / `az_max` | unset | **0.60 / -0.60 / 0.30 / 1.50** | Were defaulting to ~3 m/s², so MPPI could demand a near-instant stop. `ax_min` is the braking ramp: 0.40 m/s to rest over ~0.67 s and ~0.13 m |
+| Situation | What runs |
+|---|---|
+| Rover already faces the goal | MPPI drives, following the line |
+| Rover faces elsewhere | The shim rotates in place first, then hands to MPPI |
+| Rover has arrived | The shim pivots to the final goal heading |
 
-`motion_model` stays `"Omni"`. `DiffDrive` would forbid `vy` outright; the goal
-is to deprioritise strafe, not remove it.
+### Why a shim, and not just MPPI
 
-All four acceleration limits sit inside `velocity_smoother`'s
-`[0.80, 0.80, 2.00]` ceilings, so the smoother is never fighting the optimiser.
+MPPI is a sampling optimizer. It rolls out a thousand candidate trajectories,
+scores them, and publishes a softmax-weighted **average**. An average of
+"turn" and "drive" is an arc, so MPPI cannot express "rotate in place, then go
+straight" no matter how its critics are weighted. Pushing the heading critics
+hard enough to force the behaviour instead makes holding still the cheapest
+option, and the rover stops moving altogether.
 
-> **This trades away most of the mecanum advantage.** It is the right call for
-> predictable motion and it suits the VLA later, whose training data is
-> nonholonomic. To get omnidirectional driving back, restore `vy_max` 0.40 /
-> `vy_std` 0.20 and drop `PreferForwardCritic` toward 5.0.
+`RotationShimController` is a state machine wrapped around MPPI. Above
+`angular_dist_threshold` of heading error it commands pure rotation and MPPI is
+idle; below it, MPPI drives. `rotate_to_goal_heading` gives it the final yaw
+too.
+
+```
+   new path ──► heading error vs path at forward_sampling_distance
+                      │
+          ┌───────────┴───────────┐
+          │                       │
+   > angular_dist_threshold   < angular_dist_threshold
+          │                       │
+          ▼                       ▼
+   rotate in place           MPPI follows the path
+   (MPPI idle)               (nose-first, strafe trimmed)
+```
+
+### The progress checker has to match
+
+`PoseProgressChecker`, not `SimpleProgressChecker`. Simple counts only
+translation, so every in-place pivot reads as a stall: the controller aborts,
+and the behavior tree's recovery (`Spin 1.57`, `BackUp 0.30 m at 0.15 m/s`)
+fires and fights the alignment the shim was performing. Those recovery
+velocities come from `behavior_server` and bypass the controller entirely, so
+no amount of critic tuning suppresses them.
+
+### Critic balance
+
+The MPPI critics split into two groups that pull against each other. They have
+to be changed as a set.
+
+| Group | Critics | Role |
+|---|---|---|
+| Heading | `PreferForwardCritic`, `PathAngleCritic`, `GoalAngleCritic` | Keep the nose pointed along the path |
+| Progress | `PathAlignCritic`, `PathFollowCritic` | Make forward motion worth something |
+
+Heading weighted far above progress and the optimizer prefers to hold still
+rather than lose alignment. Far below, and the rover crabs. The values in
+`nav2_params.yaml` sit between those failure modes.
+
+`motion_model` stays `"Omni"`. `DiffDrive` would forbid `vy` outright, and the
+goal is to deprioritise strafe, not remove it. To get omnidirectional driving
+back, restore `vy_max` 0.40 / `vy_std` 0.20 and lower `PreferForwardCritic`.
 
 ### Still open
 
-Paths come from `SmacPlanner2D`, which is grid-based and jagged. A
-`smoother_server` would clean them up, but it needs a custom behaviour tree to
-invoke `SmoothPath`, so lowering `PathAlignCritic` is the cheap stand-in for
-now.
-
+Paths come from `SmacPlanner2D`, which is grid-based and jagged, with
+orientations quantised to 45 degree steps. A `smoother_server` would clean them
+up but needs a custom behaviour tree to invoke `SmoothPath`. Until then
+`use_path_orientations` is off, so the controller ignores those orientations
+rather than chasing them.
 ---
 
 ## Files
@@ -110,7 +144,7 @@ the lifecycle manager:
 
 | Node | Job |
 |---|---|
-| `controller_server` | MPPI local control, owns the local costmap |
+| `controller_server` | Local control (RotationShim wrapping MPPI), owns the local costmap |
 | `planner_server` | SmacPlanner2D global planning, owns the global costmap |
 | `behavior_server` | Recovery behaviors: spin, backup, drive_on_heading, wait |
 | `bt_navigator` | Runs the behavior tree that sequences the above |
@@ -188,7 +222,8 @@ first, then mirror it here.
 |---|---|---|
 | `footprint` | 0.38 x 0.38 m square | Wheels reach x = ±0.186, y = ±0.1875 |
 | `inflation_radius` | 0.45 m | ~1.7x the 0.27 m circumscribed radius |
-| `vx_max` / `vy_max` / `wz_max` | 0.40 m/s, 0.40 m/s, 0.80 rad/s | Matches `roboclaw.yaml` ceilings |
+| `vx_max` / `wz_max` | 0.40 m/s, 0.80 rad/s | Matches `roboclaw.yaml` ceilings |
+| `vy_max` / `vx_min` | 0.10 m/s, -0.15 m/s | Deliberately below the hardware ceiling: strafe is a correction axis, reverse is for extraction |
 | `max_accel` | 0.80 m/s² | `drive_accel` 5000 counts/s² is ~0.98 m/s² |
 | `resolution` | 0.05 m/cell | Matches `slam_toolbox.yaml` |
 | `always_send_full_costmap` | `true` (local) | Nav2's default sends the full grid once and only increments after, so a node subscribing later gets nothing at all |
@@ -310,10 +345,10 @@ If `/cmd_vel_nav` publishes but `/cmd_vel_smoothed` does not, the smoother is
 not active. If `/cmd_vel_smoothed` publishes but `/cmd_vel` does not, either
 `twist_mux` is not running or the joystick is holding priority.
 
-**5. It strafes.** Give it a goal directly to one side in an open space. A
-correctly configured omni setup will translate sideways rather than turning,
-driving forward, and turning back. If it always turns first, `motion_model` is
-not `Omni` or `PreferForwardCritic` has crept back in.
+**5. It turns to face its goal.** Give it a goal directly to one side in an
+open space. It should rotate in place to face the goal, then drive to it, and
+it should not slide sideways to get there. If it crabs instead, `vy_max` has
+been raised or `PreferForwardCritic` has been lowered.
 
 ---
 

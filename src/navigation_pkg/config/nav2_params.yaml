@@ -6,12 +6,12 @@
 #            /scan                from the Hokuyo UST-10LX, frame 'laser'
 # Produces:  /cmd_vel_smoothed    into twist_mux, which owns /cmd_vel
 #
-# TF ownership is unchanged: the EKF owns odom -> base_link, whichever mapper is
+# TF ownership: the EKF owns odom -> base_link, whichever mapper is
 # running owns map -> odom. Nav2 publishes NO transforms.
 #
-# HOLONOMIC THROUGHOUT. This rover strafes, so the MPPI motion model is "Omni"
-# and PreferForwardCritic is deliberately absent. Copying a differential-drive
-# param set here silently throws away the lateral degree of freedom.
+# The rover is holonomic, so the MPPI motion model is "Omni". Strafe is kept as
+# a fine-correction axis only (low vy_max): the rover drives nose-first, facing
+# where it is going. Raise vy_max/vy_std to restore full omnidirectional motion.
 #
 # Geometry below is derived from helios_description/urdf/base.xacro. If the
 # rover is re-measured, update it there first and mirror the change here.
@@ -30,9 +30,13 @@ controller_server:
     controller_plugins: ["FollowPath"]
 
     progress_checker:
-      plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.5   # m of motion required...
-      movement_time_allowance: 10.0   # ...within this many seconds
+      # Must accept ROTATION as progress. FollowPath rotates in place to align
+      # before driving, which SimpleProgressChecker reads as a stall: it aborts,
+      # and the behavior tree's recovery (Spin, BackUp) then fights the align.
+      plugin: "nav2_controller::PoseProgressChecker"
+      required_movement_radius: 0.5   # m of translation that counts as progress
+      required_movement_angle: 0.5    # rad of rotation that counts as progress
+      movement_time_allowance: 15.0   # s to achieve either of the above
 
     goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
@@ -41,7 +45,22 @@ controller_server:
       stateful: true                  # once xy is met, only yaw must still converge
 
     FollowPath:
-      plugin: "nav2_mppi_controller::MPPIController"
+      # RotationShimController wraps MPPI and owns pure rotation. MPPI averages
+      # its sampled trajectories into one command, so it can only ever blend
+      # "turn" and "drive" into an arc. The shim switches between them instead:
+      #   heading error > angular_dist_threshold -> rotate in place, MPPI idle
+      #   heading error < angular_dist_threshold -> hand off to MPPI and drive
+      plugin: "nav2_rotation_shim_controller::RotationShimController"
+      primary_controller: "nav2_mppi_controller::MPPIController"
+
+      angular_dist_threshold: 0.50      # rad (~29 deg), align-first above this
+      forward_sampling_distance: 0.50   # m along the path to take heading from
+      rotate_to_heading_angular_vel: 0.80  # rad/s, matches wz_max
+      max_angular_accel: 1.50           # rad/s^2, inside velocity_smoother's 2.0
+      simulate_ahead_time: 1.0          # s of collision checking before rotating
+      rotate_to_goal_heading: true      # final yaw is a pivot, not an arc
+
+      # --------------------------- primary controller: MPPI ------------------
 
       # MPPI rolls out batch_size candidate trajectories, each time_steps long at
       # model_dt seconds per step, scores them with the critics below, and takes a
@@ -59,14 +78,8 @@ controller_server:
       # Sampling spread, per axis. Too small and the optimizer cannot find its way
       # around obstacles; too large and the command is noisy.
       vx_std: 0.20                    # m/s
-      # RETUNED 2026-10-29 for nose-first driving. At vy_std 0.20 / vy_max 0.40
-      # a sideways slide cost the optimiser no more than driving forward, so
-      # the rover crabbed to its goal instead of facing it. Strafe is now a
-      # fine-correction axis: enough to slide around an obstacle, never enough
-      # to carry a manoeuvre.
-      #
-      # This deliberately trades away most of the mecanum advantage. Put both
-      # back to 0.20 / 0.40 to get omnidirectional motion again.
+      # Strafe is a correction axis, not a travel axis: matching vx here makes a
+      # sideways slide cost no more than driving forward, and the rover crabs.
       vy_std: 0.05                    # m/s
       wz_std: 0.40                    # rad/s
 
@@ -74,18 +87,15 @@ controller_server:
       # these at or below the driver's own limits means the driver never clamps a
       # command Nav2 believed it had issued.
       vx_max: 0.40                    # m/s forward
-      vx_min: -0.35                   # m/s reverse, slightly tighter (no rear sensor)
+      # A limit, not a critic weight: reverse is for extraction, never travel,
+      # and a limit cannot be outvoted by the other critics.
+      vx_min: -0.15                   # m/s reverse
       vy_max: 0.10                    # m/s strafe, fine correction only
       wz_max: 0.80                    # rad/s
 
-      # Acceleration limits. Previously unset, so MPPI used its permissive
-      # defaults (~3 m/s^2) and could ask for a near-instant stop that the
-      # driver then had to absorb: that is the jerky halt at the goal.
-      # ax_min shapes the approach, bringing 0.40 m/s to rest over ~0.67 s
-      # and ~0.13 m instead of slamming.
-      #
-      # All four sit inside velocity_smoother's [0.80, 0.80, 2.00] ceilings,
-      # so the smoother never fights the optimiser.
+      # Acceleration limits. Left unset MPPI defaults to ~3 m/s^2 and can demand
+      # a near-instant stop. ax_min shapes the braking ramp into the goal:
+      # 0.40 m/s to rest over ~0.67 s and ~0.13 m.
       ax_max: 0.60                    # m/s^2
       ax_min: -0.60                   # m/s^2, the braking ramp into the goal
       ay_max: 0.30                    # m/s^2
@@ -98,9 +108,10 @@ controller_server:
       prune_distance: 1.7             # m of path considered ahead of the robot
       transform_tolerance: 0.1        # s
 
-      # PreferForwardCritic is deliberately OMITTED. It penalises any motion that
-      # is not forward, which on a mecanum base means penalising strafing, the one
-      # capability this drivetrain has over a differential robot.
+      # These weights trade heading against progress and must be changed as a
+      # set. Heading (PreferForward + PathAngle + GoalAngle) too far above
+      # progress (PathAlign + PathFollow) and the optimizer holds still rather
+      # than lose alignment; too far below and the rover crabs sideways.
       critics: ["ConstraintCritic", "CostCritic", "GoalCritic", "GoalAngleCritic",
                 "PathAlignCritic", "PathFollowCritic", "PathAngleCritic", "PreferForwardCritic","TwirlingCritic"]
 
@@ -121,63 +132,61 @@ controller_server:
       GoalCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 5.0              # pull toward the goal position
-        threshold_to_consider: 1.4    # m from goal before this activates
+        cost_weight: 8.0              # pull toward the goal position
+        # Early enough to brake before overshooting, late enough that it does
+        # not dominate the whole of a short goal.
+        threshold_to_consider: 1.5    # m from goal before this activates
       GoalAngleCritic:
         enabled: true
         cost_power: 1
-        # 3.0 -> 6.0, engaged from 0.8 m instead of 0.5 m. Starting the final
-        # heading correction earlier blends it into the approach, instead of
-        # leaving a spin to do once the rover has already stopped.
-        cost_weight: 6.0
-        threshold_to_consider: 0.8    # m from goal before heading matters
+        # Low and late: rotate_to_goal_heading gives the shim the final heading,
+        # so this only has to stop MPPI drifting off it on the approach.
+        cost_weight: 3.0              # pull toward the goal heading
+        threshold_to_consider: 0.5    # m from goal before heading matters
       PathAlignCritic:
         enabled: true
         cost_power: 1
-        # 10.0 -> 6.0. SmacPlanner2D emits 8-connected grid paths, which
-        # zigzag; at 10.0 the optimiser chased every jog. At 6.0 it follows the
-        # path's direction while PathFollowCritic drives progress along it.
-        cost_weight: 6.0
+        cost_weight: 10.0             # stay ON the planned path
         max_path_occupancy_ratio: 0.05
         trajectory_point_step: 4
         threshold_to_consider: 0.5    # m from goal after which path following stops
         offset_from_furthest: 20
-        # false -> true: with nose-first driving the path's heading is
-        # information worth using, not a free variable.
-        use_path_orientations: true
+        # SmacPlanner2D emits 8-connected grid paths whose orientations quantise
+        # to 45 deg steps; chasing those makes the rover hunt on tight turns.
+        # PathAngleCritic handles heading instead.
+        use_path_orientations: false
       PathFollowCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 8.0              # progress ALONG the path
+        # Must outweigh the heading critics, or the cheapest trajectory the
+        # optimizer can find is to sit still and stay aligned.
+        cost_weight: 12.0             # progress ALONG the path
         offset_from_furthest: 15
         threshold_to_consider: 1.5    # m
       PathAngleCritic:
         enabled: true
         cost_power: 1
-        # 6.0 -> 12.0. This is the critic that decides rotate-then-go versus
-        # curve-while-going: it penalises heading error against the path
-        # ahead, so a large error (goal behind) makes turning on the spot
-        # cheaper than driving, while a small one is absorbed into a curve.
-        cost_weight: 12.0
+        # Penalises heading error against the path ahead, so a large error makes
+        # turning on the spot cheaper than driving, a small one becomes a curve.
+        cost_weight: 8.0
         offset_from_furthest: 4
         threshold_to_consider: 0.5     # m
-        max_angle_to_furthest: 0.25    # rad (20 deg -> 14 deg): correct sooner
+        max_angle_to_furthest: 0.30    # rad (~17 deg) before heading is penalised
         mode: 0                       # forward preference: drive nose-first
       PreferForwardCritic:
         enabled: true
         cost_power: 1
-        # 8.0 -> 25.0. Penalises reverse travel, so a goal behind the rover is
-        # reached by turning to face it rather than backing toward it. With
-        # PathAngleCritic above, that turn happens on the spot.
-        cost_weight: 25.0
+        # Penalises reverse travel, so a goal behind the rover is reached by
+        # turning to face it rather than backing toward it. Pushed much higher
+        # it overwhelms the progress critics and the optimizer stalls.
+        cost_weight: 16.0
         threshold_to_consider: 0.5
       TwirlingCritic:
         enabled: true
         cost_power: 1
-        # 10.0 -> 6.0. Right for aimless spinning, but at 10.0 it also fought
-        # the deliberate turn-on-the-spot we now want. Lowered, not removed:
-        # without it the heading wanders while driving.
-        cost_weight: 6.0
+        # The shim bypasses MPPI while pivoting, so this does not fight a
+        # deliberate turn: it only stops MPPI spinning once it has control.
+        cost_weight: 8.0              # penalise spinning that does not serve the path
 
 # ------------------------------------------------------------------- planner ---
 planner_server:
@@ -249,7 +258,11 @@ velocity_smoother:
     # ~0.98 m/s^2 at 5126 counts/m, so 0.8 stays inside what the controller can
     # actually deliver and the ramp is never fighting the firmware's own.
     max_accel: [0.80, 0.80, 2.00]     # [m/s^2, m/s^2, rad/s^2]
-    max_decel: [-0.80, -0.80, -2.00]
+    # Softer than max_accel on purpose: the controller steps straight to zero
+    # when the goal checker passes, so this ceiling alone decides how hard the
+    # arrival feels. The e-stop bypasses this smoother (twist_mux priority 250),
+    # so emergency stopping distance is unaffected.
+    max_decel: [-0.50, -0.50, -1.50]
     odom_topic: /odometry/filtered
     odom_duration: 0.1                # s of odometry history used when CLOSED_LOOP
     deadband_velocity: [0.0, 0.0, 0.0]
