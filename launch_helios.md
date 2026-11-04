@@ -1,7 +1,7 @@
 # Launching Helios
 
 The end-to-end runbook: every step to take the rover from powered-off to
-mapping, in order, with what to check at each stage.
+mapping to autonomy, in order, with what to check at each stage.
 
 This is the operational document. For *why* any of it works the way it does,
 read [the root README](README.md) and the package READMEs it links to.
@@ -20,10 +20,10 @@ ros2 launch low_level_control_pkg roboclaw_driver.launch.py   # 1. motors
 ros2 launch sensor_fusion bringup.launch.py                   # 2. sensors + EKF
 ros2 launch low_level_control_pkg joy_teleop.launch.py        # 3. joystick
 ros2 launch mapping_localization_pkg slam_toolbox.launch.py   # 4. a mapper
-ros2 launch navigation_pkg navigation.launch.py               # 5. autonomy (optional)
+ros2 launch navigation_pkg navigation.launch.py               # 5. autonomy
 ```
 
-Hold the **right shoulder button (R)** to drive. Everything below is the
+Hold the **right shoulder button (R)** on the gamepad to drive. Everything below is the
 detail: what to check first, what each terminal actually starts, and what to do
 when one of them does not come up.
 
@@ -35,7 +35,7 @@ Each layer consumes the one below it. Nothing skips a level.
 
 ```
   ┌─────────────────────────────────────────────────────────┐
-  │  5. NAVIGATION      navigation_pkg (optional)           │
+  │  5. NAVIGATION      navigation_pkg                      │
   │     goal in, /cmd_vel out. Publishes no TF.             │
   └───────────────────────────▲─────────────────────────────┘
                               │  /map  /scan  /odometry/filtered
@@ -69,8 +69,7 @@ other's packets. Sent to a motor controller, that is a safety problem, not a
 dropped reading.
 
 Terminal 3 can start whenever, since it only publishes `/cmd_vel`. Terminal 5
-is the opposite: it needs all four layers below it, and it must NOT run
-alongside terminal 3, because both drive `/cmd_vel`.
+is the opposite: it needs all four layers below it.
 
 ---
 
@@ -338,7 +337,7 @@ under `amcl_recovery` in `amcl.yaml`. Details in the
 
 ---
 
-## Terminal 5: autonomous navigation (optional)
+## Terminal 5: autonomous navigation
 
 Only if you want the rover to drive itself. Skip for pure mapping runs.
 
@@ -573,10 +572,10 @@ ros2 launch mapping_localization_pkg slam_toolbox.launch.py rviz:=true
 ros2 launch mapping_localization_pkg rtabmap.launch.py rviz:=true
 ros2 launch mapping_localization_pkg amcl_localization.launch.py map:=<path>.yaml
 
-# 5  autonomy (optional; leave 3 running, the joystick outranks it)
+# 5  autonomy (leave 3 running, the joystick outranks it)
 ros2 launch navigation_pkg navigation.launch.py rviz:=true
 
-# 6  VLA policy (optional; needs 5 running)
+# 6  VLA policy (needs 5 running)
 ros2 launch vla_bridge vla_navigation.launch.py
 ros2 topic pub --once /vla/goal_text std_msgs/msg/String "{data: 'the blue chair'}"
 
