@@ -1,7 +1,11 @@
 """OmniVLA-edge backend: 108 M parameters, ~98 ms per inference on an AGX Orin.
 
-Inference-only. The vendor ships no training script for this variant, so the
-checkpoint is frozen and carries the nonholonomic prior of its training mix.
+The vendor ships inference code only for this variant; its LoRA script covers
+the 7.5B checkpoints. The model itself is a standard nn.Module, so fine-tuning
+it means writing a loss and a training loop, not unlocking anything.
+
+As shipped the checkpoint is un-adapted: it carries the nonholonomic prior of
+its training mix and has never seen this camera height or field of view.
 """
 
 from __future__ import annotations

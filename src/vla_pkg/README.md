@@ -168,13 +168,20 @@ ros2 topic pub --once /vla/goal_text std_msgs/msg/String "{data: 'the blue chair
 
 ## Limitations
 
-**The edge checkpoint is frozen.** The vendor ships no training script for it,
-only inference. It carries the nonholonomic prior of its training mix, so it
-will not strafe and knows nothing about the 0.40 m/s cap. Fine-tuning requires
-the 7.5B model, LoRA, and a 48 GB GPU.
+**The checkpoint is un-adapted, not unmodifiable.** It carries the
+nonholonomic prior of its training mix, so it will not strafe, and it knows
+nothing about the 0.40 m/s cap, this camera height, or the ZED 2i's field of
+view.
 
-**Frozen means un-adapted.** It has never seen this rover, this camera height,
-or the ZED 2i's field of view.
+The vendor ships inference code only for the edge variant: `train_omnivla.py`
+accepts the 7.5B checkpoints alone. But `OmniVLA_edge` is a standard
+`nn.Module` with a differentiable forward, so fine-tuning it means writing a
+loss and a training loop. At 108 M parameters that fits on the Orin, unlike the
+7.5B, which needs a datacenter-class GPU even with LoRA.
+
+**Adapting it without training at all** is possible first: `context_stride`,
+a homography to match the training viewpoint, and an action-scale calibration
+are all free, and MPPI already absorbs infeasible proposals downstream.
 
 **`context_stride` is a guess.** The checkpoint does not pin it and the vendor
 demo feeds six identical frames, so the spacing used in training is unknown.

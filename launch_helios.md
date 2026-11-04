@@ -423,9 +423,9 @@ For a pose goal, point RViz's **2D Goal Pose** tool at `/vla/goal_pose`.
 NEURAL_LIGHT depth is the documented cause of the EKF starvation described in
 the rtabmap README. Pair this with AMCL rather than RTAB-Map.
 
-The policy is **frozen and un-adapted to this rover**: it has never seen this
-camera height or field of view, it will not strafe, and it knows nothing about
-the 0.40 m/s cap. Treat its first outings as experiments.
+The policy is **un-adapted to this rover**: it has never seen this camera
+height or field of view, it will not strafe, and it knows nothing about the
+0.40 m/s cap. Treat its first outings as experiments.
 
 ```bash
 curl -s localhost:8777/health            # {"ready":true,...}

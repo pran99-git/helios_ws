@@ -151,8 +151,7 @@ confidently the wrong way.
 
 ## Limitations
 
-The policy is frozen and un-adapted to this rover. See
-[`../README.md`](../README.md).
+The policy is un-adapted to this rover. See [`../README.md`](../README.md).
 
 The JPEG wire encoding costs roughly 0.2% positional deviation, about 2 mm over
 a 1 m chunk. Raise `wire_size` or the encoder quality if that ever matters.
