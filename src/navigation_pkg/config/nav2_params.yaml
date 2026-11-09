@@ -25,9 +25,9 @@ controller_server:
     min_theta_velocity_threshold: 0.001  # rad/s
     failure_tolerance: 0.3            # s of no progress before the controller fails
     odom_topic: /odometry/filtered    # the EKF output, NOT /wheel/odometry
-    progress_checker_plugins: ["progress_checker"]
-    goal_checker_plugins: ["goal_checker"]
-    controller_plugins: ["FollowPath"]
+    progress_checker_plugins: ["progress_checker", "vla_progress_checker"]
+    goal_checker_plugins: ["goal_checker", "vla_goal_checker"]
+    controller_plugins: ["FollowPath", "FollowVLAPath"]
 
     progress_checker:
       # Must accept ROTATION as progress. FollowPath rotates in place to align
@@ -187,6 +187,178 @@ controller_server:
         # The shim bypasses MPPI while pivoting, so this does not fight a
         # deliberate turn: it only stops MPPI spinning once it has control.
         cost_weight: 8.0              # penalise spinning that does not serve the path
+
+    # ------------------------- VLA controller instance -----------------------
+    # An exact copy of FollowPath above, so the VLA drives identically today.
+    # It exists to decouple tuning: the policy emits a ~1 m, 21-pose chunk
+    # regenerated at 5 Hz, where the planner emits a 8-30 m path of hundreds of
+    # poses, and the two want different numbers. path_arbiter selects this
+    # instance via controller_id in vla_bridge.yaml.
+    #
+    # Known to want different values once measured, deliberately NOT changed yet:
+    #   prune_distance        1.7 m exceeds the whole chunk, so nothing prunes
+    #   offset_from_furthest  clamps to the chunk end early on a 21-pose path,
+    #                         losing the lookahead these critics are built on
+    #   GoalCritic/GoalAngleCritic thresholds: the chunk endpoint is a carrot
+    #                         replaced every 0.2 s, not a destination to brake for
+    FollowVLAPath:
+      # RotationShimController wraps MPPI and owns pure rotation. MPPI averages
+      # its sampled trajectories into one command, so it can only ever blend
+      # "turn" and "drive" into an arc. The shim switches between them instead:
+      #   heading error > angular_dist_threshold -> rotate in place, MPPI idle
+      #   heading error < angular_dist_threshold -> hand off to MPPI and drive
+      plugin: "nav2_rotation_shim_controller::RotationShimController"
+      primary_controller: "nav2_mppi_controller::MPPIController"
+
+      angular_dist_threshold: 0.50      # rad (~29 deg), align-first above this
+      forward_sampling_distance: 0.50   # m along the path to take heading from
+      rotate_to_heading_angular_vel: 0.80  # rad/s, matches wz_max
+      max_angular_accel: 1.50           # rad/s^2, inside velocity_smoother's 2.0
+      simulate_ahead_time: 1.0          # s of collision checking before rotating
+      rotate_to_goal_heading: true      # final yaw is a pivot, not an arc
+
+      # --------------------------- primary controller: MPPI ------------------
+
+      # MPPI rolls out batch_size candidate trajectories, each time_steps long at
+      # model_dt seconds per step, scores them with the critics below, and takes a
+      # softmax-weighted average. Horizon = time_steps * model_dt = 2.0 s.
+      #
+      # batch_size and time_steps are REDUCED from the upstream defaults
+      # (2000 / 56) because this Jetson already runs the ZED at ~155% CPU. Raise
+      # them toward the defaults if headroom allows; lower them if the controller
+      # misses its 20 Hz rate. Cost scales with batch_size * time_steps.
+      time_steps: 40                  # steps per rollout
+      model_dt: 0.05                  # s per step; 1/controller_frequency
+      batch_size: 1000                # candidate trajectories per cycle
+      iteration_count: 1              # optimizer passes per cycle
+
+      # Sampling spread, per axis. Too small and the optimizer cannot find its way
+      # around obstacles; too large and the command is noisy.
+      vx_std: 0.20                    # m/s
+      # Strafe is a correction axis, not a travel axis: matching vx here makes a
+      # sideways slide cost no more than driving forward, and the rover crabs.
+      vy_std: 0.05                    # m/s
+      wz_std: 0.40                    # rad/s
+
+      # Ceilings, matching low_level_control_pkg/config/roboclaw.yaml. Keeping
+      # these at or below the driver's own limits means the driver never clamps a
+      # command Nav2 believed it had issued.
+      vx_max: 0.40                    # m/s forward
+      # A limit, not a critic weight: reverse is for extraction, never travel,
+      # and a limit cannot be outvoted by the other critics.
+      vx_min: -0.15                   # m/s reverse
+      vy_max: 0.10                    # m/s strafe, fine correction only
+      wz_max: 0.80                    # rad/s
+
+      # Acceleration limits. Left unset MPPI defaults to ~3 m/s^2 and can demand
+      # a near-instant stop. ax_min shapes the braking ramp into the goal:
+      # 0.40 m/s to rest over ~0.67 s and ~0.13 m.
+      ax_max: 0.60                    # m/s^2
+      ax_min: -0.60                   # m/s^2, the braking ramp into the goal
+      ay_max: 0.30                    # m/s^2
+      az_max: 1.50                    # rad/s^2
+
+      temperature: 0.3                # softmax sharpness; lower = greedier
+      gamma: 0.015                    # control-cost weight, penalises large commands
+      motion_model: "Omni"            # MECANUM. "DiffDrive" would forbid vy.
+      visualize: false                # publishing candidate trajectories costs CPU
+      prune_distance: 1.7             # m of path considered ahead of the robot
+      transform_tolerance: 0.1        # s
+
+      # These weights trade heading against progress and must be changed as a
+      # set. Heading (PreferForward + PathAngle + GoalAngle) too far above
+      # progress (PathAlign + PathFollow) and the optimizer holds still rather
+      # than lose alignment; too far below and the rover crabs sideways.
+      critics: ["ConstraintCritic", "CostCritic", "GoalCritic", "GoalAngleCritic",
+                "PathAlignCritic", "PathFollowCritic", "PathAngleCritic", "PreferForwardCritic","TwirlingCritic"]
+
+      ConstraintCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 4.0              # penalty for exceeding the velocity limits
+      CostCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 8.0            # penalty for driving into costmap cost
+        near_collision_cost: 253
+        critical_cost: 300.0          # cost treated as effectively lethal
+        consider_footprint: true     # true is exact but much slower; see README
+        collision_cost: 1000000.0
+        near_goal_distance: 1.0       # m, relaxes obstacle cost near the goal
+        trajectory_point_step: 2
+      GoalCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 8.0              # pull toward the goal position
+        # Early enough to brake before overshooting, late enough that it does
+        # not dominate the whole of a short goal.
+        threshold_to_consider: 1.5    # m from goal before this activates
+      GoalAngleCritic:
+        enabled: true
+        cost_power: 1
+        # Low and late: rotate_to_goal_heading gives the shim the final heading,
+        # so this only has to stop MPPI drifting off it on the approach.
+        cost_weight: 3.0              # pull toward the goal heading
+        threshold_to_consider: 0.5    # m from goal before heading matters
+      PathAlignCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 10.0             # stay ON the planned path
+        max_path_occupancy_ratio: 0.05
+        trajectory_point_step: 4
+        threshold_to_consider: 0.5    # m from goal after which path following stops
+        offset_from_furthest: 20
+        # SmacPlanner2D emits 8-connected grid paths whose orientations quantise
+        # to 45 deg steps; chasing those makes the rover hunt on tight turns.
+        # PathAngleCritic handles heading instead.
+        use_path_orientations: false
+      PathFollowCritic:
+        enabled: true
+        cost_power: 1
+        # Must outweigh the heading critics, or the cheapest trajectory the
+        # optimizer can find is to sit still and stay aligned.
+        cost_weight: 12.0             # progress ALONG the path
+        offset_from_furthest: 15
+        threshold_to_consider: 1.5    # m
+      PathAngleCritic:
+        enabled: true
+        cost_power: 1
+        # Penalises heading error against the path ahead, so a large error makes
+        # turning on the spot cheaper than driving, a small one becomes a curve.
+        cost_weight: 8.0
+        offset_from_furthest: 4
+        threshold_to_consider: 0.5     # m
+        max_angle_to_furthest: 0.30    # rad (~17 deg) before heading is penalised
+        mode: 0                       # forward preference: drive nose-first
+      PreferForwardCritic:
+        enabled: true
+        cost_power: 1
+        # Penalises reverse travel, so a goal behind the rover is reached by
+        # turning to face it rather than backing toward it. Pushed much higher
+        # it overwhelms the progress critics and the optimizer stalls.
+        cost_weight: 16.0
+        threshold_to_consider: 0.5
+      TwirlingCritic:
+        enabled: true
+        cost_power: 1
+        # The shim bypasses MPPI while pivoting, so this does not fight a
+        # deliberate turn: it only stops MPPI spinning once it has control.
+        cost_weight: 8.0              # penalise spinning that does not serve the path
+
+    vla_progress_checker:
+      # Must accept ROTATION as progress. FollowPath rotates in place to align
+      # before driving, which SimpleProgressChecker reads as a stall: it aborts,
+      # and the behavior tree's recovery (Spin, BackUp) then fights the align.
+      plugin: "nav2_controller::PoseProgressChecker"
+      required_movement_radius: 0.5   # m of translation that counts as progress
+      required_movement_angle: 0.5    # rad of rotation that counts as progress
+      movement_time_allowance: 15.0   # s to achieve either of the above
+
+    vla_goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 0.15         # m, roughly half the rover's width
+      yaw_goal_tolerance: 0.20        # rad (~11.5 deg)
+      stateful: true                  # once xy is met, only yaw must still converge
 
 # ------------------------------------------------------------------- planner ---
 planner_server:

@@ -64,9 +64,12 @@ path_arbiter:
 
     # These three MUST match navigation_pkg/config/nav2_params.yaml. A mismatch
     # is accepted by the server and then fails with INVALID_CONTROLLER.
-    controller_id: "FollowPath"
-    goal_checker_id: "goal_checker"
-    progress_checker_id: "progress_checker"
+    #
+    # The VLA instances, not the classical ones: tuning here cannot change how
+    # a plain Nav2 goal drives.
+    controller_id: "FollowVLAPath"
+    goal_checker_id: "vla_goal_checker"
+    progress_checker_id: "vla_progress_checker"
 
     # How far the comparison waypoint must move before preempting the active
     # goal. Every preemption throws away MPPI's warm optimiser state, and the
