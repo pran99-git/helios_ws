@@ -1,13 +1,15 @@
 # Helios
 
+**Project page, with every run playable in the browser: [pran99-git.github.io/helios_ws](https://pran99-git.github.io/helios_ws/)**
+
 <p align="center">
-  <a href="docs/media/helios_highlights.mp4">
+  <a href="https://pran99-git.github.io/helios_ws/#reel">
     <img src="docs/media/helios_highlights.webp" width="100%"
          alt="Helios driving itself through a lab beside the RViz view of its map, planned path, costmap and onboard camera">
   </a>
   <br>
   <sub>Helios driving itself to goals with Nav2: the rover on the left, what it sees and plans on the right.
-  Preview sped up. <a href="docs/media/helios_highlights.mp4">Watch the full highlight reel</a>.</sub>
+  Preview sped up. <a href="https://pran99-git.github.io/helios_ws/#reel">Watch the full highlight reel</a>.</sub>
 </p>
 
 Helios is a four-wheeled **mecanum rover** that maps an indoor space with a 2D
