@@ -339,7 +339,7 @@
     <h1 class="sr-only">Helios, an autonomous mecanum rover</h1>
     <div class="map-frame">
       <canvas id="costmap" tabindex="0" role="img"
-        aria-label="The word Helios drawn as obstacles on a Nav2 costmap. A yellow robot footprint follows a green planned path between the letters to a goal. Click the map, or press Enter, to send it a new goal."></canvas>
+        aria-label="The word Helios drawn as obstacles on a Nav2 costmap. A top-down model of the rover, inside its yellow footprint, follows a green planned path between the letters to a goal. Click the map, or press Enter, to send it a new goal."></canvas>
     </div>
     <div class="map-bar">
       <span id="map-hint" aria-live="polite">The letters are obstacles. Click open floor to send a goal.</span>
@@ -1192,6 +1192,9 @@ dlg.addEventListener("close", () => { dlgVideo.pause(); dlgVideo.removeAttribute
     path: col("--path"), foot: col("--footprint"), laser: col("--laser"), goal: "#4D8FF0"
   };
   const RES = 0.05; // metres per cell, the same 5 cm grid Helios's costmaps use
+  const rover = new Image();
+  rover.onload = () => { if (G && !anim) draw(); };
+  rover.src = "assets/rover_top.png";
 
   let G = null, anim = null, lastW = 0;
 
@@ -1211,7 +1214,7 @@ dlg.addEventListener("close", () => { dlgVideo.pause(); dlgVideo.removeAttribute
     const occ = new Uint8Array(N);
     const rand = rng(1202);
 
-    const fp = Math.max(4, Math.min(8, Math.round(cols / 28)));  // footprint side, cells
+    const fp = Math.max(5, Math.min(10, Math.round(cols / 22)));  // footprint side, cells
     const insc = fp / 2;                                          // inscribed radius
     const R = insc + Math.max(3, Math.round(fp * 0.6));           // inflation radius
     const gap = fp + (cols < 140 ? 3 : 4);
@@ -1432,13 +1435,17 @@ dlg.addEventListener("close", () => { dlgVideo.pause(); dlgVideo.removeAttribute
     const dot = Math.max(1.5, cell * 0.38) * dpr;
     for (const [hx, hy] of laser()) ctx.fillRect(X(hx) - dot / 2, Y(hy) - dot / 2, dot, dot);
 
-    // Footprint, with a short heading tick.
+    // The rover, seen from above (rendered from the URDF meshes), inside its footprint.
     ctx.save();
     ctx.translate(X(bot.x), Y(bot.y)); ctx.rotate(bot.th);
     const s = fp * cell * dpr;
+    if (rover.complete && rover.naturalWidth) {
+      const k = s * (0.40 / 0.38);  // the sprite spans 0.40 m; the footprint is 0.38 m
+      ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(rover, -k / 2, -k / 2, k, k);
+    }
     ctx.strokeStyle = C.foot; ctx.lineWidth = Math.max(1.6, cell * 0.3) * dpr; ctx.lineCap = "butt";
     ctx.strokeRect(-s / 2, -s / 2, s, s);
-    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(s / 2, 0); ctx.stroke();
     ctx.restore();
 
     // Distance remaining, in metres on the 5 cm grid.
