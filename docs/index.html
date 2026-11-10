@@ -157,98 +157,122 @@
   .close svg { width: 20px; height: 20px; }
   dialog#player video { width: 100%; aspect-ratio: 16 / 9; background: #000; }
 
-  /* How it works */
-  .loop { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); counter-reset: step; border-top: 1px solid var(--rule); }
-  .loop li { counter-increment: step; padding: 24px 24px 0 0; position: relative; }
-  .loop li + li { padding-left: 24px; border-left: 1px solid var(--rule); }
-  .loop h3::before { content: counter(step); display: block; font-size: 1rem; font-family: var(--text); font-weight: 600; color: var(--ink-2); margin-bottom: 10px; }
-  .loop p { margin-top: 12px; font-size: 1rem; color: var(--ink-2); }
-  .loop .pkgs { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 6px; }
-  .loop .pkgs code { font-size: 0.8125rem; }
-  .loop-back { margin-top: 28px; display: flex; align-items: center; gap: 14px; color: var(--ink-2); font-size: 1rem; }
-  .loop-back svg { width: 40px; height: 22px; flex: none; }
-  @media (max-width: 900px) {
-    .loop { grid-template-columns: 1fr 1fr; }
-    .loop li:nth-child(3) { border-left: 0; padding-left: 0; }
-    .loop li:nth-child(n+3) { border-top: 1px solid var(--rule); margin-top: 24px; }
+  /* Architecture diagrams */
+  .dgfig { margin: 0; }
+  .dgfig figcaption { margin-top: 14px; font-size: 0.9375rem; color: var(--ink-2); max-width: 76ch; }
+  .dg { width: 100%; height: auto; display: block; }
+  .dg text { font-family: var(--text); }
+  .dg .b { fill: var(--rviz-raised); stroke: #56575E; stroke-width: 1; }
+  .dg .hw { fill: #222227; stroke: #7A7C85; }
+  .dg .ghost { fill: none; stroke: #6A6C74; stroke-dasharray: 3 4; }
+  .dg .dev { stroke: #9A9CA6; stroke-dasharray: 6 4; }
+  .dg .sub { fill: #303135; }
+  .dg .host { fill: #313236; stroke: var(--rule); stroke-width: 1; }
+  .dg .lane { fill: none; stroke: #6A6C74; stroke-dasharray: 6 5; }
+  .dg .frame { fill: #222227; stroke: var(--footprint); stroke-width: 1.2; }
+  .dg .sep { stroke: #48494F; stroke-width: 1; }
+  .dg .hd { font-family: var(--display); font-weight: 700; font-size: 22px; fill: var(--ink); }
+  .dg .hd-s { font-size: 19px; }
+  .dg .tt { font-size: 14px; font-weight: 600; fill: var(--ink); }
+  .dg .tc { font-family: var(--mono); font-size: 13px; font-weight: 600; fill: var(--ink); }
+  .dg .ts { font-size: 12.5px; fill: var(--ink-2); }
+  .dg .ts-ink { fill: var(--ink); }
+  .dg .ts-dim { font-size: 11.5px; font-style: italic; }
+  .dg .tm { font-family: var(--mono); font-size: 12px; fill: var(--ink-2); }
+  .dg .tm-ink { fill: var(--ink); }
+  .dg .tn { font-size: 12.5px; fill: var(--footprint); }
+  .dg .tg { font-size: 12.5px; fill: var(--path); }
+  .dg .frame-s { stroke: #7A7C85; }
+  .dg .go { font-size: 13px; font-weight: 600; fill: var(--signal); }
+  .dg .chev { fill: none; stroke: var(--signal); stroke-width: 1.8; }
+  .dg .e { fill: none; stroke: #8E909A; stroke-width: 1.5; }
+  .dg .e-c { stroke: var(--path); }
+  .dg .e-t { stroke: var(--footprint); stroke-dasharray: 6 4; }
+  .dg .e-off { stroke-dasharray: 2 5; opacity: .8; }
+  .dg .ah { fill: #8E909A; }
+  .dg .ah-c { fill: var(--path); }
+  .dg .ah-t { fill: var(--footprint); }
+  .dg .pill { fill: var(--rviz); }
+  .dg .lb { font-family: var(--mono); font-size: 11px; fill: var(--ink-2); }
+  .dg .lb-c { fill: var(--path); }
+  .dg .lb-t { fill: var(--footprint); }
+  .dg .lbs { font-family: var(--text); font-size: 12px; fill: var(--ink-2); }
+  .dg .bar-track { fill: #2A2B2F; }
+  .dg .bar { fill: var(--ink-2); }
+  .dg .prio { font-family: var(--display); font-weight: 700; font-size: 24px; fill: var(--ink); }
+  .dg a { cursor: pointer; }
+  .dg a:focus { outline: none; }
+  .dg a .blk { transition: stroke .15s; }
+  .dg a:hover .blk, .dg a:focus-visible .blk, .dg a.on .blk { stroke: var(--signal); stroke-width: 2; }
+  .dg-tall { display: none; max-width: 440px; margin-inline: auto; }
+  @media (max-width: 760px) { .dg-wide { display: none; } .dg-tall { display: block; } }
+  .scroller { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .scroller .dg { min-width: 780px; }
+  .scroll-hint { display: none; font-size: 0.875rem; color: var(--ink-2); margin: 0 0 10px; }
+  @media (max-width: 780px) { .scroll-hint { display: block; } }
+
+  .dg-legend { display: flex; flex-wrap: wrap; gap: 10px 28px; list-style: none; margin: 18px 0 0; padding: 0; font-size: 0.9375rem; color: var(--ink-2); }
+  .dg-legend li { display: flex; align-items: center; gap: 10px; }
+  .lg { width: 28px; height: 14px; flex: none; }
+  .lg-d { background: linear-gradient(#8E909A, #8E909A) center / 100% 2px no-repeat; }
+  .lg-c { background: linear-gradient(var(--path), var(--path)) center / 100% 2px no-repeat; }
+  .lg-t { background: repeating-linear-gradient(90deg, var(--footprint) 0 6px, transparent 6px 10px) center / 100% 2px no-repeat; }
+  .lg-hw { background: #222227; border: 1px solid #7A7C85; border-radius: 3px; height: 18px; }
+  .lg-dev { border: 1px dashed #9A9CA6; border-radius: 3px; height: 18px; }
+
+  /* Sub-stack tabs */
+  .tabs { display: flex; flex-wrap: wrap; gap: 0 28px; margin-top: 64px; border-bottom: 1px solid var(--rule); scroll-margin-top: 16px; }
+  .tab { all: unset; cursor: pointer; padding: 12px 0; font-weight: 600; font-size: 1.0625rem; color: var(--ink-2); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tab:hover { color: var(--ink); }
+  .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--signal); }
+  .tab:focus-visible { outline: 2px solid var(--signal); outline-offset: 3px; }
+  .panel { padding-top: 36px; }
+  .panel:focus-visible { outline: none; }
+  .panel-head { max-width: 70ch; margin-bottom: 28px; }
+  .panel-head h3 { font-size: clamp(1.75rem, 3vw, 2.25rem); }
+  .panel-head p { color: var(--ink-2); margin-top: 12px; }
+  .notes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px 40px; margin-top: 44px; }
+  .notes > div { border-top: 1px solid var(--rule); padding-top: 18px; }
+  .notes h4 { margin: 0; font-size: 1.0625rem; font-weight: 600; line-height: 1.35; }
+  .notes p { margin-top: 8px; color: var(--ink-2); font-size: 1rem; }
+  @media (max-width: 900px) { .notes { grid-template-columns: 1fr; gap: 20px; } }
+  .clip { margin-top: 44px; display: grid; grid-template-columns: 7fr 4fr; gap: 20px 40px; align-items: center; }
+  .clip video { width: 100%; aspect-ratio: 16 / 9; background: #1F2023; border: 1px solid var(--rule); border-radius: 3px; }
+  .clip h4 { margin: 0; font-size: 1.25rem; font-family: var(--display); font-weight: 700; }
+  .clip p { color: var(--ink-2); font-size: 1rem; margin-top: 8px; }
+  @media (max-width: 820px) { .clip { grid-template-columns: 1fr; } }
+
+  .stops { margin-top: 44px; }
+  .stops h4 { margin: 0; font-family: var(--display); font-weight: 700; font-size: 1.5rem; line-height: 1.1; }
+  .stops > p { color: var(--ink-2); font-size: 1rem; margin-top: 8px; max-width: 64ch; }
+  .stops table { width: 100%; border-collapse: collapse; font-size: 1rem; margin-top: 18px; }
+  .stops th, .stops td { text-align: left; vertical-align: top; padding: 14px 24px 14px 0; border-bottom: 1px solid var(--rule); }
+  .stops th { color: var(--ink-2); font-weight: 600; font-size: 0.9375rem; }
+  .stops td:first-child { font-weight: 600; width: 34%; }
+  .stops td:last-child { color: var(--ink-2); }
+  @media (max-width: 640px) {
+    .stops thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+    .stops tr { display: block; padding-block: 14px; border-bottom: 1px solid var(--rule); }
+    .stops td { display: block; padding: 0; border: 0; width: auto !important; }
+    .stops td + td { margin-top: 4px; }
   }
-  @media (max-width: 560px) {
-    .loop { grid-template-columns: 1fr; }
-    .loop li, .loop li + li { padding: 20px 0 0; border-left: 0; }
-    .loop li + li { border-top: 1px solid var(--rule); margin-top: 20px; }
-  }
 
-  .tf { margin-top: 64px; display: grid; grid-template-columns: 5fr 7fr; gap: 32px 64px; align-items: start; }
-  .tf p { color: var(--ink-2); margin-top: 12px; font-size: 1rem; }
-  table { width: 100%; border-collapse: collapse; font-size: 1rem; }
-  th, td { text-align: left; vertical-align: top; padding: 12px 16px 12px 0; border-bottom: 1px solid var(--rule); }
-  th { font-weight: 600; color: var(--ink-2); font-size: 0.9375rem; }
-  td:first-child { white-space: nowrap; }
-  .tf > * { min-width: 0; }
-  @media (max-width: 820px) { .tf { grid-template-columns: 1fr; } }
-  @media (max-width: 600px) {
-    .tf thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-    .tf tr { display: block; padding-block: 14px; border-bottom: 1px solid var(--rule); }
-    .tf td { display: block; padding: 0; border: 0; white-space: normal; }
-    .tf td:first-child { margin-bottom: 6px; }
-    .tf td:last-child { color: var(--ink-2); }
-  }
+  /* Specifications */
+  .specs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px 48px; }
+  .specs h3 { font-size: 1.5rem; margin-bottom: 12px; }
+  .specs dl { margin: 0; }
+  .specs dl > div { padding-block: 12px; border-top: 1px solid var(--rule); }
+  .specs dt { color: var(--ink-2); font-size: 0.9375rem; }
+  .specs dd { margin: 2px 0 0; font-size: 1rem; }
+  @media (max-width: 900px) { .specs { grid-template-columns: 1fr; gap: 32px; } }
 
-  /* Priority ladder */
-  .ladder { list-style: none; margin: 0; padding: 0; }
-  .ladder li { display: grid; grid-template-columns: minmax(180px, 3fr) 6fr auto; gap: 8px 28px; align-items: center; padding-block: 18px; border-bottom: 1px solid var(--rule); }
-  .ladder li:first-child { border-top: 1px solid var(--rule); }
-  .ladder .who { font-weight: 600; }
-  .ladder .who code { display: inline-block; margin-top: 4px; font-weight: 400; font-size: 0.8125rem; }
-  .ladder .what { color: var(--ink-2); font-size: 1rem; }
-  .ladder .bar { grid-column: 2; height: 8px; background: var(--rviz-raised); border-radius: 1px; overflow: hidden; margin-top: 10px; }
-  .ladder .bar i { display: block; height: 100%; background: var(--ink-2); }
-  .ladder .prio { grid-column: 3; grid-row: 1 / span 2; font-family: var(--display); font-weight: 700; font-size: 2.25rem; line-height: 1; font-variant-numeric: tabular-nums; text-align: right; min-width: 3ch; }
-  .ladder .txt { grid-column: 2; grid-row: 1; }
-  .ladder .who { grid-column: 1; grid-row: 1 / span 2; }
-  .mux { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-top: 24px; font-size: 1rem; }
-  .mux span { color: var(--ink-2); }
-  .heartbeat { margin-top: 28px; max-width: 64ch; }
-  @media (max-width: 680px) {
-    .ladder li { grid-template-columns: 1fr auto; }
-    .ladder .who { grid-column: 1; grid-row: 1; }
-    .ladder .txt { grid-column: 1 / span 2; grid-row: 2; }
-    .ladder .bar { grid-column: 1 / span 2; grid-row: 3; margin-top: 4px; }
-    .ladder .prio { grid-column: 2; grid-row: 1; font-size: 1.875rem; }
-  }
+  /* Closing */
+  .cta-inner { border: 1px solid var(--rule); border-radius: 4px; background: var(--rviz-raised); padding: clamp(24px, 4vw, 44px); display: grid; grid-template-columns: 1fr auto; gap: 24px 48px; align-items: center; }
+  .cta-inner p { color: var(--ink-2); margin-top: 12px; max-width: 58ch; }
+  .cta-inner .actions { margin-top: 0; }
+  @media (max-width: 820px) { .cta-inner { grid-template-columns: 1fr; } }
 
-  /* Hardware */
-  .parts { margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 0 48px; }
-  .parts > div { padding-block: 18px; border-top: 1px solid var(--rule); }
-  .parts dt { font-weight: 600; }
-  .parts dd { margin: 4px 0 0; color: var(--ink-2); font-size: 1rem; }
-  .parts dd b { color: var(--ink); font-weight: 500; }
-  @media (max-width: 720px) { .parts { grid-template-columns: 1fr; } }
-
-  /* Status */
-  .status { list-style: none; margin: 0; padding: 0; columns: 2; column-gap: 48px; }
-  .status li { break-inside: avoid; display: grid; grid-template-columns: 18px 1fr; gap: 14px; padding-block: 14px; border-top: 1px solid var(--rule); }
-  .status .st { color: var(--ink-2); font-size: 0.9375rem; display: block; }
-  .dot { width: 14px; height: 14px; border-radius: 50%; margin-top: 6px; border: 2px solid var(--path); }
-  .dot.ok { background: var(--path); }
-  .dot.tuning { background: linear-gradient(90deg, var(--path) 50%, transparent 50%); }
-  .dot.open { border-color: var(--ink-2); }
-  .status-key { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: 24px; font-size: 0.9375rem; color: var(--ink-2); }
-  .status-key span { display: inline-flex; align-items: center; gap: 8px; }
-  .status-key .dot { margin-top: 0; }
-  @media (max-width: 720px) { .status { columns: 1; } }
-
-  /* Run it */
-  pre { margin: 0; background: var(--code-bg); border: 1px solid var(--rule); border-radius: 3px; padding: 20px 22px; overflow-x: auto; font: 0.875rem/1.75 var(--mono); }
-  pre code { background: none; padding: 0; font-size: inherit; }
-  pre .c { color: #8C8F99; }
-  .run-it { display: grid; grid-template-columns: 5fr 7fr; gap: 32px 64px; align-items: start; }
-  .run-it p + p { margin-top: 14px; }
-  .run-it p { color: var(--ink-2); font-size: 1rem; }
-  .run-it .actions { margin-top: 24px; }
-  @media (max-width: 860px) { .run-it { grid-template-columns: 1fr; } }
-
-  footer { margin-top: clamp(80px, 10vw, 128px); border-top: 1px solid var(--rule); padding-block: 28px 40px; font-size: 0.9375rem; color: var(--ink-2); }
+  footer { margin-top: 64px; border-top: 1px solid var(--rule); padding-block: 28px 40px; font-size: 0.9375rem; color: var(--ink-2); }
   footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 32px; }
   footer ul { display: flex; flex-wrap: wrap; gap: 6px 24px; list-style: none; margin: 0; padding: 0; }
 </style>
@@ -260,8 +284,8 @@
   <nav aria-label="Sections">
     <ul>
       <li><a href="#runs">Runs</a></li>
-      <li class="opt"><a href="#how">How it works</a></li>
-      <li class="opt"><a href="#hardware">Hardware</a></li>
+      <li class="opt"><a href="#architecture">Architecture</a></li>
+      <li class="opt"><a href="#specs">Specs</a></li>
       <li><a href="https://github.com/pran99-git/helios_ws">GitHub</a></li>
     </ul>
   </nav>
@@ -332,151 +356,633 @@
     <p class="note" id="runs-note">Hover a run for a sped-up preview. Open it for the full video.</p>
   </section>
 
-  <section id="how" class="wrap" aria-labelledby="how-h">
+  <section id="architecture" class="wrap" aria-labelledby="arch-h">
     <div class="sec-head">
-      <h2 id="how-h">Sense, estimate, decide, act</h2>
-      <p class="intro">The software is one loop. Each layer consumes the one before it and nothing skips a level.</p>
+      <h2 id="arch-h">How the stack fits together</h2>
+      <p class="intro">Four sub-stacks of ROS 2 nodes, all on the Orin. Data flows from the sensors to the motors, and the rover’s own motion feeds straight back into the sensors. Select a sub-stack to see inside it.</p>
     </div>
-    <ol class="loop">
-      <li>
-        <h3>Sense</h3>
-        <p>Wheel encoders through the RoboClaw controllers, the ZED 2i for depth, colour and visual-inertial odometry, and the Hokuyo laser for a flat slice of the room.</p>
-        <div class="pkgs"><code>low_level_control_pkg</code><code>perception_pkg</code></div>
-      </li>
-      <li>
-        <h3>Estimate</h3>
-        <p>An EKF fuses wheel and camera odometry into one smooth position. slam_toolbox, RTAB-Map or AMCL corrects its drift against a map.</p>
-        <div class="pkgs"><code>sensor_fusion</code><code>wheel_odometry</code><code>mapping_localization_pkg</code></div>
-      </li>
-      <li>
-        <h3>Decide</h3>
-        <p>Nav2 plans a route on the map and an MPPI controller follows it, dodging what the sensors see. An OmniVLA policy can turn a sentence or a photo into a path for the same controller.</p>
-        <div class="pkgs"><code>navigation_pkg</code><code>vla_bridge</code></div>
-      </li>
-      <li>
-        <h3>Act</h3>
-        <p><code>twist_mux</code> picks one velocity command by priority, and the RoboClaw driver turns it into four wheel speeds through the mecanum kinematics.</p>
-        <div class="pkgs"><code>low_level_control_pkg</code></div>
-      </li>
-    </ol>
-    <p class="loop-back">
-      <svg viewBox="0 0 40 22" aria-hidden="true"><path d="M36 4v8a6 6 0 0 1-6 6H6" fill="none" stroke="var(--path)" stroke-width="2"/><path d="M10 13l-5 5 5 5" fill="none" stroke="var(--path)" stroke-width="2" transform="translate(0 -5)"/></svg>
-      The wheels moving feeds straight back into the sensors, and the loop starts again.
-    </p>
-
-    <div class="tf">
-      <div>
-        <h3>Odometry drifts, a map does not</h3>
-        <p>Wheels slip, especially mecanum wheels, and the camera loses track in featureless corridors. So the stack keeps two frames: a smooth one that drifts, and a corrected one that occasionally jumps. Exactly one node publishes each transform, following ROS REP-105, so any standard ROS tool works with this robot unmodified.</p>
-      </div>
-      <table>
-        <thead><tr><th scope="col">Transform</th><th scope="col">Meaning</th><th scope="col">Published by</th></tr></thead>
-        <tbody>
-          <tr><td><code>map → odom</code></td><td>The drift correction</td><td>One of slam_toolbox, RTAB-Map or AMCL</td></tr>
-          <tr><td><code>odom → base_link</code></td><td>Where the robot is</td><td>The EKF, and only the EKF</td></tr>
-          <tr><td><code>base_link → sensors</code></td><td>Where parts are bolted on</td><td>robot_state_publisher, from the URDF</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
-
-  <section id="safety" class="wrap" aria-labelledby="safety-h">
-    <div class="sec-head">
-      <h2 id="safety-h">One way into the motors</h2>
-      <p class="intro">The motor driver listens to <code>/cmd_vel</code> and nothing else, and only <code>twist_mux</code> publishes it. Everything that wants the rover to move publishes on its own topic, and the mux forwards the highest-priority one that is still talking.</p>
-    </div>
-    <ol class="ladder">
-      <li>
-        <div class="who">E-stop<br><code>/cmd_vel_estop</code></div>
-        <p class="what txt">Zeros, sent the instant the stop button is pressed</p>
-        <div class="bar" aria-hidden="true"><i style="width:100%"></i></div>
-        <div class="prio" aria-label="Priority 250">250</div>
-      </li>
-      <li>
-        <div class="who">E-stop lock<br><code>/cmd_vel_lock</code></div>
-        <p class="what txt">While engaged, blocks everything below it</p>
-        <div class="bar" aria-hidden="true"><i style="width:80%"></i></div>
-        <div class="prio" aria-label="Priority 200">200</div>
-      </li>
-      <li>
-        <div class="who">Joystick<br><code>/cmd_vel_joy</code></div>
-        <p class="what txt">Holding the deadman button overrides autonomy</p>
-        <div class="bar" aria-hidden="true"><i style="width:40%"></i></div>
-        <div class="prio" aria-label="Priority 100">100</div>
-      </li>
-      <li>
-        <div class="who">Nav2, and the VLA through it<br><code>/cmd_vel_smoothed</code></div>
-        <p class="what txt">Autonomy, whenever no human is driving</p>
-        <div class="bar" aria-hidden="true"><i style="width:4%"></i></div>
-        <div class="prio" aria-label="Priority 10">10</div>
-      </li>
-    </ol>
-    <p class="mux"><code>twist_mux</code><span>publishes</span><code>/cmd_vel</code><span>to</span><code>roboclaw_driver</code><span>which drives the motors</span></p>
-    <p class="heartbeat">The lock is a heartbeat. The e-stop node says “clear” 20 times a second, and if it ever goes quiet the mux engages the lock on its own. If the safety node is not running, nothing drives the rover.</p>
-  </section>
-
-  <section id="hardware" class="wrap" aria-labelledby="hw-h">
-    <div class="sec-head">
-      <h2 id="hw-h">Hardware</h2>
-      <p class="intro">Mecanum wheels have free-spinning rollers set at an angle, so driving the four wheels at different speeds moves the rover sideways as well as forward and around. The cost is extra wheel slip, which is why the camera and laser are there.</p>
-    </div>
-    <dl class="parts">
-      <div><dt>Lynxmotion A4WD3 chassis</dt><dd>Four mecanum wheels, 12 V motors, 51:1 gearboxes. <b>Strafes and turns on the spot.</b></dd></div>
-      <div><dt>NVIDIA Jetson AGX Orin</dt><dd>The only computer. <b>Runs the whole stack on board.</b></dd></div>
-      <div><dt>Hokuyo UST-10LX</dt><dd>2D laser scanner over Ethernet. <b>The main mapping sensor.</b></dd></div>
-      <div><dt>Stereolabs ZED 2i</dt><dd>Stereo depth camera with an IMU, over USB 3. <b>Depth and visual-inertial odometry.</b></dd></div>
-      <div><dt>2 × RoboClaw controllers</dt><dd>Motor drivers, one per side, over USB serial. <b>Drive the motors and read the encoders.</b></dd></div>
-      <div><dt>8BitDo SN30 Pro</dt><dd>Bluetooth gamepad. <b>Manual driving and the e-stop button.</b></dd></div>
-      <div><dt>3S LiPo, 11.1 V</dt><dd>Battery. <b>Powers the motors and electronics.</b></dd></div>
-    </dl>
-  </section>
-
-  <section id="status" class="wrap" aria-labelledby="status-h">
-    <div class="sec-head">
-      <h2 id="status-h">Where it stands</h2>
-      <p class="intro">What works on the rover today, and what is still being tuned.</p>
-    </div>
-    <ul class="status">
-      <li><span class="dot ok" aria-hidden="true"></span><span>Drive by joystick<span class="st">Works</span></span></li>
-      <li><span class="dot ok" aria-hidden="true"></span><span>Wheel odometry<span class="st">Works</span></span></li>
-      <li><span class="dot ok" aria-hidden="true"></span><span>Fused odometry from wheels, camera and IMU<span class="st">Works</span></span></li>
-      <li><span class="dot ok" aria-hidden="true"></span><span>2D map from the laser scanner<span class="st">Works</span></span></li>
-      <li><span class="dot tuning" aria-hidden="true"></span><span>3D map from the camera and laser<span class="st">Works, quality still being tuned</span></span></li>
-      <li><span class="dot ok" aria-hidden="true"></span><span>Localize in a map it made earlier<span class="st">Works with AMCL, and re-localizes itself</span></span></li>
-      <li><span class="dot tuning" aria-hidden="true"></span><span>Drive itself to a goal<span class="st">Works with Nav2, driving style still being tuned</span></span></li>
-      <li><span class="dot ok" aria-hidden="true"></span><span>Emergency stop<span class="st">Works, latching, from a gamepad button</span></span></li>
-      <li><span class="dot open" aria-hidden="true"></span><span>Drive to a goal given as a sentence or photo<span class="st">Policy runs at rate, not yet validated on a drive</span></span></li>
+    <figure class="dgfig">
+      <svg class="dg dg-wide" viewBox="0 0 1200 600" role="group" aria-label="The whole Helios stack: sensors feed Perception, which feeds Mapping and localization and Navigation; Navigation sends velocity commands to Control and safety, which drives the motors. Encoder counts and the rover&#x27;s motion feed back into Perception." xmlns="http://www.w3.org/2000/svg"><defs><marker id="ow-d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah ah-d"/></marker><marker id="ow-c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah ah-c"/></marker><marker id="ow-t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah ah-t"/></marker></defs>
+<rect x="10" y="10" width="1180" height="420" rx="10" class="host"/>
+<a href="#sub-perception" class="dg-link" data-tab="perception" aria-label="Perception: open its diagram">
+<rect x="30" y="90" width="196" height="280" rx="8" class="b blk"/>
+<text x="46" y="122" class="hd" text-anchor="start">Perception</text>
+<text x="46" y="142" class="ts" text-anchor="start">How am I moving?</text>
+<line x1="44" y1="158" x2="212" y2="158" class="sep"/>
+<text x="46" y="174" class="tm tm-ink" text-anchor="start">urg_node2</text>
+<line x1="44" y1="182" x2="212" y2="182" class="sep"/>
+<text x="46" y="198" class="tm tm-ink" text-anchor="start">zed_wrapper</text>
+<line x1="44" y1="206" x2="212" y2="206" class="sep"/>
+<text x="46" y="222" class="tm tm-ink" text-anchor="start">custom_covariance</text>
+<line x1="44" y1="230" x2="212" y2="230" class="sep"/>
+<text x="46" y="246" class="tm tm-ink" text-anchor="start">wheel_odometry</text>
+<line x1="44" y1="254" x2="212" y2="254" class="sep"/>
+<text x="46" y="270" class="tm tm-ink" text-anchor="start">ekf_filter_node</text>
+<line x1="44" y1="278" x2="212" y2="278" class="sep"/>
+<text x="46" y="294" class="tm tm-ink" text-anchor="start">robot_state_publisher</text>
+<text x="46" y="352" class="go" text-anchor="start">See inside</text>
+<path d="M122 344l4 4-4 4" class="chev"/>
+</a>
+<a href="#sub-mapping" class="dg-link" data-tab="mapping" aria-label="Mapping and localization: open its diagram">
+<rect x="344" y="90" width="196" height="280" rx="8" class="b blk"/>
+<text x="360" y="122" class="hd hd-s" text-anchor="start">Mapping and localization</text>
+<text x="360" y="142" class="ts" text-anchor="start">Where am I?</text>
+<line x1="358" y1="158" x2="526" y2="158" class="sep"/>
+<text x="360" y="174" class="tm tm-ink" text-anchor="start">slam_toolbox</text>
+<line x1="358" y1="182" x2="526" y2="182" class="sep"/>
+<text x="360" y="198" class="tm tm-ink" text-anchor="start">rtabmap</text>
+<line x1="358" y1="206" x2="526" y2="206" class="sep"/>
+<text x="360" y="222" class="tm tm-ink" text-anchor="start">amcl</text>
+<line x1="358" y1="230" x2="526" y2="230" class="sep"/>
+<text x="360" y="246" class="tm tm-ink" text-anchor="start">amcl_recovery</text>
+<line x1="358" y1="254" x2="526" y2="254" class="sep"/>
+<text x="360" y="270" class="tm tm-ink" text-anchor="start">map_server</text>
+<text x="360" y="300" class="tn" text-anchor="start">one at a time owns map → odom</text>
+<text x="360" y="352" class="go" text-anchor="start">See inside</text>
+<path d="M436 344l4 4-4 4" class="chev"/>
+</a>
+<a href="#sub-navigation" class="dg-link" data-tab="navigation" aria-label="Navigation: open its diagram">
+<rect x="658" y="90" width="196" height="280" rx="8" class="b blk"/>
+<text x="674" y="122" class="hd" text-anchor="start">Navigation</text>
+<text x="674" y="142" class="ts" text-anchor="start">How do I get there?</text>
+<line x1="672" y1="158" x2="840" y2="158" class="sep"/>
+<text x="674" y="174" class="tm tm-ink" text-anchor="start">bt_navigator</text>
+<line x1="672" y1="182" x2="840" y2="182" class="sep"/>
+<text x="674" y="198" class="tm tm-ink" text-anchor="start">planner_server</text>
+<line x1="672" y1="206" x2="840" y2="206" class="sep"/>
+<text x="674" y="222" class="tm tm-ink" text-anchor="start">controller_server</text>
+<line x1="672" y1="230" x2="840" y2="230" class="sep"/>
+<text x="674" y="246" class="tm tm-ink" text-anchor="start">behavior_server</text>
+<line x1="672" y1="254" x2="840" y2="254" class="sep"/>
+<text x="674" y="270" class="tm tm-ink" text-anchor="start">velocity_smoother</text>
+<line x1="672" y1="278" x2="840" y2="278" class="sep"/>
+<text x="674" y="294" class="tm tm-ink" text-anchor="start">vla_bridge</text>
+<text x="840" y="294" class="ts ts-dim" text-anchor="end">in development</text>
+<text x="674" y="352" class="go" text-anchor="start">See inside</text>
+<path d="M750 344l4 4-4 4" class="chev"/>
+</a>
+<a href="#sub-control" class="dg-link" data-tab="control" aria-label="Control and safety: open its diagram">
+<rect x="972" y="90" width="196" height="280" rx="8" class="b blk"/>
+<text x="988" y="122" class="hd hd-s" text-anchor="start">Control and safety</text>
+<text x="988" y="142" class="ts" text-anchor="start">Who gets to drive?</text>
+<line x1="986" y1="158" x2="1154" y2="158" class="sep"/>
+<text x="988" y="174" class="tm tm-ink" text-anchor="start">twist_mux</text>
+<line x1="986" y1="182" x2="1154" y2="182" class="sep"/>
+<text x="988" y="198" class="tm tm-ink" text-anchor="start">estop_node</text>
+<line x1="986" y1="206" x2="1154" y2="206" class="sep"/>
+<text x="988" y="222" class="tm tm-ink" text-anchor="start">teleop_joy</text>
+<line x1="986" y1="230" x2="1154" y2="230" class="sep"/>
+<text x="988" y="246" class="tm tm-ink" text-anchor="start">joy_node</text>
+<line x1="986" y1="254" x2="1154" y2="254" class="sep"/>
+<text x="988" y="270" class="tm tm-ink" text-anchor="start">roboclaw_driver</text>
+<text x="988" y="300" class="tg" text-anchor="start">the only way into the motors</text>
+<text x="988" y="352" class="go" text-anchor="start">See inside</text>
+<path d="M1064 344l4 4-4 4" class="chev"/>
+</a>
+<rect x="30" y="466" width="94" height="58" rx="6" class="b hw"/>
+<rect x="132" y="466" width="94" height="58" rx="6" class="b hw"/>
+<rect x="972" y="466" width="94" height="58" rx="6" class="b hw"/>
+<rect x="1074" y="466" width="94" height="58" rx="6" class="b hw"/>
+<path d="M226 170 L344 170" class="e" marker-end="url(#ow-d)"/>
+<path d="M226 222 L344 222" class="e e-t" marker-end="url(#ow-t)"/>
+<path d="M540 170 L658 170" class="e" marker-end="url(#ow-d)"/>
+<path d="M540 222 L658 222" class="e e-t" marker-end="url(#ow-t)"/>
+<path d="M854 196 L972 196" class="e e-c" marker-end="url(#ow-c)"/>
+<path d="M180 90 L180 64 L700 64 L700 90" class="e" marker-end="url(#ow-d)"/>
+<path d="M992 370 L992 404 L204 404 L204 370" class="e" marker-end="url(#ow-d)"/>
+<path d="M77 466 L77 370" class="e" marker-end="url(#ow-d)"/>
+<path d="M179 466 L179 370" class="e" marker-end="url(#ow-d)"/>
+<path d="M1019 466 L1019 370" class="e" marker-end="url(#ow-d)"/>
+<path d="M1121 370 L1121 466" class="e e-c" marker-start="url(#ow-c)" marker-end="url(#ow-c)"/>
+<path d="M1121 524 L1121 572 L77 572 L77 524" class="e e-off" marker-end="url(#ow-d)"/>
+<path d="M179 572 L179 524" class="e e-off" marker-end="url(#ow-d)"/>
+<text x="30" y="38" class="ts" text-anchor="start">NVIDIA Jetson AGX Orin, ROS 2 Jazzy, everything on board</text>
+<text x="285.0" y="163.0" class="lb" text-anchor="middle">/scan</text>
+<text x="285.0" y="215.0" class="lb lb-t" text-anchor="middle">odom → base_link</text>
+<text x="599.0" y="163.0" class="lb" text-anchor="middle">/map</text>
+<text x="599.0" y="215.0" class="lb lb-t" text-anchor="middle">map → odom</text>
+<text x="913.0" y="189.0" class="lb lb-c" text-anchor="middle">/cmd_vel_smoothed</text>
+<g><rect x="294.1" y="55" width="291.8" height="18" rx="3" class="pill"/><text x="440" y="68" class="lb" text-anchor="middle">/scan, depth cloud, RGB, /odometry/filtered</text></g>
+<g><rect x="491.7" y="395" width="212.6" height="18" rx="3" class="pill"/><text x="598" y="408" class="lb" text-anchor="middle">/roboclaw/wheel_encoders, 30 Hz</text></g>
+<text x="40" y="488" class="tt" text-anchor="start" data-bx="30,466,94,58">Laser</text>
+<text x="40" y="508" class="ts" text-anchor="start" data-bx="30,466,94,58">Hokuyo</text>
+<text x="142" y="488" class="tt" text-anchor="start" data-bx="132,466,94,58">Camera</text>
+<text x="142" y="508" class="ts" text-anchor="start" data-bx="132,466,94,58">ZED 2i + IMU</text>
+<text x="982" y="488" class="tt" text-anchor="start" data-bx="972,466,94,58">Gamepad</text>
+<text x="982" y="508" class="ts" text-anchor="start" data-bx="972,466,94,58">8BitDo</text>
+<text x="1084" y="488" class="tt" text-anchor="start" data-bx="1074,466,94,58">Motors</text>
+<text x="1084" y="508" class="ts" text-anchor="start" data-bx="1074,466,94,58">2 × RoboClaw</text>
+<g><rect x="46.6" y="439" width="60.8" height="18" rx="3" class="pill"/><text x="77" y="452" class="lb" text-anchor="middle">Ethernet</text></g>
+<g><rect x="158.5" y="439" width="41.0" height="18" rx="3" class="pill"/><text x="179" y="452" class="lb" text-anchor="middle">USB 3</text></g>
+<g><rect x="985.3" y="439" width="67.4" height="18" rx="3" class="pill"/><text x="1019" y="452" class="lb" text-anchor="middle">Bluetooth</text></g>
+<g><rect x="1084.0" y="439" width="74.0" height="18" rx="3" class="pill"/><text x="1121" y="452" class="lb lb-c" text-anchor="middle">USB serial</text></g>
+<g><rect x="449.6" y="563" width="300.8" height="18" rx="3" class="pill"/><text x="600" y="576" class="lbs" text-anchor="middle">the rover moves, and the laser and camera see it</text></g>
+</svg>
+      <svg class="dg dg-tall" viewBox="0 0 360 812" role="group" aria-label="The whole Helios stack, top to bottom: sensors, Perception, Mapping and localization, Navigation, Control and safety, then the motors." xmlns="http://www.w3.org/2000/svg"><defs><marker id="ot-d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah ah-d"/></marker><marker id="ot-c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah ah-c"/></marker><marker id="ot-t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah ah-t"/></marker></defs>
+<rect x="44" y="4" width="130" height="50" rx="6" class="b hw"/>
+<rect x="186" y="4" width="130" height="50" rx="6" class="b hw"/>
+<rect x="4" y="86" width="352" height="618" rx="10" class="host"/>
+<a href="#sub-perception" class="dg-link" data-tab="perception" aria-label="Perception: open its diagram">
+<rect x="44" y="128" width="272" height="92" rx="8" class="b blk"/>
+<text x="58" y="156" class="hd hd-s" text-anchor="start">Perception</text>
+<text x="302" y="156" class="ts" text-anchor="end">How am I moving?</text>
+<text x="58" y="180" class="ts ts-ink" text-anchor="start">Laser, camera and wheels, fused by an EKF</text>
+<text x="58" y="204" class="go" text-anchor="start">See inside</text>
+<path d="M134 196l4 4-4 4" class="chev"/>
+</a>
+<a href="#sub-mapping" class="dg-link" data-tab="mapping" aria-label="Mapping and localization: open its diagram">
+<rect x="44" y="278" width="272" height="92" rx="8" class="b blk"/>
+<text x="58" y="306" class="hd hd-s" text-anchor="start">Mapping and localization</text>
+<text x="58" y="330" class="ts ts-ink" text-anchor="start">slam_toolbox, RTAB-Map or AMCL</text>
+<text x="58" y="354" class="go" text-anchor="start">See inside</text>
+<path d="M134 346l4 4-4 4" class="chev"/>
+</a>
+<a href="#sub-navigation" class="dg-link" data-tab="navigation" aria-label="Navigation: open its diagram">
+<rect x="44" y="428" width="272" height="92" rx="8" class="b blk"/>
+<text x="58" y="456" class="hd hd-s" text-anchor="start">Navigation</text>
+<text x="302" y="456" class="ts" text-anchor="end">How do I get there?</text>
+<text x="58" y="480" class="ts ts-ink" text-anchor="start">Nav2 with MPPI, plus a learned policy</text>
+<text x="58" y="504" class="go" text-anchor="start">See inside</text>
+<path d="M134 496l4 4-4 4" class="chev"/>
+</a>
+<a href="#sub-control" class="dg-link" data-tab="control" aria-label="Control and safety: open its diagram">
+<rect x="44" y="578" width="272" height="92" rx="8" class="b blk"/>
+<text x="58" y="606" class="hd hd-s" text-anchor="start">Control and safety</text>
+<text x="58" y="630" class="ts ts-ink" text-anchor="start">twist_mux, latching e-stop, motor driver</text>
+<text x="58" y="654" class="go" text-anchor="start">See inside</text>
+<path d="M134 646l4 4-4 4" class="chev"/>
+</a>
+<rect x="44" y="750" width="130" height="50" rx="6" class="b hw"/>
+<rect x="186" y="750" width="130" height="50" rx="6" class="b hw"/>
+<path d="M109 54 L109 128" class="e" marker-end="url(#ot-d)"/>
+<path d="M251 54 L251 128" class="e" marker-end="url(#ot-d)"/>
+<path d="M110 220 L110 278" class="e" marker-end="url(#ot-d)"/>
+<path d="M240 220 L240 278" class="e e-t" marker-end="url(#ot-t)"/>
+<path d="M110 370 L110 428" class="e" marker-end="url(#ot-d)"/>
+<path d="M240 370 L240 428" class="e e-t" marker-end="url(#ot-t)"/>
+<path d="M180 520 L180 578" class="e e-c" marker-end="url(#ot-c)"/>
+<path d="M316 160 L338 160 L338 474 L316 474" class="e" marker-end="url(#ot-d)"/>
+<path d="M44 646 L22 646 L22 176 L44 176" class="e" marker-end="url(#ot-d)"/>
+<path d="M109 750 L109 670" class="e" marker-end="url(#ot-d)"/>
+<path d="M251 670 L251 750" class="e e-c" marker-start="url(#ot-c)" marker-end="url(#ot-c)"/>
+<text x="54" y="25" class="tt" text-anchor="start" data-bx="44,4,130,50">Laser</text>
+<text x="54" y="45" class="ts" text-anchor="start" data-bx="44,4,130,50">Hokuyo UST-10LX</text>
+<text x="196" y="25" class="tt" text-anchor="start" data-bx="186,4,130,50">Camera</text>
+<text x="196" y="45" class="ts" text-anchor="start" data-bx="186,4,130,50">ZED 2i + IMU</text>
+<text x="180" y="694" class="ts" text-anchor="middle">Jetson AGX Orin</text>
+<g><rect x="78.6" y="83" width="60.8" height="18" rx="3" class="pill"/><text x="109" y="96" class="lb" text-anchor="middle">Ethernet</text></g>
+<g><rect x="230.5" y="83" width="41.0" height="18" rx="3" class="pill"/><text x="251" y="96" class="lb" text-anchor="middle">USB 3</text></g>
+<g><rect x="89.5" y="240.0" width="41.0" height="18" rx="3" class="pill"/><text x="110.0" y="253.0" class="lb" text-anchor="middle">/scan</text></g>
+<g><rect x="183.2" y="240.0" width="113.6" height="18" rx="3" class="pill"/><text x="240.0" y="253.0" class="lb lb-t" text-anchor="middle">odom → base_link</text></g>
+<g><rect x="92.8" y="390.0" width="34.4" height="18" rx="3" class="pill"/><text x="110.0" y="403.0" class="lb" text-anchor="middle">/map</text></g>
+<g><rect x="203.0" y="390.0" width="74.0" height="18" rx="3" class="pill"/><text x="240.0" y="403.0" class="lb lb-t" text-anchor="middle">map → odom</text></g>
+<g><rect x="119.9" y="540.0" width="120.2" height="18" rx="3" class="pill"/><text x="180.0" y="553.0" class="lb lb-c" text-anchor="middle">/cmd_vel_smoothed</text></g>
+<g transform="rotate(90 338 320)"><rect x="258.1" y="311" width="159.8" height="18" rx="3" class="pill"/><text x="338" y="324" class="lb" text-anchor="middle">/scan, depth cloud, RGB</text></g>
+<g transform="rotate(-90 22 411)"><rect x="-61.2" y="402" width="166.4" height="18" rx="3" class="pill"/><text x="22" y="415" class="lb" text-anchor="middle">/roboclaw/wheel_encoders</text></g>
+<text x="54" y="771" class="tt" text-anchor="start" data-bx="44,750,130,50">Gamepad</text>
+<text x="54" y="791" class="ts" text-anchor="start" data-bx="44,750,130,50">Bluetooth</text>
+<text x="196" y="771" class="tt" text-anchor="start" data-bx="186,750,130,50">Motors</text>
+<text x="196" y="791" class="ts" text-anchor="start" data-bx="186,750,130,50">2 × RoboClaw</text>
+<g><rect x="214.0" y="718" width="74.0" height="18" rx="3" class="pill"/><text x="251" y="731" class="lb lb-c" text-anchor="middle">USB serial</text></g>
+</svg>
+      <figcaption>The whole stack. Arrows are ROS topics, velocity commands and coordinate transforms; the blocks open the diagrams below.</figcaption>
+    </figure>
+    <ul class="dg-legend" aria-label="Diagram key">
+      <li><span class="lg lg-d" aria-hidden="true"></span>Data topic</li>
+      <li><span class="lg lg-c" aria-hidden="true"></span>Velocity command</li>
+      <li><span class="lg lg-t" aria-hidden="true"></span>Coordinate transform (TF)</li>
+      <li><span class="lg lg-hw" aria-hidden="true"></span>Hardware</li>
+      <li><span class="lg lg-dev" aria-hidden="true"></span>In development</li>
     </ul>
-    <div class="status-key" aria-hidden="true">
-      <span><span class="dot ok"></span>Works</span>
-      <span><span class="dot tuning"></span>Works, being tuned</span>
-      <span><span class="dot open"></span>In progress</span>
-    </div>
-  </section>
 
-  <section id="run" class="wrap" aria-labelledby="run-h">
-    <div class="run-it">
-      <div>
-        <h2 id="run-h">Run it yourself</h2>
-        <p class="intro">Ubuntu 24.04, ROS 2 Jazzy and JetPack, with the ZED SDK installed separately.</p>
-        <p>Four terminals to map, a fifth to navigate. Hold the right shoulder button to drive; let go and the rover stops. Keep it still for the first five seconds while the ZED aligns against gravity.</p>
-        <div class="actions">
-          <a class="btn btn-quiet" href="https://github.com/pran99-git/helios_ws/blob/main/launch_helios.md">Read the full runbook</a>
+    <div class="tabs" id="tabs" role="tablist" aria-label="Sub-stacks">
+      <button class="tab" role="tab" id="tab-perception" data-tab="perception" aria-controls="sub-perception" aria-selected="true">Perception</button>
+      <button class="tab" role="tab" id="tab-mapping" data-tab="mapping" aria-controls="sub-mapping" aria-selected="false" tabindex="-1">Mapping and localization</button>
+      <button class="tab" role="tab" id="tab-navigation" data-tab="navigation" aria-controls="sub-navigation" aria-selected="false" tabindex="-1">Navigation</button>
+      <button class="tab" role="tab" id="tab-control" data-tab="control" aria-controls="sub-control" aria-selected="false" tabindex="-1">Control and safety</button>
+    </div>
+
+    <div class="panel" id="sub-perception" role="tabpanel" aria-labelledby="tab-perception" tabindex="0">
+      <div class="panel-head">
+        <h3>Perception: how am I moving?</h3>
+        <p>Three sensors, two independent estimates of motion, one fused answer. Wheels slip and the camera loses track on blank walls, so an extended Kalman filter blends the two into one smooth estimate, 30 times a second.</p>
+      </div>
+      <figure class="dgfig">
+        <p class="scroll-hint">Scroll sideways to see the whole diagram.</p>
+        <div class="scroller"><svg class="dg " viewBox="0 0 1110 520" role="img" aria-label="Perception: the laser, camera and wheel encoders are read by their drivers; camera and wheel odometry are fused by an EKF, which alone publishes odom to base_link." xmlns="http://www.w3.org/2000/svg"><defs><marker id="dp-d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah ah-d"/></marker><marker id="dp-c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah ah-c"/></marker><marker id="dp-t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah ah-t"/></marker></defs>
+<rect x="0" y="28" width="140" height="60" rx="6" class="b hw"/>
+<rect x="210" y="28" width="180" height="60" rx="6" class="b"/>
+<rect x="0" y="180" width="140" height="60" rx="6" class="b hw"/>
+<rect x="210" y="158" width="180" height="104" rx="6" class="b"/>
+<rect x="514" y="168" width="180" height="84" rx="6" class="b"/>
+<rect x="0" y="342" width="140" height="60" rx="6" class="b hw"/>
+<rect x="210" y="342" width="180" height="60" rx="6" class="b ghost"/>
+<rect x="514" y="326" width="180" height="92" rx="6" class="b"/>
+<rect x="818" y="180" width="170" height="218" rx="6" class="b"/>
+<rect x="514" y="450" width="184" height="60" rx="6" class="b"/>
+<path d="M140 58 L210 58" class="e" marker-end="url(#dp-d)"/>
+<path d="M390 58 L1108 58" class="e" marker-end="url(#dp-d)"/>
+<path d="M140 210 L210 210" class="e" marker-end="url(#dp-d)"/>
+<path d="M360 158 L360 122 L1108 122" class="e" marker-end="url(#dp-d)"/>
+<path d="M390 210 L514 210" class="e" marker-end="url(#dp-d)"/>
+<path d="M140 372 L210 372" class="e" marker-end="url(#dp-d)"/>
+<path d="M390 372 L514 372" class="e" marker-end="url(#dp-d)"/>
+<path d="M694 210 L818 210" class="e" marker-end="url(#dp-d)"/>
+<path d="M694 372 L818 372" class="e" marker-end="url(#dp-d)"/>
+<path d="M988 236 L1108 236" class="e" marker-end="url(#dp-d)"/>
+<path d="M988 300 L1108 300" class="e e-t" marker-end="url(#dp-t)"/>
+<path d="M698 480 L1108 480" class="e e-t" marker-end="url(#dp-t)"/>
+<text x="12" y="50" class="tt" text-anchor="start" data-bx="0,28,140,60">Hokuyo UST-10LX</text>
+<text x="12" y="70" class="ts" text-anchor="start" data-bx="0,28,140,60">2D laser, 10 m, 270°</text>
+<text x="222" y="50" class="tc" text-anchor="start" data-bx="210,28,180,60">urg_node2</text>
+<text x="222" y="70" class="ts" text-anchor="start" data-bx="210,28,180,60">Hokuyo driver</text>
+<text x="175.0" y="51.0" class="lb" text-anchor="middle">Ethernet</text>
+<text x="1108" y="51" class="lb" text-anchor="end">/scan</text>
+<text x="1108" y="80" class="ts" text-anchor="end">to the mappers and costmaps</text>
+<text x="12" y="202" class="tt" text-anchor="start" data-bx="0,180,140,60">ZED 2i</text>
+<text x="12" y="222" class="ts" text-anchor="start" data-bx="0,180,140,60">stereo camera + IMU</text>
+<text x="222" y="180" class="tc" text-anchor="start" data-bx="210,158,180,104">zed_wrapper</text>
+<text x="222" y="200" class="ts" text-anchor="start" data-bx="210,158,180,104">visual-inertial odometry,</text>
+<text x="222" y="216" class="ts" text-anchor="start" data-bx="210,158,180,104">depth and RGB at 30 Hz</text>
+<text x="222" y="238" class="tn" text-anchor="start" data-bx="210,158,180,104">TF publishing off</text>
+<text x="175.0" y="203.0" class="lb" text-anchor="middle">USB 3</text>
+<text x="1108" y="115" class="lb" text-anchor="end">depth cloud 10 Hz, RGB 30 Hz</text>
+<text x="1108" y="144" class="ts" text-anchor="end">to the local costmap, RTAB-Map and the VLA</text>
+<text x="526" y="190" class="tc" text-anchor="start" data-bx="514,168,180,84">custom_covariance</text>
+<text x="526" y="210" class="ts" text-anchor="start" data-bx="514,168,180,84">adds the velocity</text>
+<text x="526" y="226" class="ts" text-anchor="start" data-bx="514,168,180,84">covariance the driver</text>
+<text x="526" y="242" class="ts" text-anchor="start" data-bx="514,168,180,84">leaves at zero</text>
+<text x="452.0" y="203.0" class="lb" text-anchor="middle">/zed/zed_node/odom</text>
+<text x="12" y="364" class="tt" text-anchor="start" data-bx="0,342,140,60">2 × RoboClaw</text>
+<text x="12" y="384" class="ts" text-anchor="start" data-bx="0,342,140,60">2448 counts / rev</text>
+<text x="222" y="364" class="tc" text-anchor="start" data-bx="210,342,180,60">roboclaw_driver</text>
+<text x="222" y="384" class="ts" text-anchor="start" data-bx="210,342,180,60">in control and safety</text>
+<text x="175.0" y="365.0" class="lb" text-anchor="middle">USB serial</text>
+<text x="526" y="348" class="tc" text-anchor="start" data-bx="514,326,180,92">wheel_odometry</text>
+<text x="526" y="368" class="ts" text-anchor="start" data-bx="514,326,180,92">mecanum forward</text>
+<text x="526" y="384" class="ts" text-anchor="start" data-bx="514,326,180,92">kinematics</text>
+<text x="526" y="406" class="tn" text-anchor="start" data-bx="514,326,180,92">TF publishing off</text>
+<text x="452.0" y="365.0" class="lb" text-anchor="middle">encoders, 30 Hz</text>
+<text x="830" y="202" class="tc" text-anchor="start" data-bx="818,180,170,218">ekf_filter_node</text>
+<text x="830" y="222" class="ts" text-anchor="start" data-bx="818,180,170,218">robot_localization</text>
+<text x="830" y="238" class="ts" text-anchor="start" data-bx="818,180,170,218">30 Hz, 2D mode</text>
+<text x="830" y="260" class="ts" text-anchor="start" data-bx="818,180,170,218">fuses forward, sideways</text>
+<text x="830" y="276" class="ts" text-anchor="start" data-bx="818,180,170,218">and turn rates from</text>
+<text x="830" y="292" class="ts" text-anchor="start" data-bx="818,180,170,218">both sources</text>
+<text x="756.0" y="203.0" class="lb" text-anchor="middle">/zed/odom_with_cov</text>
+<text x="756.0" y="365.0" class="lb" text-anchor="middle">/wheel/odometry</text>
+<text x="1108" y="229" class="lb" text-anchor="end">/odometry/filtered</text>
+<text x="1108" y="293" class="lb lb-t" text-anchor="end">odom → base_link</text>
+<text x="1108" y="322" class="tn" text-anchor="end">the only publisher</text>
+<text x="524" y="472" class="tc" text-anchor="start" data-bx="514,450,184,60">robot_state_publisher</text>
+<text x="524" y="492" class="ts" text-anchor="start" data-bx="514,450,184,60">from the URDF</text>
+<text x="1108" y="473" class="lb lb-t" text-anchor="end">base_link → sensors</text>
+</svg></div>
+        <figcaption>Hardware on the left, drivers next, then conditioning and fusion. Only the EKF and robot_state_publisher publish transforms.</figcaption>
+      </figure>
+      <div class="notes">
+        <div><h4>The camera reported its speed with no uncertainty</h4><p>The ZED driver publishes velocity with an all-zero covariance and no setting to change it. The EKF read that as perfect certainty and let the camera overwrite the wheels. A small node now republishes it with a realistic covariance, so the two are genuinely blended.</p></div>
+        <div><h4>One owner per transform</h4><p>Wheel odometry and the ZED driver both have transform publishing switched off. They still report measurements, but only the EKF states where the robot is, so its position never flickers between two answers.</p></div>
+        <div><h4>Vendor drivers stay untouched</h4><p>The ZED and Hokuyo drivers are pinned git submodules. Helios’s settings live in small packages beside them, so updating a driver can never silently undo a tuning change.</p></div>
+      </div>
+    </div>
+
+    <div class="panel" id="sub-mapping" role="tabpanel" aria-labelledby="tab-mapping" tabindex="0" hidden>
+      <div class="panel-head">
+        <h3>Mapping and localization: where am I?</h3>
+        <p>Odometry is smooth but drifts forever. A map never drifts, but its corrections arrive in jumps. Helios keeps both as two coordinate frames, and exactly one mapper at a time owns the correction between them.</p>
+      </div>
+      <figure class="dgfig">
+        <p class="scroll-hint">Scroll sideways to see the whole diagram.</p>
+        <div class="scroller"><svg class="dg " viewBox="0 0 1110 540" role="img" aria-label="Mapping and localization: slam_toolbox, RTAB-Map and AMCL all read the laser and the EKF&#x27;s odom to base_link; exactly one at a time publishes map to odom, the drift correction in the transform chain map, odom, base_link, sensors." xmlns="http://www.w3.org/2000/svg"><defs><marker id="dm-d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah ah-d"/></marker><marker id="dm-c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah ah-c"/></marker><marker id="dm-t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah ah-t"/></marker></defs>
+<rect x="40" y="120" width="310" height="122" rx="6" class="b"/>
+<rect x="400" y="120" width="310" height="122" rx="6" class="b"/>
+<rect x="760" y="120" width="310" height="230" rx="6" class="b"/>
+<rect x="776" y="248" width="278" height="88" rx="6" class="b sub"/>
+<rect x="40" y="452" width="110" height="36" rx="18" class="frame"/>
+<rect x="370" y="452" width="110" height="36" rx="18" class="frame"/>
+<rect x="700" y="452" width="130" height="36" rx="18" class="frame"/>
+<rect x="930" y="452" width="178" height="36" rx="18" class="frame frame-s"/>
+<path d="M0 44 L880 44" class="e"/>
+<path d="M0 72 L910 72" class="e e-t"/>
+<path d="M160 44 L160 120" class="e" marker-end="url(#dm-d)"/>
+<path d="M190 72 L190 120" class="e e-t" marker-end="url(#dm-t)"/>
+<path d="M520 44 L520 120" class="e" marker-end="url(#dm-d)"/>
+<path d="M550 72 L550 120" class="e e-t" marker-end="url(#dm-t)"/>
+<path d="M880 44 L880 120" class="e" marker-end="url(#dm-d)"/>
+<path d="M910 72 L910 120" class="e e-t" marker-end="url(#dm-t)"/>
+<path d="M650 105 L650 120" class="e" marker-end="url(#dm-d)"/>
+<path d="M195 242 L195 386" class="e e-t"/>
+<path d="M555 242 L555 386" class="e e-t e-off"/>
+<path d="M915 350 L915 386 L195 386" class="e e-t"/>
+<path d="M260 386 L260 448" class="e e-t" marker-end="url(#dm-t)"/>
+<path d="M150 470 L370 470" class="e e-t" marker-end="url(#dm-t)"/>
+<path d="M480 470 L700 470" class="e e-t" marker-end="url(#dm-t)"/>
+<path d="M830 470 L930 470" class="e e-t" marker-end="url(#dm-t)"/>
+<text x="0" y="16" class="ts" text-anchor="start">from perception</text>
+<text x="0" y="37" class="lb" text-anchor="start">/scan</text>
+<text x="0" y="65" class="lb lb-t" text-anchor="start">odom → base_link</text>
+<g><rect x="596.5" y="87" width="107.0" height="18" rx="3" class="pill"/><text x="650" y="100" class="lb" text-anchor="middle">ZED depth + RGB</text></g>
+<text x="52" y="142" class="tc" text-anchor="start" data-bx="40,120,310,122">slam_toolbox</text>
+<text x="52" y="162" class="ts" text-anchor="start" data-bx="40,120,310,122">builds a 2D map as it drives</text>
+<text x="52" y="184" class="ts" text-anchor="start" data-bx="40,120,310,122">Ceres pose graph with loop closure</text>
+<text x="52" y="200" class="ts" text-anchor="start" data-bx="40,120,310,122">5 cm grid, publishes /map</text>
+<text x="52" y="216" class="ts" text-anchor="start" data-bx="40,120,310,122">map → odom at 50 Hz</text>
+<text x="412" y="142" class="tc" text-anchor="start" data-bx="400,120,310,122">rtabmap</text>
+<text x="412" y="162" class="ts" text-anchor="start" data-bx="400,120,310,122">builds a 3D map</text>
+<text x="412" y="184" class="ts" text-anchor="start" data-bx="400,120,310,122">camera depth and laser, GTSAM</text>
+<text x="412" y="200" class="ts" text-anchor="start" data-bx="400,120,310,122">runs alongside slam_toolbox</text>
+<text x="412" y="216" class="ts" text-anchor="start" data-bx="400,120,310,122">to validate its 3D map</text>
+<text x="772" y="142" class="tc" text-anchor="start" data-bx="760,120,310,230">amcl</text>
+<text x="772" y="162" class="ts" text-anchor="start" data-bx="760,120,310,230">localizes in a saved map</text>
+<text x="772" y="184" class="ts" text-anchor="start" data-bx="760,120,310,230">map_server loads it and publishes /map</text>
+<text x="772" y="200" class="ts" text-anchor="start" data-bx="760,120,310,230">500 to 5000 particles,</text>
+<text x="772" y="216" class="ts" text-anchor="start" data-bx="760,120,310,230">omnidirectional motion model</text>
+<text x="788" y="270" class="tc" text-anchor="start" data-bx="776,248,278,88">amcl_recovery</text>
+<text x="788" y="290" class="ts" text-anchor="start" data-bx="776,248,278,88">lost for 5 s: turns on the spot and</text>
+<text x="788" y="306" class="ts" text-anchor="start" data-bx="776,248,278,88">drives short legs until AMCL is</text>
+<text x="788" y="322" class="ts" text-anchor="start" data-bx="776,248,278,88">sure again</text>
+<text x="567" y="318" class="ts" text-anchor="start">off by default</text>
+<text x="272" y="412" class="tn" text-anchor="start">map → odom: exactly one of the three at a time</text>
+<text x="95.0" y="475" class="tc" text-anchor="middle">map</text>
+<text x="425.0" y="475" class="tc" text-anchor="middle">odom</text>
+<text x="765.0" y="475" class="tc" text-anchor="middle">base_link</text>
+<text x="1019" y="475" class="tm tm-ink" text-anchor="middle">laser, zed, wheels</text>
+<text x="260.0" y="462" class="tn" text-anchor="middle">the mapper</text>
+<text x="260.0" y="496" class="ts" text-anchor="middle">corrects drift, can jump</text>
+<text x="590.0" y="462" class="tn" text-anchor="middle">the EKF</text>
+<text x="590.0" y="496" class="ts" text-anchor="middle">smooth, slowly drifts</text>
+<text x="880.0" y="462" class="tn" text-anchor="middle">the URDF</text>
+<text x="880.0" y="496" class="ts" text-anchor="middle">fixed</text>
+</svg></div>
+        <figcaption>Three interchangeable answers to “where am I?”: build a 2D map, build a 3D map, or localize in a saved one. The transform chain on the right is what every other node reads.</figcaption>
+      </figure>
+      <div class="clip">
+        <video controls playsinline preload="none" poster="assets/posters/slam_toolbox.jpg">
+          <source src="media/slam_toolbox.mp4" type="video/mp4">
+          <a href="media/slam_toolbox.mp4">Download the mapping run (MP4)</a>
+        </video>
+        <div>
+          <h4>Watch the map being built</h4>
+          <p>slam_toolbox turning laser scans into the 2D map as the rover drives, with the ZED’s 3D point cloud drawn over it. 55 seconds.</p>
         </div>
       </div>
-      <pre><code><span class="c"># every terminal</span>
-source ~/helios_ws/install/setup.bash
+      <div class="notes">
+        <div><h4>Smooth to steer by, correct to plan with</h4><p>The EKF owns odom → base_link, which never jumps, so the controller can steer by it. The mapper owns map → odom, which removes the drift, so the planner can trust it. Nothing ever publishes the same transform twice.</p></div>
+        <div><h4>It finds itself when it gets lost</h4><p>amcl_recovery watches AMCL’s confidence. If the estimate stays poor for 5 seconds, the rover turns on the spot and drives short legs picked from the live costmap until it tightens, and scatters its guesses across the whole map if that fails.</p></div>
+        <div><h4>It knows when it has been picked up</h4><p>Comparing wheel speed with camera speed tells it when it is being carried: the camera moves, the wheels don’t. It relocalizes once set down, and stops a recovery drive if the wheels spin while the camera sees no motion.</p></div>
+      </div>
+    </div>
 
-<span class="c"># 1. motors</span>
-ros2 launch low_level_control_pkg roboclaw_driver.launch.py
-<span class="c"># 2. sensors and EKF</span>
-ros2 launch sensor_fusion bringup.launch.py
-<span class="c"># 3. joystick</span>
-ros2 launch low_level_control_pkg joy_teleop.launch.py
-<span class="c"># 4. a mapper (one at a time)</span>
-ros2 launch mapping_localization_pkg slam_toolbox.launch.py
-<span class="c"># 5. autonomy</span>
-ros2 launch navigation_pkg navigation.launch.py</code></pre>
+    <div class="panel" id="sub-navigation" role="tabpanel" aria-labelledby="tab-navigation" tabindex="0" hidden>
+      <div class="panel-head">
+        <h3>Navigation: how do I get there?</h3>
+        <p>Nav2 plans a route across the whole map, then a model-predictive controller follows it against a small local map refreshed five times a second. A learned vision-language policy can propose paths too, but it drives through the same controller.</p>
+      </div>
+      <figure class="dgfig">
+        <p class="scroll-hint">Scroll sideways to see the whole diagram.</p>
+        <div class="scroller"><svg class="dg " viewBox="0 0 1110 790" role="img" aria-label="Navigation: a goal goes to bt_navigator; the Smac planner plans on the global costmap and the MPPI controller follows the path on the local costmap; commands pass through the velocity smoother to twist_mux. The VLA layer sends its own paths to the same MPPI controller." xmlns="http://www.w3.org/2000/svg"><defs><marker id="dn-d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah ah-d"/></marker><marker id="dn-c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah ah-c"/></marker><marker id="dn-t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah ah-t"/></marker></defs>
+<rect x="210" y="130" width="200" height="90" rx="6" class="b"/>
+<rect x="210" y="266" width="200" height="90" rx="6" class="b"/>
+<rect x="490" y="24" width="200" height="64" rx="6" class="b"/>
+<rect x="490" y="130" width="200" height="90" rx="6" class="b"/>
+<rect x="490" y="266" width="200" height="124" rx="6" class="b"/>
+<rect x="790" y="24" width="180" height="64" rx="6" class="b"/>
+<rect x="790" y="290" width="180" height="64" rx="6" class="b"/>
+<rect x="0" y="470" width="1108" height="312" rx="10" class="lane"/>
+<rect x="270" y="548" width="200" height="104" rx="6" class="b dev"/>
+<rect x="270" y="692" width="200" height="80" rx="6" class="b dev"/>
+<rect x="570" y="560" width="200" height="80" rx="6" class="b dev"/>
+<path d="M91 172 L210 172" class="e" marker-end="url(#dn-d)"/>
+<path d="M91 236 L170 236 L170 196 L210 196" class="e" marker-end="url(#dn-d)"/>
+<path d="M170 236 L170 290 L210 290" class="e" marker-end="url(#dn-d)"/>
+<path d="M129 316 L210 316" class="e" marker-end="url(#dn-d)"/>
+<path d="M134 56 L490 56" class="e" marker-end="url(#dn-d)"/>
+<path d="M590 88 L590 130" class="e" marker-end="url(#dn-d)"/>
+<path d="M590 220 L590 266" class="e" marker-end="url(#dn-d)"/>
+<path d="M410 175 L490 175" class="e" marker-end="url(#dn-d)"/>
+<path d="M410 311 L490 311" class="e" marker-end="url(#dn-d)"/>
+<path d="M690 56 L790 56" class="e" marker-end="url(#dn-d)"/>
+<path d="M690 322 L790 322" class="e e-c" marker-end="url(#dn-c)"/>
+<path d="M880 88 L880 290" class="e e-c" marker-end="url(#dn-c)"/>
+<path d="M970 322 L1108 322" class="e e-c" marker-end="url(#dn-c)"/>
+<path d="M188 584 L270 584" class="e" marker-end="url(#dn-d)"/>
+<path d="M153 640 L270 640" class="e" marker-end="url(#dn-d)"/>
+<path d="M370 652 L370 692" class="e" marker-start="url(#dn-d)" marker-end="url(#dn-d)"/>
+<path d="M470 600 L570 600" class="e" marker-end="url(#dn-d)"/>
+<path d="M670 560 L670 390" class="e" marker-end="url(#dn-d)"/>
+<g><rect x="3.3" y="47" width="133.4" height="18" rx="3" class="pill"/><text x="70" y="60" class="lb" text-anchor="middle">goal pose from RViz</text></g>
+<g><rect x="52.8" y="163" width="34.4" height="18" rx="3" class="pill"/><text x="70" y="176" class="lb" text-anchor="middle">/map</text></g>
+<g><rect x="49.5" y="227" width="41.0" height="18" rx="3" class="pill"/><text x="70" y="240" class="lb" text-anchor="middle">/scan</text></g>
+<g><rect x="16.5" y="307" width="107.0" height="18" rx="3" class="pill"/><text x="70" y="320" class="lb" text-anchor="middle">ZED depth cloud</text></g>
+<text x="222" y="152" class="tt" text-anchor="start" data-bx="210,130,200,90">global costmap</text>
+<text x="222" y="172" class="ts" text-anchor="start" data-bx="210,130,200,90">whole map, map frame</text>
+<text x="222" y="188" class="ts" text-anchor="start" data-bx="210,130,200,90">static map, laser,</text>
+<text x="222" y="204" class="ts" text-anchor="start" data-bx="210,130,200,90">0.45 m inflation</text>
+<text x="222" y="288" class="tt" text-anchor="start" data-bx="210,266,200,90">local costmap</text>
+<text x="222" y="308" class="ts" text-anchor="start" data-bx="210,266,200,90">4 × 4 m around the rover</text>
+<text x="222" y="324" class="ts" text-anchor="start" data-bx="210,266,200,90">laser and depth cloud,</text>
+<text x="222" y="340" class="ts" text-anchor="start" data-bx="210,266,200,90">from 36 mm off the floor</text>
+<text x="502" y="46" class="tc" text-anchor="start" data-bx="490,24,200,64">bt_navigator</text>
+<text x="502" y="66" class="ts" text-anchor="start" data-bx="490,24,200,64">behavior tree, replans 1 Hz</text>
+<text x="330" y="49" class="lb" text-anchor="middle">NavigateToPose</text>
+<text x="502" y="152" class="tc" text-anchor="start" data-bx="490,130,200,90">planner_server</text>
+<text x="502" y="172" class="ts" text-anchor="start" data-bx="490,130,200,90">Smac 2D planner</text>
+<text x="502" y="188" class="ts" text-anchor="start" data-bx="490,130,200,90">shortest safe path</text>
+<text x="502" y="204" class="ts" text-anchor="start" data-bx="490,130,200,90">on the 5 cm grid</text>
+<text x="502" y="288" class="tc" text-anchor="start" data-bx="490,266,200,124">controller_server</text>
+<text x="502" y="308" class="ts" text-anchor="start" data-bx="490,266,200,124">rotation shim + MPPI</text>
+<text x="502" y="330" class="ts" text-anchor="start" data-bx="490,266,200,124">1000 trajectories, 2 s</text>
+<text x="502" y="346" class="ts" text-anchor="start" data-bx="490,266,200,124">ahead, 20 times a second;</text>
+<text x="502" y="362" class="ts" text-anchor="start" data-bx="490,266,200,124">omnidirectional model</text>
+<text x="600" y="113" class="lb" text-anchor="start">ComputePathToPose</text>
+<text x="600" y="247" class="lb" text-anchor="start">path, handed over by the tree</text>
+<text x="802" y="46" class="tc" text-anchor="start" data-bx="790,24,180,64">behavior_server</text>
+<text x="802" y="66" class="ts" text-anchor="start" data-bx="790,24,180,64">spin, back up, wait</text>
+<text x="740.0" y="49.0" class="lb" text-anchor="middle">recoveries</text>
+<text x="802" y="312" class="tc" text-anchor="start" data-bx="790,290,180,64">velocity_smoother</text>
+<text x="802" y="332" class="ts" text-anchor="start" data-bx="790,290,180,64">20 Hz, acceleration limits</text>
+<text x="740.0" y="315.0" class="lb lb-c" text-anchor="middle">/cmd_vel_nav</text>
+<g><rect x="836.4" y="181" width="87.2" height="18" rx="3" class="pill"/><text x="880" y="194" class="lb lb-c" text-anchor="middle">/cmd_vel_nav</text></g>
+<text x="1108" y="315" class="lb lb-c" text-anchor="end">/cmd_vel_smoothed</text>
+<text x="1108" y="344" class="ts" text-anchor="end">to twist_mux</text>
+<text x="16" y="496" class="tt" text-anchor="start">Learned navigation, in development</text>
+<text x="16" y="514" class="ts" text-anchor="start">The policy proposes a path; the same MPPI controller decides whether to drive it.</text>
+<g><rect x="13.5" y="575" width="173.0" height="18" rx="3" class="pill"/><text x="100" y="588" class="lb" text-anchor="middle">goal: text, photo or pose</text></g>
+<g><rect x="49.8" y="631" width="100.4" height="18" rx="3" class="pill"/><text x="100" y="644" class="lb" text-anchor="middle">ZED RGB, 30 Hz</text></g>
+<text x="282" y="570" class="tc" text-anchor="start" data-bx="270,548,200,104">vla_bridge</text>
+<text x="282" y="590" class="ts" text-anchor="start" data-bx="270,548,200,104">6-frame camera window</text>
+<text x="282" y="606" class="ts" text-anchor="start" data-bx="270,548,200,104">asks the policy 5× a second</text>
+<text x="282" y="622" class="ts" text-anchor="start" data-bx="270,548,200,104">goal into the rover&#x27;s frame</text>
+<text x="282" y="714" class="tc" text-anchor="start" data-bx="270,692,200,80">omnivla_server</text>
+<text x="282" y="734" class="ts" text-anchor="start" data-bx="270,692,200,80">OmniVLA-edge, 108 M params</text>
+<text x="282" y="750" class="ts" text-anchor="start" data-bx="270,692,200,80">95 ms per step on the Orin</text>
+<text x="382" y="676" class="lb" text-anchor="start">HTTP: 6 frames out, 8 waypoints back</text>
+<text x="582" y="582" class="tc" text-anchor="start" data-bx="570,560,200,80">path_arbiter</text>
+<text x="582" y="602" class="ts" text-anchor="start" data-bx="570,560,200,80">resends only when the</text>
+<text x="582" y="618" class="ts" text-anchor="start" data-bx="570,560,200,80">path moves 15 cm</text>
+<text x="520.0" y="593.0" class="lb" text-anchor="middle">/vla/plan</text>
+<g><rect x="633.0" y="423" width="74.0" height="18" rx="3" class="pill"/><text x="670" y="436" class="lb" text-anchor="middle">FollowPath</text></g>
+</svg></div>
+        <figcaption>Nav2 on top, the learned policy below. Green arrows are velocity commands on their way to twist_mux.</figcaption>
+      </figure>
+      <div class="notes">
+        <div><h4>The policy proposes, MPPI disposes</h4><p>The learned policy never publishes a velocity. Its waypoints go to the same MPPI controller Nav2 uses, which re-checks every trajectory against the live costmap 20 times a second.</p></div>
+        <div><h4>Built for mecanum wheels</h4><p>MPPI uses an omnidirectional motion model and scores 1000 candidate trajectories, each 2 seconds long, on every cycle. If the path starts more than about 30° off the rover’s heading, a rotation shim turns it in place first.</p></div>
+        <div><h4>The policy runs in its own process</h4><p>OmniVLA pins a PyTorch build that cannot share an interpreter with ROS 2 Jazzy, so it sits behind a small HTTP server. A step takes 95 ms on the Orin; Helios asks five times a second to leave GPU time for the camera. Moving it to a workstation means changing one URL.</p></div>
+      </div>
+    </div>
+
+    <div class="panel" id="sub-control" role="tabpanel" aria-labelledby="tab-control" tabindex="0" hidden>
+      <div class="panel-head">
+        <h3>Control and safety: who gets to drive?</h3>
+        <p>There is exactly one way into the motors. The driver listens to <code>/cmd_vel</code> and nothing else, and only <code>twist_mux</code> publishes it. Everything that wants the rover to move publishes on its own topic, and the mux forwards the highest-priority one that is still talking.</p>
+      </div>
+      <figure class="dgfig">
+        <p class="scroll-hint">Scroll sideways to see the whole diagram.</p>
+        <div class="scroller"><svg class="dg " viewBox="0 0 1110 640" role="img" aria-label="Control and safety: the e-stop, the joystick and Nav2 each publish on their own topic; twist_mux forwards the highest-priority one still talking to the one motor driver, which drives the RoboClaws." xmlns="http://www.w3.org/2000/svg"><defs><marker id="dc-d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah ah-d"/></marker><marker id="dc-c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah ah-c"/></marker><marker id="dc-t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah ah-t"/></marker></defs>
+<rect x="0" y="186" width="132" height="60" rx="6" class="b hw"/>
+<rect x="184" y="186" width="132" height="60" rx="6" class="b"/>
+<rect x="400" y="24" width="210" height="156" rx="6" class="b"/>
+<rect x="400" y="210" width="210" height="72" rx="6" class="b"/>
+<rect x="400" y="316" width="210" height="60" rx="6" class="b ghost"/>
+<rect x="790" y="24" width="300" height="360" rx="8" class="b"/>
+<rect x="806" y="114" width="210" height="8" rx="2" class="bar-track"/>
+<rect x="806" y="114" width="210.0" height="8" rx="2" class="bar"/>
+<rect x="806" y="172" width="210" height="8" rx="2" class="bar-track"/>
+<rect x="806" y="172" width="168.0" height="8" rx="2" class="bar"/>
+<rect x="806" y="250" width="210" height="8" rx="2" class="bar-track"/>
+<rect x="806" y="250" width="84.0" height="8" rx="2" class="bar"/>
+<rect x="806" y="350" width="210" height="8" rx="2" class="bar-track"/>
+<rect x="806" y="350" width="8.4" height="8" rx="2" class="bar"/>
+<rect x="790" y="430" width="300" height="92" rx="6" class="b"/>
+<rect x="790" y="566" width="300" height="66" rx="6" class="b hw"/>
+<path d="M132 216 L184 216" class="e" marker-end="url(#dc-d)"/>
+<path d="M126 40 L400 40" class="e" marker-end="url(#dc-d)"/>
+<path d="M316 216 L356 216 L356 140 L400 140" class="e" marker-end="url(#dc-d)"/>
+<path d="M356 216 L356 246 L400 246" class="e" marker-end="url(#dc-d)"/>
+<path d="M610 114 L790 114" class="e e-c" marker-end="url(#dc-c)"/>
+<path d="M610 172 L790 172" class="e" marker-end="url(#dc-d)"/>
+<path d="M610 250 L790 250" class="e e-c" marker-end="url(#dc-c)"/>
+<path d="M610 350 L790 350" class="e e-c" marker-end="url(#dc-c)"/>
+<path d="M940 384 L940 430" class="e e-c" marker-end="url(#dc-c)"/>
+<path d="M940 522 L940 566" class="e e-c" marker-start="url(#dc-c)" marker-end="url(#dc-c)"/>
+<path d="M790 476 L420 476" class="e" marker-end="url(#dc-d)"/>
+<text x="12" y="208" class="tt" text-anchor="start" data-bx="0,186,132,60">Gamepad</text>
+<text x="12" y="228" class="ts" text-anchor="start" data-bx="0,186,132,60">8BitDo, Bluetooth</text>
+<text x="196" y="208" class="tc" text-anchor="start" data-bx="184,186,132,60">joy_node</text>
+<text x="196" y="228" class="tm" text-anchor="start" data-bx="184,186,132,60">/joy</text>
+<g><rect x="29.8" y="31" width="100.4" height="18" rx="3" class="pill"/><text x="80" y="44" class="lb" text-anchor="middle">/estop/request</text></g>
+<text x="28" y="70" class="ts" text-anchor="start">any app can stop it</text>
+<text x="412" y="46" class="tc" text-anchor="start" data-bx="400,24,210,156">estop_node</text>
+<text x="412" y="66" class="ts" text-anchor="start" data-bx="400,24,210,156">latching stop</text>
+<text x="412" y="88" class="ts" text-anchor="start" data-bx="400,24,210,156">L shoulder: stop</text>
+<text x="412" y="104" class="ts" text-anchor="start" data-bx="400,24,210,156">hold Start 1 s: release</text>
+<text x="412" y="126" class="ts" text-anchor="start" data-bx="400,24,210,156">sends “clear” 20× a second;</text>
+<text x="412" y="142" class="ts" text-anchor="start" data-bx="400,24,210,156">if it goes quiet, the lock</text>
+<text x="412" y="158" class="ts" text-anchor="start" data-bx="400,24,210,156">engages by itself</text>
+<text x="412" y="232" class="tc" text-anchor="start" data-bx="400,210,210,72">teleop_joy</text>
+<text x="412" y="252" class="ts" text-anchor="start" data-bx="400,210,210,72">hold R to drive (deadman)</text>
+<text x="412" y="268" class="ts" text-anchor="start" data-bx="400,210,210,72">up to 0.40 m/s, 0.8 rad/s</text>
+<text x="412" y="338" class="tc" text-anchor="start" data-bx="400,316,210,60">velocity_smoother</text>
+<text x="412" y="358" class="ts" text-anchor="start" data-bx="400,316,210,60">from navigation</text>
+<text x="806" y="48" class="tc" text-anchor="start">twist_mux</text>
+<text x="806" y="66" class="ts" text-anchor="start">forwards the highest-priority</text>
+<text x="806" y="82" class="ts" text-anchor="start">input that is still talking</text>
+<text x="1074" y="124" class="prio" text-anchor="end">250</text>
+<text x="806" y="104" class="ts ts-ink" text-anchor="start">stop: zero velocity</text>
+<text x="1074" y="182" class="prio" text-anchor="end">200</text>
+<text x="806" y="162" class="ts ts-ink" text-anchor="start">lock: blocks 100 and 10</text>
+<text x="1074" y="260" class="prio" text-anchor="end">100</text>
+<text x="806" y="240" class="ts ts-ink" text-anchor="start">joystick</text>
+<text x="1074" y="360" class="prio" text-anchor="end">10</text>
+<text x="806" y="340" class="ts ts-ink" text-anchor="start">Nav2 and the VLA</text>
+<text x="700.0" y="107.0" class="lb lb-c" text-anchor="middle">/cmd_vel_estop</text>
+<text x="700.0" y="165.0" class="lb" text-anchor="middle">/cmd_vel_lock</text>
+<text x="700.0" y="243.0" class="lb lb-c" text-anchor="middle">/cmd_vel_joy</text>
+<text x="700.0" y="343.0" class="lb lb-c" text-anchor="middle">/cmd_vel_smoothed</text>
+<text x="952" y="411" class="lb lb-c" text-anchor="start">/cmd_vel</text>
+<text x="802" y="452" class="tc" text-anchor="start" data-bx="790,430,300,92">roboclaw_driver</text>
+<text x="802" y="472" class="ts" text-anchor="start" data-bx="790,430,300,92">mecanum inverse kinematics, 20 Hz</text>
+<text x="802" y="488" class="ts" text-anchor="start" data-bx="790,430,300,92">ramps to a stop if /cmd_vel goes</text>
+<text x="802" y="504" class="ts" text-anchor="start" data-bx="790,430,300,92">quiet for 0.5 s</text>
+<text x="952" y="548" class="lb lb-c" text-anchor="start">USB serial</text>
+<text x="802" y="588" class="tt" text-anchor="start" data-bx="790,566,300,66">2 × RoboClaw, 4 motors</text>
+<text x="802" y="608" class="ts" text-anchor="start" data-bx="790,566,300,66">own deadman: motors off after</text>
+<text x="802" y="624" class="ts" text-anchor="start" data-bx="790,566,300,66">0.3 s without a command</text>
+<text x="605" y="469" class="lb" text-anchor="middle">/roboclaw/wheel_encoders, 30 Hz</text>
+<text x="420" y="498" class="ts" text-anchor="start">to wheel_odometry</text>
+</svg></div>
+        <figcaption>The bars are twist_mux priorities. Holding the deadman button overrides autonomy; the e-stop overrides everything.</figcaption>
+      </figure>
+      <div class="stops">
+        <h4>Four independent ways it stops</h4>
+        <p>Each layer covers a failure the one above it cannot. Distances are from top speed, 0.40 m/s.</p>
+        <table>
+          <thead><tr><th scope="col">If</th><th scope="col">Then</th></tr></thead>
+          <tbody>
+            <tr><td>You press the stop button</td><td>estop_node sends zero velocity at priority 250, above everything else. The rover stops in about 9 cm.</td></tr>
+            <tr><td>The safety node crashes</td><td>Its 20 Hz “clear” heartbeat goes quiet, and twist_mux locks out driving after 0.5 s.</td></tr>
+            <tr><td>Commands stop arriving</td><td>The driver’s watchdog ramps the wheels to a stop after 0.5 s, in about 28 cm.</td></tr>
+            <tr><td>The driver crashes or the serial link hangs</td><td>The RoboClaws’ own deadman, armed over serial at startup, cuts the motors after 0.3 s: about 12 cm of coasting.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="specs" class="wrap" aria-labelledby="specs-h">
+    <div class="sec-head">
+      <h2 id="specs-h">Specifications</h2>
+      <p class="intro">Mecanum wheels have free-spinning rollers set at an angle, so driving the four wheels at different speeds moves the rover sideways as well as forward and around, without turning first.</p>
+    </div>
+    <div class="specs">
+      <div>
+        <h3>Platform</h3>
+        <dl>
+          <div><dt>Chassis</dt><dd>Lynxmotion A4WD3, four mecanum wheels</dd></div>
+          <div><dt>Drive</dt><dd>152 mm wheels, 12 V motors, 51:1 gearboxes</dd></div>
+          <div><dt>Footprint</dt><dd>0.38 × 0.38 m</dd></div>
+          <div><dt>Top speed</dt><dd>0.40 m/s forward or sideways, 0.8 rad/s turning</dd></div>
+          <div><dt>Computer</dt><dd>NVIDIA Jetson AGX Orin, nothing off board</dd></div>
+          <div><dt>Power</dt><dd>3S LiPo, 11.1 V</dd></div>
+          <div><dt>Manual control</dt><dd>8BitDo SN30 Pro gamepad over Bluetooth</dd></div>
+        </dl>
+      </div>
+      <div>
+        <h3>Sensing</h3>
+        <dl>
+          <div><dt>Laser scanner</dt><dd>Hokuyo UST-10LX, 270° out to 10 m, Ethernet</dd></div>
+          <div><dt>Stereo camera</dt><dd>Stereolabs ZED 2i with IMU, 30 Hz, USB 3</dd></div>
+          <div><dt>Depth cloud</dt><dd>10 Hz, obstacles from 36 mm off the floor</dd></div>
+          <div><dt>Wheel encoders</dt><dd>2448 counts per wheel turn, read at 30 Hz</dd></div>
+          <div><dt>Motor controllers</dt><dd>2 × RoboClaw over USB serial, each with its own deadman</dd></div>
+        </dl>
+      </div>
+      <div>
+        <h3>Autonomy</h3>
+        <dl>
+          <div><dt>Middleware</dt><dd>ROS 2 Jazzy, Nav2</dd></div>
+          <div><dt>State estimate</dt><dd>EKF at 30 Hz from wheels and visual-inertial odometry</dd></div>
+          <div><dt>Mapping</dt><dd>5 cm 2D grid with loop closure; 3D maps with RTAB-Map</dd></div>
+          <div><dt>Localization</dt><dd>AMCL, 500 to 5000 particles, recovers on its own</dd></div>
+          <div><dt>Planning and control</dt><dd>Smac 2D planner; MPPI, 1000 trajectories at 20 Hz</dd></div>
+          <div><dt>Learned navigation</dt><dd>OmniVLA-edge, 108 M parameters, 95 ms per step on the Orin (in development)</dd></div>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap cta" aria-labelledby="cta-h">
+    <div class="cta-inner">
+      <div>
+        <h2 id="cta-h">Every node on this page is open source</h2>
+        <p>Launch files, configs and a README for each package explaining why it is built the way it is. Apache 2.0.</p>
+      </div>
+      <div class="actions">
+        <a class="btn btn-primary" href="https://github.com/pran99-git/helios_ws">View the code</a>
+        <a class="btn btn-quiet" href="https://github.com/pran99-git/helios_ws/blob/main/README.md">Read the README</a>
+      </div>
     </div>
   </section>
 </main>
@@ -915,6 +1421,41 @@ dlg.addEventListener("close", () => { dlgVideo.pause(); dlgVideo.removeAttribute
 
   const fontReady = document.fonts ? Promise.race([document.fonts.load('800 64px "Barlow Condensed"'), new Promise(r => setTimeout(r, 1500))]) : Promise.resolve();
   fontReady.then(() => { lastW = Math.round(cv.clientWidth); reset(true); });
+})();
+
+/* ---------- Architecture: sub-stack tabs, opened from the overview too ---------- */
+(() => {
+  const tabs = [...document.querySelectorAll(".tab")];
+  const links = [...document.querySelectorAll(".dg-link")];
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function select(key, opts = {}) {
+    if (!tabs.some(t => t.dataset.tab === key)) key = "perception";
+    for (const t of tabs) {
+      const on = t.dataset.tab === key;
+      t.setAttribute("aria-selected", on);
+      t.tabIndex = on ? 0 : -1;
+      document.getElementById(t.getAttribute("aria-controls")).hidden = !on;
+      if (on && opts.focus) t.focus();
+    }
+    for (const a of links) a.classList.toggle("on", a.dataset.tab === key);
+    if (opts.scroll) document.getElementById("tabs").scrollIntoView({ behavior: still ? "auto" : "smooth", block: "start" });
+  }
+  tabs.forEach((t, i) => {
+    t.addEventListener("click", () => select(t.dataset.tab));
+    t.addEventListener("keydown", e => {
+      const k = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+      if (k === undefined) return;
+      e.preventDefault();
+      select(tabs[(k + tabs.length) % tabs.length].dataset.tab, { focus: true });
+    });
+  });
+  for (const a of links) a.addEventListener("click", e => {
+    e.preventDefault();
+    select(a.dataset.tab, { scroll: true });
+    history.replaceState(null, "", "#sub-" + a.dataset.tab);
+  });
+  const m = location.hash.match(/^#sub-(\w+)$/);
+  select(m ? m[1] : "perception", { scroll: !!m });
 })();
 </script>
 </body>
