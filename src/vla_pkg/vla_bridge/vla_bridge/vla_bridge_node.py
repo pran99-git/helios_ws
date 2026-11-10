@@ -144,6 +144,16 @@ class VlaBridgeNode(Node):
         self._history.push(encode_jpeg(self._to_pil(msg), self._wire_size), stamp)
 
     def _on_goal_pose(self, msg: PoseStamped) -> None:
+        # A non-finite position means "clear", so a producer that has finished
+        # can stop this node driving. Without it a stale goal is pursued
+        # forever: the subgoal walker reaching its destination would leave the
+        # policy still chasing the last carrot.
+        if not (
+            math.isfinite(msg.pose.position.x) and math.isfinite(msg.pose.position.y)
+        ):
+            self._goal_pose = None
+            self.get_logger().info("pose goal (cleared)")
+            return
         self._goal_pose = msg
         self.get_logger().info(
             f"pose goal ({msg.pose.position.x:.2f}, {msg.pose.position.y:.2f}) "

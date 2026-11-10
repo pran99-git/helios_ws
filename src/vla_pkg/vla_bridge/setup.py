@@ -26,6 +26,7 @@ setup(
         "console_scripts": [
             "vla_bridge_node = vla_bridge.vla_bridge_node:main",
             "path_arbiter_node = vla_bridge.path_arbiter_node:main",
+            "subgoal_walker_node = vla_bridge.subgoal_walker_node:main",
         ],
     },
 )

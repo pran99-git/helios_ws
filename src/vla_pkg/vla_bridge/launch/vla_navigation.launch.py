@@ -11,11 +11,24 @@ Step 4 matters: this bypasses the global planner and hands paths straight to
 controller_server's follow_path action, so MPPI and the costmaps are what keep
 the rover off obstacles. Without them the policy drives blind.
 
-Starts three processes:
+Starts three processes, plus an optional fourth:
 
-    omnivla_server      the policy, OUTSIDE ROS in its own virtualenv
-    vla_bridge_node     frames + goal -> nav_msgs/Path in odom
-    path_arbiter_node   Path -> FollowPath, throttled by divergence
+    omnivla_server       the policy, OUTSIDE ROS in its own virtualenv
+    vla_bridge_node      frames + goal -> nav_msgs/Path in odom
+    path_arbiter_node    Path -> FollowPath, throttled by divergence
+    subgoal_walker_node  optional: a distant goal -> a stream of near ones
+
+The walker exists because the policy predicts about a metre per chunk and holds
+no map, so a distant goal makes it drive at the bearing until an obstacle stops
+it. With the walker, planner_server owns route choice and the policy only ever
+sees the short goal it handles well.
+
+It is OFF by default: it changes where goals go, and it has not yet driven the
+rover. Two interfaces, pick one:
+
+    walker:=false   publish the goal to /vla/goal_pose   (policy drives at it)
+    walker:=true    publish the goal to /vla/route_goal  (planner routes, the
+                    walker feeds /vla/goal_pose a carrot 1.5 m along it)
 
 The server runs under a different Python than ROS because OmniVLA pins torch
 and a transformers fork that cannot coexist with Jazzy on Python 3.12. Its
@@ -30,11 +43,13 @@ DO NOT send goals to Nav2's bt_navigator at the same time. Both would command
 the same controller. The pose goal here is /vla/goal_pose, NOT /goal_pose, for
 exactly that reason; point RViz's "2D Goal Pose" tool at it.
 
-Recommended companion setting: run the ZED with depth off in this mode. The
-policy needs RGB only, and NEURAL_LIGHT depth is the documented cause of the
-EKF starvation in the rtabmap README.
+Keep ZED depth ON despite the policy needing RGB only: the local costmap takes
+the ZED point cloud as its second obstacle source, which is what sees obstacles
+below the 0.176 m laser plane. Measured with the cloud, the policy and MPPI all
+running: 100.2 ms inference and no new EKF rate misses.
 
-Toggle with: start_server:=false endpoint:=http://<workstation>:8777/act
+Toggle with: walker:=true start_server:=false
+             endpoint:=http://<workstation>:8777/act
 """
 
 import os
@@ -66,6 +81,7 @@ def generate_launch_description() -> LaunchDescription:
     params_file = LaunchConfiguration("params_file")
     endpoint = LaunchConfiguration("endpoint")
     start_server = LaunchConfiguration("start_server")
+    walker = LaunchConfiguration("walker")
 
     arguments = [
         DeclareLaunchArgument(
@@ -87,6 +103,14 @@ def generate_launch_description() -> LaunchDescription:
             "start_server",
             default_value="true",
             description="Start the policy server here, or point at a running one",
+        ),
+        DeclareLaunchArgument(
+            "walker",
+            default_value="false",
+            description=(
+                "Route distant goals through planner_server and feed the policy "
+                "a carrot. Goals then go to /vla/route_goal, not /vla/goal_pose"
+            ),
         ),
     ]
 
@@ -119,6 +143,14 @@ def generate_launch_description() -> LaunchDescription:
             package="vla_bridge",
             executable="path_arbiter_node",
             name="path_arbiter",
+            parameters=[params_file],
+            output="screen",
+        ),
+        Node(
+            package="vla_bridge",
+            executable="subgoal_walker_node",
+            name="subgoal_walker",
+            condition=IfCondition(walker),
             parameters=[params_file],
             output="screen",
         ),

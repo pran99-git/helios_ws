@@ -25,8 +25,13 @@ controller_server:
     min_theta_velocity_threshold: 0.001  # rad/s
     failure_tolerance: 0.3            # s of no progress before the controller fails
     odom_topic: /odometry/filtered    # the EKF output, NOT /wheel/odometry
-    progress_checker_plugins: ["progress_checker", "vla_progress_checker"]
-    goal_checker_plugins: ["goal_checker", "vla_goal_checker"]
+    # ONE entry each, deliberately. bt_navigator's FollowPath node sends an
+    # empty goal_checker_id, and Nav2 can only fall back to a sole plugin: a
+    # second entry makes every classical goal abort with "Failed to find goal
+    # checker name". controller_plugins is safe because that node does send
+    # controller_id explicitly.
+    progress_checker_plugins: ["progress_checker"]
+    goal_checker_plugins: ["goal_checker"]
     controller_plugins: ["FollowPath", "FollowVLAPath"]
 
     progress_checker:
@@ -344,21 +349,6 @@ controller_server:
         # The shim bypasses MPPI while pivoting, so this does not fight a
         # deliberate turn: it only stops MPPI spinning once it has control.
         cost_weight: 8.0              # penalise spinning that does not serve the path
-
-    vla_progress_checker:
-      # Must accept ROTATION as progress. FollowPath rotates in place to align
-      # before driving, which SimpleProgressChecker reads as a stall: it aborts,
-      # and the behavior tree's recovery (Spin, BackUp) then fights the align.
-      plugin: "nav2_controller::PoseProgressChecker"
-      required_movement_radius: 0.5   # m of translation that counts as progress
-      required_movement_angle: 0.5    # rad of rotation that counts as progress
-      movement_time_allowance: 15.0   # s to achieve either of the above
-
-    vla_goal_checker:
-      plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.15         # m, roughly half the rover's width
-      yaw_goal_tolerance: 0.20        # rad (~11.5 deg)
-      stateful: true                  # once xy is met, only yaw must still converge
 
 # ------------------------------------------------------------------- planner ---
 planner_server:

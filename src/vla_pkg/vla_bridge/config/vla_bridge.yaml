@@ -68,8 +68,11 @@ path_arbiter:
     # The VLA instances, not the classical ones: tuning here cannot change how
     # a plain Nav2 goal drives.
     controller_id: "FollowVLAPath"
-    goal_checker_id: "vla_goal_checker"
-    progress_checker_id: "vla_progress_checker"
+    # The SHARED checkers: nav2 cannot resolve a second entry in those lists,
+    # because bt_navigator sends an empty goal_checker_id. Only the controller
+    # is per-path.
+    goal_checker_id: "goal_checker"
+    progress_checker_id: "progress_checker"
 
     # How far the comparison waypoint must move before preempting the active
     # goal. Every preemption throws away MPPI's warm optimiser state, and the
@@ -79,3 +82,33 @@ path_arbiter:
 
     reissue_timeout: 1.00               # s before resending even an unchanged path
     server_timeout: 5.00                # s to wait for controller_server at startup
+
+subgoal_walker:
+  ros__parameters:
+    route_goal_topic: "/vla/route_goal"  # the FINAL destination, not a carrot
+    subgoal_topic: "/vla/goal_pose"      # what vla_bridge already consumes
+    route_topic: "/vla/route"            # the planned route, for RViz
+    status_topic: "/vla/walker_status"
+    planner_action: "compute_path_to_pose"
+    planner_id: "GridBased"             # must match nav2_params.yaml
+
+    # Deliberately beyond the policy's ~1 m reach, so it is always heading
+    # somewhere rather than arriving. The main tuning knob: too short and the
+    # policy has no room to express a manoeuvre, too long and the carrot sits
+    # past an obstacle the policy cannot see around.
+    lookahead_distance: 1.5             # m along the route
+
+    tick_rate: 5.0                      # Hz, matches the policy's inference rate
+    replan_period: 1.0                  # s, matches expected_planner_frequency
+    route_deviation: 1.0                # m off route before replanning early
+    goal_tolerance: 0.25                # m, looser than Nav2's 0.15: the policy
+                                        # approaches approximately
+    # Progress is measured as arc length ALONG the route, not distance
+    # travelled: a rover hunting in place covers ground without advancing.
+    stuck_progress: 0.15                # m of route progress required
+    stuck_window: 8.0                   # s allowed without it
+
+    planner_timeout: 5.00               # s to wait for planner_server at startup
+    map_frame: "map"                    # routes are planned in map
+    base_frame: "base_link"
+
