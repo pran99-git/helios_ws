@@ -1,0 +1,921 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Helios: an autonomous mecanum rover</title>
+<meta name="description" content="Helios is a four-wheeled mecanum rover that maps an indoor space, localizes itself in that map, and drives itself to a goal. ROS 2 Jazzy and Nav2 on an NVIDIA Jetson AGX Orin.">
+<meta name="theme-color" content="#2E2F32">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Helios: an autonomous mecanum rover">
+<meta property="og:description" content="Maps a room, works out where it is, and drives itself to a goal. ROS 2 Jazzy and Nav2 on a Jetson AGX Orin. Watch the runs.">
+<meta property="og:url" content="https://pran99-git.github.io/helios_ws/">
+<meta property="og:image" content="https://pran99-git.github.io/helios_ws/assets/og.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%232E2F32'/%3E%3Cpath d='M5 26 C12 26 12 6 27 6' fill='none' stroke='%237CF29A' stroke-width='2.5'/%3E%3Crect x='8' y='15' width='9' height='9' fill='none' stroke='%23F3D43E' stroke-width='2.5'/%3E%3C/svg%3E">
+<link rel="preload" href="assets/fonts/barlow-condensed-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/barlow-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<style>
+  /* Barlow and Barlow Condensed, SIL Open Font License (assets/fonts/OFL.txt) */
+  @font-face { font-family: "Barlow"; font-weight: 400; font-display: swap; src: url(assets/fonts/barlow-latin-400-normal.woff2) format("woff2"); }
+  @font-face { font-family: "Barlow"; font-weight: 500; font-display: swap; src: url(assets/fonts/barlow-latin-500-normal.woff2) format("woff2"); }
+  @font-face { font-family: "Barlow"; font-weight: 600; font-display: swap; src: url(assets/fonts/barlow-latin-600-normal.woff2) format("woff2"); }
+  @font-face { font-family: "Barlow Condensed"; font-weight: 600; font-display: swap; src: url(assets/fonts/barlow-condensed-latin-600-normal.woff2) format("woff2"); }
+  @font-face { font-family: "Barlow Condensed"; font-weight: 700; font-display: swap; src: url(assets/fonts/barlow-condensed-latin-700-normal.woff2) format("woff2"); }
+  @font-face { font-family: "Barlow Condensed"; font-weight: 800; font-display: swap; src: url(assets/fonts/barlow-condensed-latin-800-normal.woff2) format("woff2"); }
+
+  :root {
+    /* RViz and Nav2 colours, taken from the run footage */
+    --rviz: #2E2F32;          /* page: the RViz viewport */
+    --rviz-raised: #37383C;
+    --rule: #4A4B51;
+    --ink: #ECEAF0;           /* the map's free-space tone */
+    --ink-2: #ACAEB8;
+    --map-free: #D8D5DD;
+    --map-unknown: #6C8381;
+    --wall: #1D1C2C;
+    --cyan: #3FE2D3;          /* costmap: inscribed */
+    --magenta: #D43DC6;       /* costmap: near obstacle */
+    --violet: #6B4DE4;        /* costmap: outer margin */
+    --path: #7CF29A;          /* planned path */
+    --footprint: #F3D43E;     /* robot footprint */
+    --laser: #FF5A36;         /* live laser returns */
+    --signal: #F5A524;        /* the title-card bar: used for anything you can press */
+    --code-bg: #26272A;
+
+    --display: "Barlow Condensed", "Arial Narrow", sans-serif;
+    --text: "Barlow", system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+    --wrap: 1120px;
+    --gutter: clamp(16px, 4vw, 32px);
+    color-scheme: dark;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body {
+    margin: 0;
+    background: var(--rviz);
+    color: var(--ink);
+    font-family: var(--text);
+    font-size: 1.125rem;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  img, video, canvas { display: block; max-width: 100%; }
+  a { color: inherit; text-decoration-color: var(--signal); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+  a:hover { color: var(--signal); }
+  :focus-visible { outline: 2px solid var(--signal); outline-offset: 3px; border-radius: 2px; }
+  code { font-family: var(--mono); font-size: 0.86em; color: var(--ink); background: var(--code-bg); padding: 0.08em 0.36em; border-radius: 3px; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+  .wrap { max-width: calc(var(--wrap) + 2 * var(--gutter)); margin-inline: auto; padding-inline: var(--gutter); }
+
+  h2, h3 { font-family: var(--display); font-weight: 700; line-height: 1.05; margin: 0; letter-spacing: 0.005em; }
+  h2 { font-size: clamp(2.125rem, 4.6vw, 3.25rem); }
+  h3 { font-size: 1.625rem; font-weight: 600; }
+  p { margin: 0; }
+  .intro { max-width: 62ch; color: var(--ink-2); margin-top: 16px; }
+
+  /* ---------- Header ---------- */
+  .top { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; padding-block: 20px; }
+  .wordmark { font-family: var(--display); font-weight: 700; font-size: 1.5rem; text-decoration: none; letter-spacing: 0.02em; }
+  .top nav ul { display: flex; flex-wrap: wrap; gap: 4px 24px; list-style: none; margin: 0; padding: 0; font-size: 1rem; }
+  .top nav a { text-decoration: none; color: var(--ink-2); }
+  .top nav a:hover { color: var(--ink); }
+  @media (max-width: 640px) { .top nav .opt { display: none; } }
+
+  /* ---------- Hero: the costmap ---------- */
+  .map-frame { position: relative; }
+  #costmap { width: 100%; height: clamp(170px, 32vw, 400px); cursor: crosshair; touch-action: manipulation; border-radius: 2px; }
+  .map-bar { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 24px; margin-top: 10px; font-size: 0.9375rem; color: var(--ink-2); }
+  .map-bar output { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  .hero-text { display: grid; grid-template-columns: 7fr 5fr; gap: 32px 64px; margin-top: 40px; align-items: start; }
+  .lead { font-size: clamp(1.25rem, 2.1vw, 1.5rem); line-height: 1.45; max-width: 34ch; }
+  .lead-2 { margin-top: 16px; color: var(--ink-2); max-width: 52ch; }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+  .btn { display: inline-flex; align-items: center; gap: 10px; min-height: 48px; padding: 10px 20px; border-radius: 3px; font: 600 1.0625rem/1 var(--text); text-decoration: none; border: 2px solid var(--signal); cursor: pointer; }
+  .btn-primary { background: var(--signal); color: var(--wall); }
+  .btn-primary:hover { background: #FFB840; border-color: #FFB840; color: var(--wall); }
+  .btn-quiet { background: transparent; color: var(--ink); border-color: var(--rule); }
+  .btn-quiet:hover { border-color: var(--ink); color: var(--ink); }
+  .btn svg { width: 18px; height: 18px; flex: none; }
+
+  .facts { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 10px 20px; font-size: 1rem; border-top: 1px solid var(--rule); padding-top: 18px; }
+  .facts dt { color: var(--ink-2); }
+  .facts dd { margin: 0; }
+  @media (max-width: 820px) { .hero-text { grid-template-columns: 1fr; } }
+
+  /* ---------- Sections ---------- */
+  section { padding-block: clamp(64px, 9vw, 112px) 0; scroll-margin-top: 16px; }
+  .sec-head { margin-bottom: 36px; }
+
+  /* Reel */
+  .reel video { width: 100%; aspect-ratio: 16 / 9; background: #1F2023; border: 1px solid var(--rule); border-radius: 3px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 12px 28px; list-style: none; margin: 18px 0 0; padding: 0; font-size: 0.9375rem; color: var(--ink-2); }
+  .legend li { display: flex; align-items: center; gap: 10px; }
+  .sw { width: 22px; height: 14px; flex: none; }
+  .sw-map { background: linear-gradient(90deg, var(--map-free) 0 60%, var(--wall) 60% 72%, var(--map-unknown) 72%); }
+  .sw-path { background: linear-gradient(var(--path), var(--path)) center / 100% 2px no-repeat; }
+  .sw-foot { border: 2px solid var(--footprint); width: 14px; height: 14px; }
+  .sw-laser { background: radial-gradient(circle, var(--laser) 0 2px, transparent 2.5px) 0 50% / 7px 7px repeat-x; }
+  .sw-cost { background: linear-gradient(90deg, var(--wall) 0 18%, var(--cyan) 18% 40%, var(--magenta) 40% 66%, var(--violet) 66%); }
+
+  /* Runs */
+  .chapters { display: grid; grid-template-columns: 1fr 1fr; gap: 56px 40px; }
+  .chapter p { color: var(--ink-2); margin-top: 8px; font-size: 1rem; max-width: 52ch; min-height: 3.2em; }
+  @media (max-width: 900px) { .chapter p { min-height: 0; } }
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 20px; }
+  .run { all: unset; display: block; cursor: pointer; border-radius: 3px; }
+  .run .thumb { position: relative; aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid var(--rule); border-radius: 3px; background: #1F2023; transition: border-color .15s; }
+  .run img { width: 100%; height: 100%; object-fit: cover; }
+  .run .play { position: absolute; left: 10px; bottom: 10px; width: 34px; height: 34px; border-radius: 50%; background: rgba(29,28,44,.82); display: grid; place-items: center; }
+  .run .play svg { width: 14px; height: 14px; margin-left: 2px; }
+  .run .meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 10px; font-size: 1rem; line-height: 1.35; }
+  .run .dur { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .run:hover .thumb, .run:focus-visible .thumb { border-color: var(--signal); }
+  .run:focus-visible { outline: 2px solid var(--signal); outline-offset: 4px; }
+  .note { margin-top: 32px; color: var(--ink-2); font-size: 1rem; }
+  @media (max-width: 900px) { .chapters { grid-template-columns: 1fr; gap: 48px; } }
+  @media (max-width: 520px) { .tiles { grid-template-columns: 1fr; } }
+
+  /* Player */
+  dialog#player { width: min(1100px, calc(100vw - 2 * var(--gutter))); max-height: calc(100vh - 32px); padding: 0; border: 1px solid var(--rule); border-radius: 4px; background: var(--rviz); color: var(--ink); }
+  dialog#player::backdrop { background: rgba(20, 20, 24, .86); }
+  .player-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 14px 16px 14px 20px; }
+  .player-head h3 { font-size: 1.375rem; }
+  .player-head span { display: block; font-family: var(--text); font-size: 0.9375rem; font-weight: 400; color: var(--ink-2); margin-top: 2px; }
+  .close { all: unset; cursor: pointer; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 3px; flex: none; }
+  .close:hover { background: var(--rviz-raised); }
+  .close:focus-visible { outline: 2px solid var(--signal); }
+  .close svg { width: 20px; height: 20px; }
+  dialog#player video { width: 100%; aspect-ratio: 16 / 9; background: #000; }
+
+  /* How it works */
+  .loop { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); counter-reset: step; border-top: 1px solid var(--rule); }
+  .loop li { counter-increment: step; padding: 24px 24px 0 0; position: relative; }
+  .loop li + li { padding-left: 24px; border-left: 1px solid var(--rule); }
+  .loop h3::before { content: counter(step); display: block; font-size: 1rem; font-family: var(--text); font-weight: 600; color: var(--ink-2); margin-bottom: 10px; }
+  .loop p { margin-top: 12px; font-size: 1rem; color: var(--ink-2); }
+  .loop .pkgs { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .loop .pkgs code { font-size: 0.8125rem; }
+  .loop-back { margin-top: 28px; display: flex; align-items: center; gap: 14px; color: var(--ink-2); font-size: 1rem; }
+  .loop-back svg { width: 40px; height: 22px; flex: none; }
+  @media (max-width: 900px) {
+    .loop { grid-template-columns: 1fr 1fr; }
+    .loop li:nth-child(3) { border-left: 0; padding-left: 0; }
+    .loop li:nth-child(n+3) { border-top: 1px solid var(--rule); margin-top: 24px; }
+  }
+  @media (max-width: 560px) {
+    .loop { grid-template-columns: 1fr; }
+    .loop li, .loop li + li { padding: 20px 0 0; border-left: 0; }
+    .loop li + li { border-top: 1px solid var(--rule); margin-top: 20px; }
+  }
+
+  .tf { margin-top: 64px; display: grid; grid-template-columns: 5fr 7fr; gap: 32px 64px; align-items: start; }
+  .tf p { color: var(--ink-2); margin-top: 12px; font-size: 1rem; }
+  table { width: 100%; border-collapse: collapse; font-size: 1rem; }
+  th, td { text-align: left; vertical-align: top; padding: 12px 16px 12px 0; border-bottom: 1px solid var(--rule); }
+  th { font-weight: 600; color: var(--ink-2); font-size: 0.9375rem; }
+  td:first-child { white-space: nowrap; }
+  .tf > * { min-width: 0; }
+  @media (max-width: 820px) { .tf { grid-template-columns: 1fr; } }
+  @media (max-width: 600px) {
+    .tf thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+    .tf tr { display: block; padding-block: 14px; border-bottom: 1px solid var(--rule); }
+    .tf td { display: block; padding: 0; border: 0; white-space: normal; }
+    .tf td:first-child { margin-bottom: 6px; }
+    .tf td:last-child { color: var(--ink-2); }
+  }
+
+  /* Priority ladder */
+  .ladder { list-style: none; margin: 0; padding: 0; }
+  .ladder li { display: grid; grid-template-columns: minmax(180px, 3fr) 6fr auto; gap: 8px 28px; align-items: center; padding-block: 18px; border-bottom: 1px solid var(--rule); }
+  .ladder li:first-child { border-top: 1px solid var(--rule); }
+  .ladder .who { font-weight: 600; }
+  .ladder .who code { display: inline-block; margin-top: 4px; font-weight: 400; font-size: 0.8125rem; }
+  .ladder .what { color: var(--ink-2); font-size: 1rem; }
+  .ladder .bar { grid-column: 2; height: 8px; background: var(--rviz-raised); border-radius: 1px; overflow: hidden; margin-top: 10px; }
+  .ladder .bar i { display: block; height: 100%; background: var(--ink-2); }
+  .ladder .prio { grid-column: 3; grid-row: 1 / span 2; font-family: var(--display); font-weight: 700; font-size: 2.25rem; line-height: 1; font-variant-numeric: tabular-nums; text-align: right; min-width: 3ch; }
+  .ladder .txt { grid-column: 2; grid-row: 1; }
+  .ladder .who { grid-column: 1; grid-row: 1 / span 2; }
+  .mux { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-top: 24px; font-size: 1rem; }
+  .mux span { color: var(--ink-2); }
+  .heartbeat { margin-top: 28px; max-width: 64ch; }
+  @media (max-width: 680px) {
+    .ladder li { grid-template-columns: 1fr auto; }
+    .ladder .who { grid-column: 1; grid-row: 1; }
+    .ladder .txt { grid-column: 1 / span 2; grid-row: 2; }
+    .ladder .bar { grid-column: 1 / span 2; grid-row: 3; margin-top: 4px; }
+    .ladder .prio { grid-column: 2; grid-row: 1; font-size: 1.875rem; }
+  }
+
+  /* Hardware */
+  .parts { margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 0 48px; }
+  .parts > div { padding-block: 18px; border-top: 1px solid var(--rule); }
+  .parts dt { font-weight: 600; }
+  .parts dd { margin: 4px 0 0; color: var(--ink-2); font-size: 1rem; }
+  .parts dd b { color: var(--ink); font-weight: 500; }
+  @media (max-width: 720px) { .parts { grid-template-columns: 1fr; } }
+
+  /* Status */
+  .status { list-style: none; margin: 0; padding: 0; columns: 2; column-gap: 48px; }
+  .status li { break-inside: avoid; display: grid; grid-template-columns: 18px 1fr; gap: 14px; padding-block: 14px; border-top: 1px solid var(--rule); }
+  .status .st { color: var(--ink-2); font-size: 0.9375rem; display: block; }
+  .dot { width: 14px; height: 14px; border-radius: 50%; margin-top: 6px; border: 2px solid var(--path); }
+  .dot.ok { background: var(--path); }
+  .dot.tuning { background: linear-gradient(90deg, var(--path) 50%, transparent 50%); }
+  .dot.open { border-color: var(--ink-2); }
+  .status-key { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: 24px; font-size: 0.9375rem; color: var(--ink-2); }
+  .status-key span { display: inline-flex; align-items: center; gap: 8px; }
+  .status-key .dot { margin-top: 0; }
+  @media (max-width: 720px) { .status { columns: 1; } }
+
+  /* Run it */
+  pre { margin: 0; background: var(--code-bg); border: 1px solid var(--rule); border-radius: 3px; padding: 20px 22px; overflow-x: auto; font: 0.875rem/1.75 var(--mono); }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  pre .c { color: #8C8F99; }
+  .run-it { display: grid; grid-template-columns: 5fr 7fr; gap: 32px 64px; align-items: start; }
+  .run-it p + p { margin-top: 14px; }
+  .run-it p { color: var(--ink-2); font-size: 1rem; }
+  .run-it .actions { margin-top: 24px; }
+  @media (max-width: 860px) { .run-it { grid-template-columns: 1fr; } }
+
+  footer { margin-top: clamp(80px, 10vw, 128px); border-top: 1px solid var(--rule); padding-block: 28px 40px; font-size: 0.9375rem; color: var(--ink-2); }
+  footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 32px; }
+  footer ul { display: flex; flex-wrap: wrap; gap: 6px 24px; list-style: none; margin: 0; padding: 0; }
+</style>
+</head>
+<body>
+
+<header class="wrap top">
+  <a class="wordmark" href="#">Helios</a>
+  <nav aria-label="Sections">
+    <ul>
+      <li><a href="#runs">Runs</a></li>
+      <li class="opt"><a href="#how">How it works</a></li>
+      <li class="opt"><a href="#hardware">Hardware</a></li>
+      <li><a href="https://github.com/pran99-git/helios_ws">GitHub</a></li>
+    </ul>
+  </nav>
+</header>
+
+<main>
+  <div class="wrap">
+    <h1 class="sr-only">Helios, an autonomous mecanum rover</h1>
+    <div class="map-frame">
+      <canvas id="costmap" tabindex="0" role="img"
+        aria-label="The word Helios drawn as obstacles on a Nav2 costmap. A yellow robot footprint follows a green planned path between the letters to a goal. Click the map, or press Enter, to send it a new goal."></canvas>
+    </div>
+    <div class="map-bar">
+      <span id="map-hint" aria-live="polite">The letters are obstacles. Click open floor to send a goal.</span>
+      <output id="map-dist" aria-label="Distance remaining"></output>
+    </div>
+
+    <div class="hero-text">
+      <div>
+        <p class="lead">A four-wheeled mecanum rover that maps an indoor space, works out where it is in that map, and drives itself to a goal.</p>
+        <p class="lead-2">It sees with a 2D laser scanner and a stereo camera, steers around obstacles that were never in the map, and a gamepad can take over at any moment. Everything runs on one onboard computer.</p>
+        <div class="actions">
+          <a class="btn btn-primary" href="#reel">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>
+            Watch it drive
+          </a>
+          <a class="btn btn-quiet" href="https://github.com/pran99-git/helios_ws">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+            View the code
+          </a>
+        </div>
+      </div>
+      <dl class="facts">
+        <dt>Computer</dt><dd>NVIDIA Jetson AGX Orin</dd>
+        <dt>Middleware</dt><dd>ROS 2 Jazzy</dd>
+        <dt>Sensors</dt><dd>Hokuyo UST-10LX laser, ZED 2i stereo camera</dd>
+        <dt>Mapping</dt><dd>slam_toolbox, RTAB-Map</dd>
+        <dt>Localization</dt><dd>AMCL</dd>
+        <dt>Navigation</dt><dd>Nav2 with Smac planner and MPPI controller</dd>
+      </dl>
+    </div>
+  </div>
+
+  <section id="reel" class="wrap reel" aria-labelledby="reel-h">
+    <div class="sec-head">
+      <h2 id="reel-h">Watch it drive itself</h2>
+      <p class="intro">The rover on the left; on the right, what it sees and plans in RViz, with the onboard camera in the corner. About two and a half minutes.</p>
+    </div>
+    <video controls playsinline preload="none" poster="assets/posters/helios_highlights.jpg">
+      <source src="media/helios_highlights.mp4" type="video/mp4">
+      <a href="media/helios_highlights.mp4">Download the highlight reel (MP4)</a>
+    </video>
+    <ul class="legend" aria-label="Reading the RViz panel">
+      <li><span class="sw sw-map" aria-hidden="true"></span>Map: open floor, walls, unseen</li>
+      <li><span class="sw sw-path" aria-hidden="true"></span>Planned path</li>
+      <li><span class="sw sw-foot" aria-hidden="true"></span>Robot footprint</li>
+      <li><span class="sw sw-laser" aria-hidden="true"></span>Live laser returns</li>
+      <li><span class="sw sw-cost" aria-hidden="true"></span>Costmap: obstacles plus safety margin</li>
+    </ul>
+  </section>
+
+  <section id="runs" class="wrap" aria-labelledby="runs-h">
+    <div class="sec-head">
+      <h2 id="runs-h">Eight runs, four kinds of problem</h2>
+      <p class="intro">Every run is autonomous. A goal is set in RViz, Nav2 plans the route, and the rover drives it, using the laser and camera to avoid obstacles along the way.</p>
+    </div>
+    <div class="chapters" id="chapters"></div>
+    <p class="note" id="runs-note">Hover a run for a sped-up preview. Open it for the full video.</p>
+  </section>
+
+  <section id="how" class="wrap" aria-labelledby="how-h">
+    <div class="sec-head">
+      <h2 id="how-h">Sense, estimate, decide, act</h2>
+      <p class="intro">The software is one loop. Each layer consumes the one before it and nothing skips a level.</p>
+    </div>
+    <ol class="loop">
+      <li>
+        <h3>Sense</h3>
+        <p>Wheel encoders through the RoboClaw controllers, the ZED 2i for depth, colour and visual-inertial odometry, and the Hokuyo laser for a flat slice of the room.</p>
+        <div class="pkgs"><code>low_level_control_pkg</code><code>perception_pkg</code></div>
+      </li>
+      <li>
+        <h3>Estimate</h3>
+        <p>An EKF fuses wheel and camera odometry into one smooth position. slam_toolbox, RTAB-Map or AMCL corrects its drift against a map.</p>
+        <div class="pkgs"><code>sensor_fusion</code><code>wheel_odometry</code><code>mapping_localization_pkg</code></div>
+      </li>
+      <li>
+        <h3>Decide</h3>
+        <p>Nav2 plans a route on the map and an MPPI controller follows it, dodging what the sensors see. An OmniVLA policy can turn a sentence or a photo into a path for the same controller.</p>
+        <div class="pkgs"><code>navigation_pkg</code><code>vla_bridge</code></div>
+      </li>
+      <li>
+        <h3>Act</h3>
+        <p><code>twist_mux</code> picks one velocity command by priority, and the RoboClaw driver turns it into four wheel speeds through the mecanum kinematics.</p>
+        <div class="pkgs"><code>low_level_control_pkg</code></div>
+      </li>
+    </ol>
+    <p class="loop-back">
+      <svg viewBox="0 0 40 22" aria-hidden="true"><path d="M36 4v8a6 6 0 0 1-6 6H6" fill="none" stroke="var(--path)" stroke-width="2"/><path d="M10 13l-5 5 5 5" fill="none" stroke="var(--path)" stroke-width="2" transform="translate(0 -5)"/></svg>
+      The wheels moving feeds straight back into the sensors, and the loop starts again.
+    </p>
+
+    <div class="tf">
+      <div>
+        <h3>Odometry drifts, a map does not</h3>
+        <p>Wheels slip, especially mecanum wheels, and the camera loses track in featureless corridors. So the stack keeps two frames: a smooth one that drifts, and a corrected one that occasionally jumps. Exactly one node publishes each transform, following ROS REP-105, so any standard ROS tool works with this robot unmodified.</p>
+      </div>
+      <table>
+        <thead><tr><th scope="col">Transform</th><th scope="col">Meaning</th><th scope="col">Published by</th></tr></thead>
+        <tbody>
+          <tr><td><code>map → odom</code></td><td>The drift correction</td><td>One of slam_toolbox, RTAB-Map or AMCL</td></tr>
+          <tr><td><code>odom → base_link</code></td><td>Where the robot is</td><td>The EKF, and only the EKF</td></tr>
+          <tr><td><code>base_link → sensors</code></td><td>Where parts are bolted on</td><td>robot_state_publisher, from the URDF</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="safety" class="wrap" aria-labelledby="safety-h">
+    <div class="sec-head">
+      <h2 id="safety-h">One way into the motors</h2>
+      <p class="intro">The motor driver listens to <code>/cmd_vel</code> and nothing else, and only <code>twist_mux</code> publishes it. Everything that wants the rover to move publishes on its own topic, and the mux forwards the highest-priority one that is still talking.</p>
+    </div>
+    <ol class="ladder">
+      <li>
+        <div class="who">E-stop<br><code>/cmd_vel_estop</code></div>
+        <p class="what txt">Zeros, sent the instant the stop button is pressed</p>
+        <div class="bar" aria-hidden="true"><i style="width:100%"></i></div>
+        <div class="prio" aria-label="Priority 250">250</div>
+      </li>
+      <li>
+        <div class="who">E-stop lock<br><code>/cmd_vel_lock</code></div>
+        <p class="what txt">While engaged, blocks everything below it</p>
+        <div class="bar" aria-hidden="true"><i style="width:80%"></i></div>
+        <div class="prio" aria-label="Priority 200">200</div>
+      </li>
+      <li>
+        <div class="who">Joystick<br><code>/cmd_vel_joy</code></div>
+        <p class="what txt">Holding the deadman button overrides autonomy</p>
+        <div class="bar" aria-hidden="true"><i style="width:40%"></i></div>
+        <div class="prio" aria-label="Priority 100">100</div>
+      </li>
+      <li>
+        <div class="who">Nav2, and the VLA through it<br><code>/cmd_vel_smoothed</code></div>
+        <p class="what txt">Autonomy, whenever no human is driving</p>
+        <div class="bar" aria-hidden="true"><i style="width:4%"></i></div>
+        <div class="prio" aria-label="Priority 10">10</div>
+      </li>
+    </ol>
+    <p class="mux"><code>twist_mux</code><span>publishes</span><code>/cmd_vel</code><span>to</span><code>roboclaw_driver</code><span>which drives the motors</span></p>
+    <p class="heartbeat">The lock is a heartbeat. The e-stop node says “clear” 20 times a second, and if it ever goes quiet the mux engages the lock on its own. If the safety node is not running, nothing drives the rover.</p>
+  </section>
+
+  <section id="hardware" class="wrap" aria-labelledby="hw-h">
+    <div class="sec-head">
+      <h2 id="hw-h">Hardware</h2>
+      <p class="intro">Mecanum wheels have free-spinning rollers set at an angle, so driving the four wheels at different speeds moves the rover sideways as well as forward and around. The cost is extra wheel slip, which is why the camera and laser are there.</p>
+    </div>
+    <dl class="parts">
+      <div><dt>Lynxmotion A4WD3 chassis</dt><dd>Four mecanum wheels, 12 V motors, 51:1 gearboxes. <b>Strafes and turns on the spot.</b></dd></div>
+      <div><dt>NVIDIA Jetson AGX Orin</dt><dd>The only computer. <b>Runs the whole stack on board.</b></dd></div>
+      <div><dt>Hokuyo UST-10LX</dt><dd>2D laser scanner over Ethernet. <b>The main mapping sensor.</b></dd></div>
+      <div><dt>Stereolabs ZED 2i</dt><dd>Stereo depth camera with an IMU, over USB 3. <b>Depth and visual-inertial odometry.</b></dd></div>
+      <div><dt>2 × RoboClaw controllers</dt><dd>Motor drivers, one per side, over USB serial. <b>Drive the motors and read the encoders.</b></dd></div>
+      <div><dt>8BitDo SN30 Pro</dt><dd>Bluetooth gamepad. <b>Manual driving and the e-stop button.</b></dd></div>
+      <div><dt>3S LiPo, 11.1 V</dt><dd>Battery. <b>Powers the motors and electronics.</b></dd></div>
+    </dl>
+  </section>
+
+  <section id="status" class="wrap" aria-labelledby="status-h">
+    <div class="sec-head">
+      <h2 id="status-h">Where it stands</h2>
+      <p class="intro">What works on the rover today, and what is still being tuned.</p>
+    </div>
+    <ul class="status">
+      <li><span class="dot ok" aria-hidden="true"></span><span>Drive by joystick<span class="st">Works</span></span></li>
+      <li><span class="dot ok" aria-hidden="true"></span><span>Wheel odometry<span class="st">Works</span></span></li>
+      <li><span class="dot ok" aria-hidden="true"></span><span>Fused odometry from wheels, camera and IMU<span class="st">Works</span></span></li>
+      <li><span class="dot ok" aria-hidden="true"></span><span>2D map from the laser scanner<span class="st">Works</span></span></li>
+      <li><span class="dot tuning" aria-hidden="true"></span><span>3D map from the camera and laser<span class="st">Works, quality still being tuned</span></span></li>
+      <li><span class="dot ok" aria-hidden="true"></span><span>Localize in a map it made earlier<span class="st">Works with AMCL, and re-localizes itself</span></span></li>
+      <li><span class="dot tuning" aria-hidden="true"></span><span>Drive itself to a goal<span class="st">Works with Nav2, driving style still being tuned</span></span></li>
+      <li><span class="dot ok" aria-hidden="true"></span><span>Emergency stop<span class="st">Works, latching, from a gamepad button</span></span></li>
+      <li><span class="dot open" aria-hidden="true"></span><span>Drive to a goal given as a sentence or photo<span class="st">Policy runs at rate, not yet validated on a drive</span></span></li>
+    </ul>
+    <div class="status-key" aria-hidden="true">
+      <span><span class="dot ok"></span>Works</span>
+      <span><span class="dot tuning"></span>Works, being tuned</span>
+      <span><span class="dot open"></span>In progress</span>
+    </div>
+  </section>
+
+  <section id="run" class="wrap" aria-labelledby="run-h">
+    <div class="run-it">
+      <div>
+        <h2 id="run-h">Run it yourself</h2>
+        <p class="intro">Ubuntu 24.04, ROS 2 Jazzy and JetPack, with the ZED SDK installed separately.</p>
+        <p>Four terminals to map, a fifth to navigate. Hold the right shoulder button to drive; let go and the rover stops. Keep it still for the first five seconds while the ZED aligns against gravity.</p>
+        <div class="actions">
+          <a class="btn btn-quiet" href="https://github.com/pran99-git/helios_ws/blob/main/launch_helios.md">Read the full runbook</a>
+        </div>
+      </div>
+      <pre><code><span class="c"># every terminal</span>
+source ~/helios_ws/install/setup.bash
+
+<span class="c"># 1. motors</span>
+ros2 launch low_level_control_pkg roboclaw_driver.launch.py
+<span class="c"># 2. sensors and EKF</span>
+ros2 launch sensor_fusion bringup.launch.py
+<span class="c"># 3. joystick</span>
+ros2 launch low_level_control_pkg joy_teleop.launch.py
+<span class="c"># 4. a mapper (one at a time)</span>
+ros2 launch mapping_localization_pkg slam_toolbox.launch.py
+<span class="c"># 5. autonomy</span>
+ros2 launch navigation_pkg navigation.launch.py</code></pre>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>Helios is built by Pranav Upadhyay.</p>
+    <ul>
+      <li><a href="https://github.com/pran99-git/helios_ws">Source on GitHub</a></li>
+      <li><a href="https://github.com/pran99-git/helios_ws/blob/main/README.md">README</a></li>
+      <li><a href="https://github.com/pran99-git/helios_ws/blob/main/LICENSE">Apache 2.0 licence</a></li>
+    </ul>
+  </div>
+</footer>
+
+<dialog id="player" aria-labelledby="player-title">
+  <div class="player-head">
+    <h3 id="player-title"></h3>
+    <button class="close" type="button" aria-label="Close video">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 4l12 12M16 4L4 16" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+    </button>
+  </div>
+  <video controls playsinline></video>
+</dialog>
+
+<script>
+/* ---------- Run gallery ---------- */
+const CHAPTERS = [
+  { title: "End-to-end run", text: "A goal across the lab, planned and driven start to finish.", runs: [
+    { id: "run_start_to_goal_box_course", title: "Start to goal through a box course", dur: "0:53" },
+    { id: "run_aisle_to_desk", title: "Down the aisle, past the bins, to a desk", dur: "0:36" } ] },
+  { title: "Cutting corners", text: "Holding a tight line around furniture.", runs: [
+    { id: "run_around_the_cabinet", title: "Tight line around a cabinet", dur: "0:31" },
+    { id: "run_around_the_lab_bench", title: "Around the end of a lab bench", dur: "0:18" } ] },
+  { title: "Tight spaces", text: "Squeezing through gaps between chairs, boxes and desks.", runs: [
+    { id: "run_through_the_chairs_to_the_x", title: "Between chairs, past a labmate’s desk", dur: "0:42" },
+    { id: "run_box_and_chair_gap", title: "Nosing in between a box and a chair", dur: "0:29" } ] },
+  { title: "Unmapped obstacles", text: "Objects added after the map was made, picked up live by the laser and camera.", runs: [
+    { id: "run_between_a_box_and_a_pc_tower", title: "A box and a PC tower that aren’t in the map", dur: "0:23" },
+    { id: "run_overhead_view_of_the_box_course", title: "Overhead view through the box course", dur: "1:15" } ] }
+];
+
+const playIcon = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 1.5v13l11-6.5z" fill="#ECEAF0"/></svg>';
+const host = document.getElementById("chapters");
+const canHover = matchMedia("(hover: hover)").matches;
+for (const ch of CHAPTERS) {
+  const el = document.createElement("div");
+  el.className = "chapter";
+  el.innerHTML = `<h3>${ch.title}</h3><p>${ch.text}</p><div class="tiles"></div>`;
+  const tiles = el.querySelector(".tiles");
+  for (const r of ch.runs) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "run";
+    b.setAttribute("aria-label", `Play: ${r.title}, ${r.dur}`);
+    b.innerHTML = `<div class="thumb"><img src="assets/posters/${r.id}.jpg" alt="" loading="lazy" width="960" height="540"><span class="play">${playIcon}</span></div>
+      <div class="meta"><span>${r.title}</span><span class="dur">${r.dur}</span></div>`;
+    const img = b.querySelector("img");
+    const still = img.src, moving = `media/${r.id}.webp`;
+    if (canHover) {
+      b.addEventListener("mouseenter", () => { img.src = moving; });
+      b.addEventListener("mouseleave", () => { img.src = still; });
+    }
+    b.addEventListener("click", () => openPlayer(`media/${r.id}.mp4`, r.title, ch.title));
+    tiles.appendChild(b);
+  }
+  host.appendChild(el);
+}
+
+if (!canHover) document.getElementById("runs-note").textContent = "Tap a run to play the full video.";
+
+const dlg = document.getElementById("player");
+const dlgVideo = dlg.querySelector("video");
+function openPlayer(src, title, chapter) {
+  document.getElementById("player-title").innerHTML = `${title}<span>${chapter}</span>`;
+  dlgVideo.src = src;
+  dlg.showModal();
+  dlgVideo.play().catch(() => {});
+}
+dlg.querySelector(".close").addEventListener("click", () => dlg.close());
+dlg.addEventListener("click", e => { if (e.target === dlg) dlg.close(); });
+dlg.addEventListener("close", () => { dlgVideo.pause(); dlgVideo.removeAttribute("src"); dlgVideo.load(); });
+
+/* ---------- Hero: the word HELIOS as a Nav2 costmap ---------- */
+(() => {
+  const cv = document.getElementById("costmap");
+  const ctx = cv.getContext("2d");
+  const hint = document.getElementById("map-hint");
+  const out = document.getElementById("map-dist");
+  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const verb = matchMedia("(pointer: coarse)").matches ? "Tap" : "Click";
+  if (verb === "Tap") hint.textContent = "The letters are obstacles. Tap open floor to send a goal.";
+  const css = getComputedStyle(document.documentElement);
+  const col = n => css.getPropertyValue(n).trim();
+  const C = {
+    free: col("--map-free"), unknown: col("--map-unknown"), wall: col("--wall"),
+    cyan: col("--cyan"), magenta: col("--magenta"), violet: col("--violet"),
+    path: col("--path"), foot: col("--footprint"), laser: col("--laser"), goal: "#4D8FF0"
+  };
+  const RES = 0.05; // metres per cell, the same 5 cm grid Helios's costmaps use
+
+  let G = null, anim = null, lastW = 0;
+
+  function rng(seed) { return () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296; }
+
+  function hex(c) { const n = parseInt(c.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; }
+  function mix(c1, c2, t) { const a = hex(c1), b = hex(c2); return `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(",")})`; }
+
+  function build() {
+    const W = Math.round(cv.clientWidth), H = Math.round(cv.clientHeight);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const cell = Math.max(3, Math.min(7, Math.floor(W / 180)));
+    const cols = Math.floor(W / cell), rows = Math.floor(H / cell);
+    const ox = Math.floor((W - cols * cell) / 2), oy = Math.floor((H - rows * cell) / 2);
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    const N = cols * rows, idx = (x, y) => y * cols + x;
+    const occ = new Uint8Array(N);
+    const rand = rng(1202);
+
+    const fp = Math.max(4, Math.min(8, Math.round(cols / 28)));  // footprint side, cells
+    const insc = fp / 2;                                          // inscribed radius
+    const R = insc + Math.max(3, Math.round(fp * 0.6));           // inflation radius
+    const gap = fp + (cols < 140 ? 3 : 4);
+
+    // Rasterize the word at grid resolution: each glyph pixel is one occupied cell.
+    const t = document.createElement("canvas");
+    t.width = cols; t.height = rows;
+    const tc = t.getContext("2d");
+    const word = "HELIOS";
+    let fs = rows * 0.8, ms, inkW, total;
+    for (let k = 0; k < 8; k++) {
+      tc.font = `800 ${fs}px "Barlow Condensed", "Arial Narrow", sans-serif`;
+      ms = [...word].map(ch => tc.measureText(ch));
+      inkW = ms.map(m => m.actualBoundingBoxLeft + m.actualBoundingBoxRight);
+      total = inkW.reduce((a, b) => a + b, 0) + gap * (word.length - 1);
+      const room = cols * (cols < 140 ? 0.88 : 0.8);
+      if (total <= room) break;
+      fs *= room / total;
+    }
+    const capH = tc.measureText("H").actualBoundingBoxAscent;
+    const baseY = Math.round(rows / 2 + capH / 2);
+    let x = Math.round((cols - total) / 2);
+    const letterX = [];
+    tc.fillStyle = "#000";
+    [...word].forEach((ch, i) => {
+      tc.fillText(ch, x + ms[i].actualBoundingBoxLeft, baseY);
+      letterX.push([x, x + inkW[i]]);
+      x += inkW[i] + gap;
+    });
+    const px = tc.getImageData(0, 0, cols, rows).data;
+    for (let i = 0; i < N; i++) if (px[i * 4 + 3] > 110) occ[i] = 1;
+
+    // A few stray laser returns, the way real maps have them, kept clear of the letters.
+    for (let k = 0; k < Math.round(N / 1400); k++) {
+      const xx = 2 + Math.floor(rand() * (cols - 4)), yy = 2 + Math.floor(rand() * (rows - 4));
+      if (yy > rows * 0.2 && yy < rows * 0.8) continue;
+      occ[idx(xx, yy)] = 1;
+    }
+
+    // Distance to the nearest obstacle (two-pass chamfer), in cells.
+    const d = new Float32Array(N).fill(1e9);
+    for (let i = 0; i < N; i++) if (occ[i]) d[i] = 0;
+    const S2 = Math.SQRT2;
+    for (let yy = 0; yy < rows; yy++) for (let xx = 0; xx < cols; xx++) {
+      const i = idx(xx, yy); let v = d[i];
+      if (xx > 0) v = Math.min(v, d[i - 1] + 1);
+      if (yy > 0) {
+        v = Math.min(v, d[i - cols] + 1);
+        if (xx > 0) v = Math.min(v, d[i - cols - 1] + S2);
+        if (xx < cols - 1) v = Math.min(v, d[i - cols + 1] + S2);
+      }
+      d[i] = v;
+    }
+    for (let yy = rows - 1; yy >= 0; yy--) for (let xx = cols - 1; xx >= 0; xx--) {
+      const i = idx(xx, yy); let v = d[i];
+      if (xx < cols - 1) v = Math.min(v, d[i + 1] + 1);
+      if (yy < rows - 1) {
+        v = Math.min(v, d[i + cols] + 1);
+        if (xx < cols - 1) v = Math.min(v, d[i + cols + 1] + S2);
+        if (xx > 0) v = Math.min(v, d[i + cols - 1] + S2);
+      }
+      d[i] = v;
+    }
+
+    // Static layer: open floor, a faint 1 m grid, then the costmap in RViz's speckled bands.
+    const base = document.createElement("canvas");
+    base.width = cv.width; base.height = cv.height;
+    const b = base.getContext("2d");
+    const X = v => Math.round((ox + v * cell) * dpr), Y = v => Math.round((oy + v * cell) * dpr);
+    b.fillStyle = C.free;
+    b.fillRect(X(0), Y(0), X(cols) - X(0), Y(rows) - Y(0));
+    const grid = mix(C.free, C.wall, 0.07), m = Math.round(1 / RES);
+    b.fillStyle = grid;
+    for (let xx = m; xx < cols; xx += m) b.fillRect(X(xx), Y(0), Math.max(1, Math.round(dpr)), Y(rows) - Y(0));
+    for (let yy = m; yy < rows; yy += m) b.fillRect(X(0), Y(yy), X(cols) - X(0), Math.max(1, Math.round(dpr)));
+    const span = R - insc;
+    const vNear = mix(C.free, C.violet, 0.62), vFar = mix(C.free, C.violet, 0.3), mFar = mix(C.free, C.magenta, 0.62);
+    for (let yy = 0; yy < rows; yy++) for (let xx = 0; xx < cols; xx++) {
+      const i = idx(xx, yy), di = d[i];
+      let fill = null;
+      if (di === 0) fill = C.wall;
+      else if (di <= R + 1) {
+        const n = di + (rand() - 0.5) * 0.9;
+        if (n <= insc * 0.5) fill = C.cyan;
+        else if (n <= insc) fill = rand() < 0.25 ? C.cyan : C.magenta;
+        else if (n <= insc + span * 0.5) fill = rand() < 0.15 ? mFar : vNear;
+        else if (n <= R) fill = vFar;
+      }
+      if (fill) { b.fillStyle = fill; b.fillRect(X(xx), Y(yy), X(xx + 1) - X(xx), Y(yy + 1) - Y(yy)); }
+    }
+
+    const pad = Math.ceil(insc) + 1;
+    const free = i => {
+      const xx = i % cols, yy = (i / cols) | 0;
+      return xx >= pad && yy >= pad && xx < cols - pad && yy < rows - pad && d[i] > insc + 0.35;
+    };
+    const cost = i => { const di = d[i]; return di >= R ? 0 : Math.exp(-3 * (di - insc) / span); };
+
+    G = { W, H, dpr, cell, cols, rows, ox, oy, occ, d, fp, insc, base, free, cost, idx, letterX };
+
+    // Start left of the H; the default goal sits in the gap between the I and the O.
+    const midY = Math.floor(rows / 2);
+    G.start = nearestFree(Math.round(letterX[0][0] / 2), midY);
+    G.goalDefault = nearestFree(Math.round((letterX[3][1] + letterX[4][0]) / 2), midY);
+  }
+
+  function nearestFree(x, y) {
+    const { cols, rows, idx, free } = G;
+    x = Math.max(0, Math.min(cols - 1, x)); y = Math.max(0, Math.min(rows - 1, y));
+    if (free(idx(x, y))) return [x, y];
+    for (let r = 1; r < Math.max(cols, rows); r++)
+      for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const xx = x + dx, yy = y + dy;
+        if (xx >= 0 && yy >= 0 && xx < cols && yy < rows && free(idx(xx, yy))) return [xx, yy];
+      }
+    return null;
+  }
+
+  // A* over the costmap: lethal and inscribed cells are walls, inflated cells cost more.
+  function plan(s, g) {
+    const { cols, rows, idx, free, cost } = G;
+    const N = cols * rows, gs = new Float32Array(N).fill(Infinity), from = new Int32Array(N).fill(-1);
+    const closed = new Uint8Array(N);
+    const heap = []; // [f, i]
+    const push = (f, i) => { heap.push([f, i]); let c = heap.length - 1; while (c > 0) { const p = (c - 1) >> 1; if (heap[p][0] <= heap[c][0]) break; [heap[p], heap[c]] = [heap[c], heap[p]]; c = p; } };
+    const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let p = 0; for (;;) { const l = 2 * p + 1, r = l + 1; let m = p; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === p) break; [heap[p], heap[m]] = [heap[m], heap[p]]; p = m; } } return top; };
+    const h = (x, y) => { const dx = Math.abs(x - g[0]), dy = Math.abs(y - g[1]); return Math.max(dx, dy) + (Math.SQRT2 - 1) * Math.min(dx, dy); };
+    const si = idx(s[0], s[1]), gi = idx(g[0], g[1]);
+    gs[si] = 0; push(h(s[0], s[1]), si);
+    const nb = [[1,0,1],[-1,0,1],[0,1,1],[0,-1,1],[1,1,Math.SQRT2],[1,-1,Math.SQRT2],[-1,1,Math.SQRT2],[-1,-1,Math.SQRT2]];
+    while (heap.length) {
+      const [, i] = pop();
+      if (closed[i]) continue;
+      if (i === gi) break;
+      closed[i] = 1;
+      const x = i % cols, y = (i / cols) | 0;
+      for (const [dx, dy, w] of nb) {
+        const xx = x + dx, yy = y + dy;
+        if (xx < 0 || yy < 0 || xx >= cols || yy >= rows) continue;
+        const j = idx(xx, yy);
+        if (closed[j] || !free(j)) continue;
+        if (dx && dy && (!free(idx(x + dx, y)) || !free(idx(x, y + dy)))) continue;
+        const ng = gs[i] + w * (1 + 4 * cost(j));
+        if (ng < gs[j]) { gs[j] = ng; from[j] = i; push(ng + h(xx, yy), j); }
+      }
+    }
+    if (from[gi] === -1 && gi !== si) return null;
+    const pts = [];
+    for (let i = gi; i !== -1; i = from[i]) pts.push([i % cols + 0.5, ((i / cols) | 0) + 0.5]);
+    pts.reverse();
+    return resample(chaikin(chaikin(pts)), 0.5);
+  }
+
+  function chaikin(p) {
+    if (p.length < 3) return p;
+    const q = [p[0]];
+    for (let i = 0; i < p.length - 1; i++) {
+      const [x0, y0] = p[i], [x1, y1] = p[i + 1];
+      q.push([0.75 * x0 + 0.25 * x1, 0.75 * y0 + 0.25 * y1], [0.25 * x0 + 0.75 * x1, 0.25 * y0 + 0.75 * y1]);
+    }
+    q.push(p[p.length - 1]);
+    return q;
+  }
+  function resample(p, step) {
+    const q = [p[0]]; let carry = 0;
+    for (let i = 0; i < p.length - 1; i++) {
+      const [x0, y0] = p[i], [x1, y1] = p[i + 1], L = Math.hypot(x1 - x0, y1 - y0);
+      let s = step - carry;
+      while (s <= L) { q.push([x0 + (x1 - x0) * s / L, y0 + (y1 - y0) * s / L]); s += step; }
+      carry = L - (s - step);
+    }
+    q.push(p[p.length - 1]);
+    return q;
+  }
+
+  // Robot state, in cell units.
+  const bot = { x: 0, y: 0, th: 0, path: null, k: 0, goal: null };
+
+  function laser() {
+    // Hokuyo UST-10LX: 270° field of view, centred on the heading.
+    const { cols, rows, occ, idx } = G, hits = [];
+    for (let a = -135; a <= 135; a += 2.25) {
+      const ang = bot.th + a * Math.PI / 180, dx = Math.cos(ang), dy = Math.sin(ang);
+      for (let r = G.insc; r < cols; r += 0.4) {
+        const x = Math.floor(bot.x + dx * r), y = Math.floor(bot.y + dy * r);
+        if (x < 0 || y < 0 || x >= cols || y >= rows) break;
+        if (occ[idx(x, y)]) { hits.push([bot.x + dx * r, bot.y + dy * r]); break; }
+      }
+    }
+    return hits;
+  }
+
+  function draw() {
+    const { dpr, cell, ox, oy, fp } = G;
+    const X = v => (ox + v * cell) * dpr, Y = v => (oy + v * cell) * dpr;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.drawImage(G.base, 0, 0);
+
+    // Goal: a taped X on the floor, like the ones in the lab.
+    if (bot.goal) {
+      const gx = X(bot.goal[0] + 0.5), gy = Y(bot.goal[1] + 0.5), r = fp * 0.42 * cell * dpr;
+      ctx.strokeStyle = C.goal; ctx.lineWidth = Math.max(2, cell * 0.45) * dpr; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(gx - r, gy - r); ctx.lineTo(gx + r, gy + r); ctx.moveTo(gx + r, gy - r); ctx.lineTo(gx - r, gy + r); ctx.stroke();
+    }
+
+    // Remaining planned path.
+    if (bot.path && bot.k < bot.path.length - 1) {
+      ctx.strokeStyle = C.path; ctx.lineWidth = Math.max(1.6, cell * 0.32) * dpr; ctx.lineJoin = "round"; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(X(bot.x), Y(bot.y));
+      for (let i = Math.ceil(bot.k); i < bot.path.length; i++) ctx.lineTo(X(bot.path[i][0]), Y(bot.path[i][1]));
+      ctx.stroke();
+    }
+
+    // Live laser returns.
+    ctx.fillStyle = C.laser;
+    const dot = Math.max(1.5, cell * 0.38) * dpr;
+    for (const [hx, hy] of laser()) ctx.fillRect(X(hx) - dot / 2, Y(hy) - dot / 2, dot, dot);
+
+    // Footprint, with a short heading tick.
+    ctx.save();
+    ctx.translate(X(bot.x), Y(bot.y)); ctx.rotate(bot.th);
+    const s = fp * cell * dpr;
+    ctx.strokeStyle = C.foot; ctx.lineWidth = Math.max(1.6, cell * 0.3) * dpr; ctx.lineCap = "butt";
+    ctx.strokeRect(-s / 2, -s / 2, s, s);
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(s / 2, 0); ctx.stroke();
+    ctx.restore();
+
+    // Distance remaining, in metres on the 5 cm grid.
+    let rem = 0;
+    if (bot.path) {
+      let px = bot.x, py = bot.y;
+      for (let i = Math.ceil(bot.k); i < bot.path.length; i++) { rem += Math.hypot(bot.path[i][0] - px, bot.path[i][1] - py); px = bot.path[i][0]; py = bot.path[i][1]; }
+    }
+    out.textContent = `Distance remaining ${(rem * RES).toFixed(2)} m`;
+  }
+
+  function headingAt(k) {
+    const p = bot.path, i = Math.min(p.length - 1, Math.floor(k)), j = Math.min(p.length - 1, i + 3);
+    if (i === j) return bot.th;
+    return Math.atan2(p[j][1] - p[i][1], p[j][0] - p[i][0]);
+  }
+
+  function go(goal, announce) {
+    const from = nearestFree(Math.round(bot.x - 0.5), Math.round(bot.y - 0.5));
+    const path = plan(from, goal);
+    if (!path) { hint.textContent = "No path to that spot from here. Try somewhere else."; return; }
+    bot.path = path; bot.k = 0; bot.goal = goal;
+    bot.x = path[0][0]; bot.y = path[0][1];
+    if (announce) hint.textContent = "Goal received. Planning and driving.";
+    if (anim) cancelAnimationFrame(anim);
+    if (reduceMotion) {
+      bot.k = path.length - 1; [bot.x, bot.y] = path[path.length - 1]; bot.th = 0;
+      draw(); arrived(announce); return;
+    }
+    const speed = Math.max(16, G.cols / 4.2); // cells per second
+    let last = performance.now();
+    const step = now => {
+      const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = Math.max(last, now);
+      bot.k = Math.max(0, Math.min(bot.path.length - 1, bot.k + speed * dt / 0.5));
+      const i = Math.floor(bot.k), f = bot.k - i, a = bot.path[i], b = bot.path[Math.min(i + 1, bot.path.length - 1)];
+      bot.x = a[0] + (b[0] - a[0]) * f; bot.y = a[1] + (b[1] - a[1]) * f;
+      const target = bot.k < bot.path.length - 1 ? headingAt(bot.k) : bot.th;
+      let dth = Math.atan2(Math.sin(target - bot.th), Math.cos(target - bot.th));
+      bot.th += dth * Math.min(1, dt * 9);
+      if (bot.k >= bot.path.length - 1) {
+        // Arrived: pivot onto the goal heading, as Nav2's rotate_to_goal_heading does.
+        const err = Math.atan2(Math.sin(-bot.th), Math.cos(-bot.th));
+        bot.th += err * Math.min(1, dt * 7);
+        if (Math.abs(err) < 0.02) { bot.th = 0; draw(); anim = null; arrived(announce); return; }
+      }
+      draw();
+      anim = requestAnimationFrame(step);
+    };
+    anim = requestAnimationFrame(step);
+  }
+
+  function arrived(announce) {
+    if (announce) hint.textContent = `Goal reached. ${verb} the map to send another.`;
+  }
+
+  function reset(animate) {
+    build();
+    bot.x = G.start[0] + 0.5; bot.y = G.start[1] + 0.5; bot.th = 0; bot.path = null; bot.goal = null;
+    draw();
+    if (animate) setTimeout(() => go(G.goalDefault, false), reduceMotion ? 0 : 450);
+    else go(G.goalDefault, false);
+  }
+
+  function toCell(e) {
+    const r = cv.getBoundingClientRect();
+    return [Math.floor((e.clientX - r.left - G.ox) / G.cell), Math.floor((e.clientY - r.top - G.oy) / G.cell)];
+  }
+  cv.addEventListener("click", e => {
+    if (!G) return;
+    const [x, y] = toCell(e);
+    if (x < 0 || y < 0 || x >= G.cols || y >= G.rows) return;
+    if (!G.free(G.idx(x, y))) { hint.textContent = "That spot is inside an obstacle’s safety margin. Pick open floor."; return; }
+    go([x, y], true);
+  });
+  cv.addEventListener("keydown", e => {
+    if (!G || (e.key !== "Enter" && e.key !== " ")) return;
+    e.preventDefault();
+    for (let k = 0; k < 200; k++) {
+      const x = Math.floor(Math.random() * G.cols), y = Math.floor(Math.random() * G.rows);
+      if (G.free(G.idx(x, y)) && Math.hypot(x - bot.x, y - bot.y) > G.cols / 4) { go([x, y], true); return; }
+    }
+  });
+
+  let rt;
+  window.addEventListener("resize", () => {
+    clearTimeout(rt);
+    rt = setTimeout(() => { if (Math.round(cv.clientWidth) !== lastW) { lastW = Math.round(cv.clientWidth); if (anim) cancelAnimationFrame(anim); reset(false); } }, 150);
+  });
+
+  const fontReady = document.fonts ? Promise.race([document.fonts.load('800 64px "Barlow Condensed"'), new Promise(r => setTimeout(r, 1500))]) : Promise.resolve();
+  fontReady.then(() => { lastW = Math.round(cv.clientWidth); reset(true); });
+})();
+</script>
+</body>
+</html>
