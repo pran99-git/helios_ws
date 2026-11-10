@@ -165,11 +165,14 @@ def turn_in_place(
 
 
 class ProgressMonitor:
-    """Detects a rover that has stopped advancing ALONG the route.
+    """Detects a rover that has stopped advancing TOWARD the goal.
 
     Distance travelled is the wrong test: a rover circling or hunting covers
-    ground without getting closer to the goal. Arc length along the route only
-    grows when real progress is made.
+    ground without getting closer. Arc length travelled is also wrong, because
+    a route replanned from the rover's live pose restarts its arc at zero, so a
+    rover making perfect progress would look stalled. Distance still to run is
+    anchored at the goal, so it survives replanning and only falls on real
+    progress.
     """
 
     def __init__(self, min_progress: float, window: float) -> None:
@@ -177,13 +180,13 @@ class ProgressMonitor:
             raise ValueError("min_progress and window must be positive")
         self._min = min_progress
         self._window = window
-        self._best_arc: float | None = None
+        self._best: float | None = None
         self._since: float | None = None
 
-    def update(self, arc: float, now: float) -> None:
-        """Record progress. Call once per cycle with the projected arc length."""
-        if self._best_arc is None or arc > self._best_arc + self._min:
-            self._best_arc = arc
+    def update(self, remaining: float, now: float) -> None:
+        """Record progress. Call once per cycle with the distance still to run."""
+        if self._best is None or remaining < self._best - self._min:
+            self._best = remaining
             self._since = now
 
     def stuck(self, now: float) -> bool:
@@ -194,5 +197,5 @@ class ProgressMonitor:
 
     def reset(self) -> None:
         """Clear state, on a new route or a new goal."""
-        self._best_arc = None
+        self._best = None
         self._since = None

@@ -94,6 +94,7 @@ class SubgoalWalkerNode(Node):
         self._goal: PoseStamped | None = None
         self._route: list[Pose2D] = []
         self._route_at: float | None = None
+        self._note = ""  # last failure, kept so the idle status still shows it
         self._planning = False
         self._status = "idle"
         # True while the bridge holds a carrot from us. Every tick either
@@ -134,6 +135,7 @@ class SubgoalWalkerNode(Node):
         self._goal = msg
         self._route = []
         self._route_at = None
+        self._note = ""
         self._monitor.reset()
         self.get_logger().info(
             f"route goal ({msg.pose.position.x:.2f}, {msg.pose.position.y:.2f}) "
@@ -152,6 +154,7 @@ class SubgoalWalkerNode(Node):
         self._route_at = None
         self._monitor.reset()
         self._status = reason
+        self._note = reason
         if self._turning:
             self._turning = False
             self._turn_wz = 0.0
@@ -180,6 +183,7 @@ class SubgoalWalkerNode(Node):
         if handle is None or not handle.accepted:
             self._planning = False
             self._status = "route rejected by planner"
+            self._note = self._status
             return
         handle.get_result_async().add_done_callback(self._on_route_result)
 
@@ -188,6 +192,7 @@ class SubgoalWalkerNode(Node):
         result = future.result().result
         if result.error_code != ComputePathToPose.Result.NONE:
             self._status = f"planner error {result.error_code}: {result.error_msg}"
+            self._note = self._status
             self.get_logger().warn(self._status)
             return
         poses = result.path.poses
@@ -208,6 +213,7 @@ class SubgoalWalkerNode(Node):
             for p in poses
         ]
         self._route_at = self._now()
+        self._note = ""
         self._route_pub.publish(result.path)
 
     # ----------------------------------------------------------------- tick ---
@@ -231,7 +237,7 @@ class SubgoalWalkerNode(Node):
 
     def _walk(self) -> bool:
         if self._goal is None:
-            self._status = "idle"
+            self._status = f"idle ({self._note})" if self._note else "idle"
             return False
 
         robot = self._robot_pose()
@@ -241,7 +247,11 @@ class SubgoalWalkerNode(Node):
 
         if not self._route:
             self._request_route()
-            self._status = "waiting for a route"
+            self._status = (
+                f"waiting for a route ({self._note})"
+                if self._note
+                else "waiting for a route"
+            )
             return False
 
         now = self._now()
@@ -253,7 +263,7 @@ class SubgoalWalkerNode(Node):
             self._abandon("arrived")
             return False
 
-        self._monitor.update(projection.arc, now)
+        self._monitor.update(left, now)
         if self._monitor.stuck(now):
             self._abandon("stuck: no progress along the route")
             return False

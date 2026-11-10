@@ -108,41 +108,51 @@ def test_duplicate_points_do_not_break_projection():
 
 
 class TestProgressMonitor:
-    """Arc-length progress, which is what distinguishes hunting from advancing."""
+    """Progress is measured as distance still to run, not distance covered."""
 
-    def test_advancing_is_never_stuck(self):
+    def test_advancing_is_not_stuck(self):
         m = ProgressMonitor(min_progress=0.15, window=8.0)
         for i in range(20):
-            m.update(arc=i * 0.5, now=i * 1.0)
-            assert not m.stuck(now=i * 1.0)
+            m.update(10.0 - 0.4 * i, float(i))
+            assert not m.stuck(float(i))
 
-    def test_hunting_in_place_trips_the_window(self):
-        """Covering ground without advancing along the route is the failure."""
+    def test_standing_still_trips_the_window(self):
         m = ProgressMonitor(min_progress=0.15, window=8.0)
-        m.update(arc=1.0, now=0.0)
-        m.update(arc=1.02, now=5.0)  # 2 cm: below min_progress
-        assert not m.stuck(now=5.0)
-        assert m.stuck(now=8.5)
+        m.update(10.0, 0.0)
+        assert not m.stuck(7.9)
+        assert m.stuck(8.0)
 
-    def test_a_late_advance_rearms_the_window(self):
-        m = ProgressMonitor(min_progress=0.15, window=8.0)
-        m.update(arc=1.0, now=0.0)
-        m.update(arc=2.0, now=7.0)
-        assert not m.stuck(now=14.0)
-        assert m.stuck(now=15.5)
+    def test_hunting_without_closing_trips(self):
+        """Motion that never reduces the remaining distance is not progress."""
+        m = ProgressMonitor(min_progress=0.15, window=5.0)
+        for i in range(60):
+            t = i * 0.2
+            m.update(6.0 + 0.05 * math.sin(t * 3.0), t)
+        assert m.stuck(12.0)
 
-    def test_reset_clears_state(self):
+    def test_replanned_route_does_not_look_stalled(self):
+        """The bug this replaced: a route replanned from the live pose restarts
+        its arc at zero, so arc-based progress froze while the rover drove."""
         m = ProgressMonitor(min_progress=0.15, window=8.0)
-        m.update(arc=1.0, now=0.0)
-        assert m.stuck(now=20.0)
+        left = 10.0
+        for i in range(100):
+            t = i * 0.2
+            left -= 0.08  # 0.4 m/s at 5 Hz
+            m.update(left, t)
+            assert not m.stuck(t), f"declared stuck at t={t:.1f}, {left:.2f} m left"
+
+    def test_reset_clears(self):
+        m = ProgressMonitor(min_progress=0.15, window=2.0)
+        m.update(5.0, 0.0)
+        assert m.stuck(5.0)
         m.reset()
-        assert not m.stuck(now=20.0)
+        assert not m.stuck(5.0)
 
-    def test_nonsense_configuration_raises(self):
+    def test_rejects_bad_config(self):
         with pytest.raises(ValueError):
-            ProgressMonitor(min_progress=0.0, window=8.0)
+            ProgressMonitor(min_progress=0.0, window=1.0)
         with pytest.raises(ValueError):
-            ProgressMonitor(min_progress=0.15, window=-1.0)
+            ProgressMonitor(min_progress=0.1, window=0.0)
 
 
 class TestGoalClearingContract:
