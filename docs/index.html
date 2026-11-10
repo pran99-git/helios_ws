@@ -309,44 +309,6 @@
   .clips p { color: var(--ink-2); font-size: 1rem; margin-top: 6px; }
   @media (max-width: 760px) { .clips { grid-template-columns: 1fr; } }
 
-  /* Where it fits */
-  .pains { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; }
-  .pains > div { border-top: 1px solid var(--rule); padding-top: 18px; }
-  .pains .big { font-family: var(--display); font-weight: 700; font-size: clamp(2.25rem, 4vw, 3.25rem); line-height: 1; color: var(--signal); }
-  .pains .big + p { color: var(--ink-2); margin-top: 10px; font-size: 1rem; max-width: 32ch; }
-  .fit-grid { display: grid; grid-template-columns: 8fr 4fr; gap: 40px 56px; margin-top: 64px; align-items: start; }
-  .compare table { width: 100%; border-collapse: collapse; font-size: 1rem; }
-  .compare th, .compare td { text-align: left; vertical-align: top; padding: 14px 20px 14px 0; border-bottom: 1px solid var(--rule); }
-  .compare th { color: var(--ink-2); font-weight: 600; font-size: 0.9375rem; }
-  .compare td:nth-child(2) { white-space: nowrap; font-variant-numeric: tabular-nums; }
-  .compare td:nth-child(3) { color: var(--ink-2); }
-  .compare tr.us td { background: rgba(245, 165, 36, .1); font-weight: 600; color: var(--ink); }
-  .compare tr.us td:first-child { padding-left: 14px; box-shadow: inset 3px 0 0 var(--signal); }
-  .compare tr.us td:nth-child(3) { font-weight: 400; }
-  .compare .src { font-size: 0.875rem; color: var(--ink-2); margin-top: 12px; max-width: 70ch; }
-  .fit-side > div + div { margin-top: 36px; }
-  .fit-side h3 { font-size: 1.375rem; }
-  .fit-side p { color: var(--ink-2); font-size: 1rem; margin-top: 8px; }
-  .fit-side .big { font-family: var(--display); font-weight: 700; font-size: 2.5rem; line-height: 1.05; color: var(--ink); }
-  .road-h { font-size: 1.625rem; margin-top: 72px; }
-  .roadmap { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; margin-top: 28px; }
-  .roadmap > div { position: relative; padding-top: 26px; border-top: 2px solid var(--rule); }
-  .roadmap > div::before { content: ""; position: absolute; top: -8px; left: 0; width: 14px; height: 14px; border-radius: 50%; background: var(--rviz); border: 2px solid var(--ink-2); }
-  .roadmap > div:first-child { border-top-color: var(--path); }
-  .roadmap > div:first-child::before { background: var(--path); border-color: var(--path); }
-  .roadmap h4 { margin: 0; font-size: 1.125rem; font-weight: 600; }
-  .roadmap ul { margin: 10px 0 0; padding-left: 18px; color: var(--ink-2); font-size: 1rem; }
-  .roadmap li + li { margin-top: 6px; }
-  @media (max-width: 900px) { .pains, .fit-grid, .roadmap { grid-template-columns: 1fr; } }
-  @media (max-width: 640px) {
-    .compare thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-    .compare tr { display: block; padding-block: 12px; border-bottom: 1px solid var(--rule); }
-    .compare td { display: block; padding: 0; border: 0; white-space: normal !important; }
-    .compare td:first-child { font-weight: 600; }
-    .compare tr.us { background: rgba(245, 165, 36, .1); box-shadow: inset 3px 0 0 var(--signal); padding-left: 14px; }
-    .compare tr.us td { background: none; box-shadow: none; padding-left: 0; }
-  }
-
   /* Closing */
   .cta-inner { border: 1px solid var(--rule); border-radius: 4px; background: var(--rviz-raised); padding: clamp(24px, 4vw, 44px); display: grid; grid-template-columns: 1fr auto; gap: 24px 48px; align-items: center; }
   .cta-inner p { color: var(--ink-2); margin-top: 12px; max-width: 58ch; }
@@ -367,7 +329,6 @@
       <li class="opt"><a href="#product">Product</a></li>
       <li><a href="#runs">Runs</a></li>
       <li class="opt"><a href="#architecture">Architecture</a></li>
-      <li class="opt"><a href="#fit">Market</a></li>
       <li><a href="https://github.com/pran99-git/helios_ws">GitHub</a></li>
     </ul>
   </nav>
@@ -1118,43 +1079,6 @@
           <div><dt>Learned navigation</dt><dd>OmniVLA-edge, 108 M parameters, 95 ms per step on the Orin (in development)</dd></div>
         </dl>
       </div>
-    </div>
-  </section>
-
-  <section id="fit" class="wrap" aria-labelledby="fit-h">
-    <div class="sec-head">
-      <h2 id="fit-h">Between hobby kits and $20k platforms</h2>
-      <p class="intro">Robotics labs working on navigation and embodied AI choose today between budget robots built on hobby-grade computers and research platforms that cost $20,000 and more. Helios is aimed at the gap.</p>
-    </div>
-    <div class="pains">
-      <div><p class="big">Months</p><p>of engineering before a robot can drive itself indoors</p></div>
-      <div><p class="big">No room for AI</p><p>on budget robots built around small hobby-grade computers</p></div>
-      <div><p class="big">$20k+</p><p>for a capable research robot such as the Clearpath Jackal</p></div>
-    </div>
-    <div class="fit-grid">
-      <div class="compare">
-        <table>
-          <thead><tr><th scope="col">Platform</th><th scope="col">Price</th><th scope="col">What you get</th></tr></thead>
-          <tbody>
-            <tr><td>TurtleBot 4</td><td>$2,575</td><td>Hobby-grade computer, basic laser scanner</td></tr>
-            <tr><td>AgileX LIMO ROS2</td><td>from $3,200</td><td>Mini PC, compact laser scanner</td></tr>
-            <tr><td>ROSbot XL Autonomy</td><td>€5,889</td><td>Mini PC; US sales currently limited to federal buyers</td></tr>
-            <tr class="us"><td>Helios</td><td>$9,900 target</td><td>AI computer, industrial laser scanner, omnidirectional wheels, plain-language goals</td></tr>
-            <tr><td>Clearpath Jackal</td><td>$20k+, by quote</td><td>Rugged outdoor research robot</td></tr>
-          </tbody>
-        </table>
-        <p class="src">List prices checked November 2026 at RobotShop, RobotLAB and the Husarion store; the Jackal is sold by quote. The Helios price is a proposed target.</p>
-      </div>
-      <div class="fit-side">
-        <div><h3>The market</h3><p class="big">$2.8B → $8.2B</p><p>Autonomous mobile robots worldwide, 2025 to 2032, as estimated by MarkNtel Advisors.</p></div>
-        <div><h3>How it would sell</h3><p>The robot plus an annual software subscription: stack updates, new navigation models and support.</p></div>
-      </div>
-    </div>
-    <h3 class="road-h">From prototype to product</h3>
-    <div class="roadmap">
-      <div><h4>Proven today</h4><ul><li>Maps a space, knows where it is and drives itself</li><li>The vision-language model runs on the robot</li></ul></div>
-      <div><h4>Next to prove</h4><ul><li>Plain-language goals on real drives</li><li>The same software on a cheaper production computer</li></ul></div>
-      <div><h4>To make it a product</h4><ul><li>A custom circuit board to cut cost</li><li>A few units tested in other labs</li></ul></div>
     </div>
   </section>
 
