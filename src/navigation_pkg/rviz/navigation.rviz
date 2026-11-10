@@ -8,6 +8,7 @@ Panels:
         - /Costmaps1
         - /Plans1
         - /Camera1
+        - /Path1
       Splitter Ratio: 0.5
     Tree Height: 161
   - Class: nav2_rviz_plugins/Navigation 2
@@ -320,6 +321,7 @@ Visualization Manager:
         Footprint: true
         Grid: true
         LaserScan: true
+        Path: true
         Plans:
           Global Plan: true
           Local Plan: true
@@ -328,6 +330,62 @@ Visualization Manager:
         TF: true
         Value: true
       Zoom Factor: 1
+    - Alpha: 1
+      Buffer Length: 1
+      Class: rviz_default_plugins/Path
+      Color: 25; 255; 0
+      Enabled: true
+      Head Diameter: 0.30000001192092896
+      Head Length: 0.20000000298023224
+      Length: 0.30000001192092896
+      Line Style: Lines
+      Line Width: 0.029999999329447746
+      Name: Path
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Pose Color: 255; 85; 255
+      Pose Style: None
+      Radius: 0.029999999329447746
+      Shaft Diameter: 0.10000000149011612
+      Shaft Length: 0.10000000149011612
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /vla/plan
+      Value: true
+    - Alpha: 1
+      Buffer Length: 1
+      Class: rviz_default_plugins/Path
+      Color: 25; 255; 0
+      Enabled: true
+      Head Diameter: 0.30000001192092896
+      Head Length: 0.20000000298023224
+      Length: 0.30000001192092896
+      Line Style: Lines
+      Line Width: 0.029999999329447746
+      Name: Path
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Pose Color: 255; 85; 255
+      Pose Style: None
+      Radius: 0.029999999329447746
+      Shaft Diameter: 0.10000000149011612
+      Shaft Length: 0.10000000149011612
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /vla/route
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -389,7 +447,7 @@ Window Geometry:
   Hide Right Dock: true
   Navigation 2:
     collapsed: false
-  QMainWindow State: 000000ff00000000fd00000001000000000000016b00000399fc0200000003fb000000100044006900730070006c006100790073010000003d000000de000000c900fffffffb00000018004e0061007600690067006100740069006f006e002000320100000121000001cc000001cc00fffffffb0000000c00430061006d00650072006101000002f3000000e30000001600ffffff000005cd0000039900000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
-  Width: 1854
-  X: 66
+  QMainWindow State: 000000ff00000000fd00000001000000000000016b00000399fc0200000003fb000000100044006900730070006c006100790073010000003d000000de000000c900fffffffb00000018004e0061007600690067006100740069006f006e002000320100000121000001df000001df00fffffffb0000000c00430061006d0065007200610100000306000000d00000001600ffffff000005cc0000039900000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  Width: 1853
+  X: 67
   Y: 32
