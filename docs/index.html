@@ -266,6 +266,87 @@
   .specs dd { margin: 2px 0 0; font-size: 1rem; }
   @media (max-width: 900px) { .specs { grid-template-columns: 1fr; gap: 32px; } }
 
+  /* Meet Helios */
+  .meet { display: grid; grid-template-columns: 7fr 5fr; gap: 32px 56px; align-items: center; }
+  .cad { margin: 0; }
+  .cad-stage { position: relative; background: radial-gradient(58% 52% at 50% 58%, #3E3F45 0%, rgba(62, 63, 69, 0) 72%); }
+  .cad-stage img { width: 100%; height: auto; }
+  .pin { position: absolute; transform: translate(-50%, -50%); width: 28px; height: 28px; border-radius: 50%; background: var(--signal); color: var(--wall); font: 700 0.875rem/28px var(--text); text-align: center; box-shadow: 0 0 0 4px rgba(46, 47, 50, .55); }
+  .cad figcaption { margin-top: 8px; font-size: 0.9375rem; color: var(--ink-2); }
+  .onboard { list-style: none; counter-reset: ob; margin: 0; padding: 0; }
+  .onboard li { counter-increment: ob; display: grid; grid-template-columns: 28px 1fr; gap: 2px 16px; padding-block: 14px; border-top: 1px solid var(--rule); }
+  .onboard li::before { content: counter(ob); grid-row: span 2; width: 28px; height: 28px; border-radius: 50%; background: var(--signal); color: var(--wall); font: 700 0.875rem/28px var(--text); text-align: center; }
+  .onboard b { font-weight: 600; }
+  .onboard span { color: var(--ink-2); font-size: 1rem; }
+  .caps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 32px; margin-top: 64px; }
+  .caps > div { border-top: 2px solid var(--signal); padding-top: 18px; }
+  .caps h3 { font-size: 1.375rem; }
+  .caps p { color: var(--ink-2); font-size: 1rem; margin-top: 8px; }
+  .caps .edge { color: var(--ink); }
+  .caps .edge b { color: var(--signal); font-weight: 600; }
+  .tag { display: inline-block; font: 600 0.8125rem/1 var(--text); color: var(--ink-2); border: 1px dashed #9A9CA6; border-radius: 3px; padding: 4px 7px; margin-left: 4px; white-space: nowrap; }
+  .floor { margin-top: 72px; }
+  .floor-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 24px; }
+  .floor-head h3 { font-size: 1.625rem; }
+  .floor-head p { color: var(--ink-2); font-size: 1rem; }
+  .floor-clips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 20px; }
+  .floor figure { margin: 0; }
+  .floor video { width: 100%; aspect-ratio: 4 / 5; object-fit: cover; background: #1F2023; border: 1px solid var(--rule); border-radius: 3px; }
+  .floor figcaption { display: flex; justify-content: space-between; gap: 12px; margin-top: 10px; font-size: 1rem; }
+  .floor figcaption span { color: var(--ink-2); white-space: nowrap; }
+  @media (max-width: 900px) { .meet { grid-template-columns: 1fr; } .caps { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 560px) {
+    .caps { grid-template-columns: 1fr; gap: 24px; }
+    .floor-clips { grid-auto-flow: column; grid-template-columns: none; grid-auto-columns: 74%; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 6px; }
+    .floor figure { scroll-snap-align: start; }
+  }
+
+  /* Mapping clips */
+  .clips { display: grid; grid-template-columns: 1fr 1fr; gap: 28px 32px; margin-top: 44px; }
+  .clips figure { margin: 0; }
+  .clips video { width: 100%; aspect-ratio: 16 / 9; background: #1F2023; border: 1px solid var(--rule); border-radius: 3px; }
+  .clips h4 { margin: 14px 0 0; font-family: var(--display); font-weight: 700; font-size: 1.25rem; }
+  .clips p { color: var(--ink-2); font-size: 1rem; margin-top: 6px; }
+  @media (max-width: 760px) { .clips { grid-template-columns: 1fr; } }
+
+  /* Where it fits */
+  .pains { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; }
+  .pains > div { border-top: 1px solid var(--rule); padding-top: 18px; }
+  .pains .big { font-family: var(--display); font-weight: 700; font-size: clamp(2.25rem, 4vw, 3.25rem); line-height: 1; color: var(--signal); }
+  .pains .big + p { color: var(--ink-2); margin-top: 10px; font-size: 1rem; max-width: 32ch; }
+  .fit-grid { display: grid; grid-template-columns: 8fr 4fr; gap: 40px 56px; margin-top: 64px; align-items: start; }
+  .compare table { width: 100%; border-collapse: collapse; font-size: 1rem; }
+  .compare th, .compare td { text-align: left; vertical-align: top; padding: 14px 20px 14px 0; border-bottom: 1px solid var(--rule); }
+  .compare th { color: var(--ink-2); font-weight: 600; font-size: 0.9375rem; }
+  .compare td:nth-child(2) { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .compare td:nth-child(3) { color: var(--ink-2); }
+  .compare tr.us td { background: rgba(245, 165, 36, .1); font-weight: 600; color: var(--ink); }
+  .compare tr.us td:first-child { padding-left: 14px; box-shadow: inset 3px 0 0 var(--signal); }
+  .compare tr.us td:nth-child(3) { font-weight: 400; }
+  .compare .src { font-size: 0.875rem; color: var(--ink-2); margin-top: 12px; max-width: 70ch; }
+  .fit-side > div + div { margin-top: 36px; }
+  .fit-side h3 { font-size: 1.375rem; }
+  .fit-side p { color: var(--ink-2); font-size: 1rem; margin-top: 8px; }
+  .fit-side .big { font-family: var(--display); font-weight: 700; font-size: 2.5rem; line-height: 1.05; color: var(--ink); }
+  .road-h { font-size: 1.625rem; margin-top: 72px; }
+  .roadmap { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; margin-top: 28px; }
+  .roadmap > div { position: relative; padding-top: 26px; border-top: 2px solid var(--rule); }
+  .roadmap > div::before { content: ""; position: absolute; top: -8px; left: 0; width: 14px; height: 14px; border-radius: 50%; background: var(--rviz); border: 2px solid var(--ink-2); }
+  .roadmap > div:first-child { border-top-color: var(--path); }
+  .roadmap > div:first-child::before { background: var(--path); border-color: var(--path); }
+  .roadmap h4 { margin: 0; font-size: 1.125rem; font-weight: 600; }
+  .roadmap ul { margin: 10px 0 0; padding-left: 18px; color: var(--ink-2); font-size: 1rem; }
+  .roadmap li + li { margin-top: 6px; }
+  @media (max-width: 900px) { .pains, .fit-grid, .roadmap { grid-template-columns: 1fr; } }
+  @media (max-width: 640px) {
+    .compare thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+    .compare tr { display: block; padding-block: 12px; border-bottom: 1px solid var(--rule); }
+    .compare td { display: block; padding: 0; border: 0; white-space: normal !important; }
+    .compare td:first-child { font-weight: 600; }
+    .compare tr.us { background: rgba(245, 165, 36, .1); box-shadow: inset 3px 0 0 var(--signal); padding-left: 14px; }
+    .compare tr.us td { background: none; box-shadow: none; padding-left: 0; }
+  }
+
   /* Closing */
   .cta-inner { border: 1px solid var(--rule); border-radius: 4px; background: var(--rviz-raised); padding: clamp(24px, 4vw, 44px); display: grid; grid-template-columns: 1fr auto; gap: 24px 48px; align-items: center; }
   .cta-inner p { color: var(--ink-2); margin-top: 12px; max-width: 58ch; }
@@ -283,9 +364,10 @@
   <a class="wordmark" href="#">Helios</a>
   <nav aria-label="Sections">
     <ul>
+      <li class="opt"><a href="#product">Product</a></li>
       <li><a href="#runs">Runs</a></li>
       <li class="opt"><a href="#architecture">Architecture</a></li>
-      <li class="opt"><a href="#specs">Specs</a></li>
+      <li class="opt"><a href="#fit">Market</a></li>
       <li><a href="https://github.com/pran99-git/helios_ws">GitHub</a></li>
     </ul>
   </nav>
@@ -319,6 +401,7 @@
         </div>
       </div>
       <dl class="facts">
+        <dt>Built by</dt><dd>Pranav Upadhyay, M.S. Embedded and Cyber-Physical Systems, UC Irvine</dd>
         <dt>Computer</dt><dd>NVIDIA Jetson AGX Orin</dd>
         <dt>Middleware</dt><dd>ROS 2 Jazzy</dd>
         <dt>Sensors</dt><dd>Hokuyo UST-10LX laser, ZED 2i stereo camera</dd>
@@ -328,6 +411,65 @@
       </dl>
     </div>
   </div>
+
+  <section id="product" class="wrap" aria-labelledby="product-h">
+    <div class="sec-head">
+      <h2 id="product-h">Meet Helios</h2>
+      <p class="intro">An indoor rover that maps a space, knows where it is in it and drives itself, with enough computing on board to run AI models. It is built from off-the-shelf parts on open-source robot software.</p>
+    </div>
+    <div class="meet">
+      <figure class="cad">
+        <div class="cad-stage">
+          <img src="assets/helios_cad.png" width="744" height="474" alt="CAD model of Helios: four black mecanum wheels on a silver chassis, with the Jetson AGX Orin computer, the Hokuyo laser scanner and the ZED 2i camera mounted on top">
+          <span class="pin" style="left:40%;top:15%" aria-hidden="true">1</span>
+          <span class="pin" style="left:59%;top:9%" aria-hidden="true">2</span>
+          <span class="pin" style="left:66%;top:41%" aria-hidden="true">3</span>
+          <span class="pin" style="left:43%;top:75%" aria-hidden="true">4</span>
+          <span class="pin" style="left:77%;top:57%" aria-hidden="true">5</span>
+        </div>
+        <figcaption>CAD model of the rover.</figcaption>
+      </figure>
+      <ol class="onboard" aria-label="What is on board">
+        <li><b>NVIDIA Jetson AGX Orin</b><span>The only computer. Mapping, navigation and the AI model all run on the rover.</span></li>
+        <li><b>Hokuyo UST-10LX</b><span>Industrial laser scanner, 270° out to 10 m.</span></li>
+        <li><b>Stereolabs ZED 2i</b><span>Stereo depth camera with an IMU, for 3D obstacles and visual odometry.</span></li>
+        <li><b>Mecanum wheels</b><span>Angled rollers let it slide sideways and turn on the spot.</span></li>
+        <li><b>Lynxmotion A4WD3 chassis</b><span>Four 12 V gearmotors, driven by two RoboClaw controllers.</span></li>
+      </ol>
+    </div>
+    <div class="caps">
+      <div><h3>Autonomous from day one</h3><p>Builds a map, knows where it is and drives itself to any spot you choose.</p><p class="edge"><b>Edge:</b> skips months of setup</p></div>
+      <div><h3>Goals in plain language</h3><p>“Go to the blue chair”, or a photo of the goal. The AI model runs on the robot. <span class="tag">In development</span></p><p class="edge"><b>Edge:</b> no cloud, no extra PC</p></div>
+      <div><h3>Moves in any direction</h3><p>Mecanum wheels slide sideways and turn on the spot.</p><p class="edge"><b>Edge:</b> built for tight spaces</p></div>
+      <div><h3>Open and upgradeable</h3><p>Built on ROS 2, the software most robotics labs already use; parts are swappable.</p><p class="edge"><b>Edge:</b> easy for labs to adopt</p></div>
+    </div>
+    <div class="floor">
+      <div class="floor-head">
+        <h3>Built and tested</h3>
+        <p>Three runs filmed from the floor, sped up to fit. Nobody is steering.</p>
+      </div>
+      <div class="floor-clips">
+        <figure>
+          <video controls muted loop playsinline preload="metadata" poster="assets/posters/floor_across_the_lab.jpg" aria-label="Helios driving down the length of the lab and stopping">
+            <source src="media/floor_across_the_lab.mp4" type="video/mp4">
+          </video>
+          <figcaption>Crosses the lab end to end <span>2× speed</span></figcaption>
+        </figure>
+        <figure>
+          <video controls muted loop playsinline preload="metadata" poster="assets/posters/floor_past_people_and_desks.jpg" aria-label="Helios finding its way past people, desks and a recycling bin">
+            <source src="media/floor_past_people_and_desks.mp4" type="video/mp4">
+          </video>
+          <figcaption>Weaves past people and desks <span>2× speed</span></figcaption>
+        </figure>
+        <figure>
+          <video controls muted loop playsinline preload="metadata" poster="assets/posters/floor_tight_corner.jpg" aria-label="Helios turning on the spot to get out of a tight corner">
+            <source src="media/floor_tight_corner.mp4" type="video/mp4">
+          </video>
+          <figcaption>Turns in a tight corner <span>1.5× speed</span></figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
 
   <section id="reel" class="wrap reel" aria-labelledby="reel-h">
     <div class="sec-head">
@@ -717,15 +859,21 @@
 </svg></div>
         <figcaption>Three interchangeable answers to “where am I?”: build a 2D map, build a 3D map, or localize in a saved one. The transform chain on the right is what every other node reads.</figcaption>
       </figure>
-      <div class="clip">
-        <video controls playsinline preload="none" poster="assets/posters/slam_toolbox.jpg">
-          <source src="media/slam_toolbox.mp4" type="video/mp4">
-          <a href="media/slam_toolbox.mp4">Download the mapping run (MP4)</a>
-        </video>
-        <div>
-          <h4>Watch the map being built</h4>
-          <p>slam_toolbox turning laser scans into the 2D map as the rover drives, with the ZED’s 3D point cloud drawn over it. 55 seconds.</p>
-        </div>
+      <div class="clips">
+        <figure>
+          <video controls playsinline preload="none" poster="assets/posters/slam_toolbox.jpg">
+            <source src="media/slam_toolbox.mp4" type="video/mp4">
+            <a href="media/slam_toolbox.mp4">Download the 2D mapping run (MP4)</a>
+          </video>
+          <figcaption><h4>2D map with slam_toolbox</h4><p>Laser scans turned into the 2D map as the rover drives, with the ZED’s 3D point cloud drawn over it. 55 seconds.</p></figcaption>
+        </figure>
+        <figure>
+          <video controls playsinline preload="none" poster="assets/posters/rtabmap.jpg">
+            <source src="media/rtabmap.mp4" type="video/mp4">
+            <a href="media/rtabmap.mp4">Download the 3D mapping run (MP4)</a>
+          </video>
+          <figcaption><h4>3D map with RTAB-Map</h4><p>The ZED 2i’s depth and colour plus the Hokuyo scans, built into a 3D model of the lab and corridor over a 139 m drive, then cleaned up and exported. A few stray depth scans still need correcting. 1 minute 45 seconds.</p></figcaption>
+        </figure>
       </div>
       <div class="notes">
         <div><h4>Smooth to steer by, correct to plan with</h4><p>The EKF owns odom → base_link, which never jumps, so the controller can steer by it. The mapper owns map → odom, which removes the drift, so the planner can trust it. Nothing ever publishes the same transform twice.</p></div>
@@ -973,6 +1121,43 @@
     </div>
   </section>
 
+  <section id="fit" class="wrap" aria-labelledby="fit-h">
+    <div class="sec-head">
+      <h2 id="fit-h">Between hobby kits and $20k platforms</h2>
+      <p class="intro">Robotics labs working on navigation and embodied AI choose today between budget robots built on hobby-grade computers and research platforms that cost $20,000 and more. Helios is aimed at the gap.</p>
+    </div>
+    <div class="pains">
+      <div><p class="big">Months</p><p>of engineering before a robot can drive itself indoors</p></div>
+      <div><p class="big">No room for AI</p><p>on budget robots built around small hobby-grade computers</p></div>
+      <div><p class="big">$20k+</p><p>for a capable research robot such as the Clearpath Jackal</p></div>
+    </div>
+    <div class="fit-grid">
+      <div class="compare">
+        <table>
+          <thead><tr><th scope="col">Platform</th><th scope="col">Price</th><th scope="col">What you get</th></tr></thead>
+          <tbody>
+            <tr><td>TurtleBot 4</td><td>$2,575</td><td>Hobby-grade computer, basic laser scanner</td></tr>
+            <tr><td>AgileX LIMO ROS2</td><td>from $3,200</td><td>Mini PC, compact laser scanner</td></tr>
+            <tr><td>ROSbot XL Autonomy</td><td>€5,889</td><td>Mini PC; US sales currently limited to federal buyers</td></tr>
+            <tr class="us"><td>Helios</td><td>$9,900 target</td><td>AI computer, industrial laser scanner, omnidirectional wheels, plain-language goals</td></tr>
+            <tr><td>Clearpath Jackal</td><td>$20k+, by quote</td><td>Rugged outdoor research robot</td></tr>
+          </tbody>
+        </table>
+        <p class="src">List prices checked November 2026 at RobotShop, RobotLAB and the Husarion store; the Jackal is sold by quote. The Helios price is a proposed target.</p>
+      </div>
+      <div class="fit-side">
+        <div><h3>The market</h3><p class="big">$2.8B → $8.2B</p><p>Autonomous mobile robots worldwide, 2025 to 2032, as estimated by MarkNtel Advisors.</p></div>
+        <div><h3>How it would sell</h3><p>The robot plus an annual software subscription: stack updates, new navigation models and support.</p></div>
+      </div>
+    </div>
+    <h3 class="road-h">From prototype to product</h3>
+    <div class="roadmap">
+      <div><h4>Proven today</h4><ul><li>Maps a space, knows where it is and drives itself</li><li>The vision-language model runs on the robot</li></ul></div>
+      <div><h4>Next to prove</h4><ul><li>Plain-language goals on real drives</li><li>The same software on a cheaper production computer</li></ul></div>
+      <div><h4>To make it a product</h4><ul><li>A custom circuit board to cut cost</li><li>A few units tested in other labs</li></ul></div>
+    </div>
+  </section>
+
   <section class="wrap cta" aria-labelledby="cta-h">
     <div class="cta-inner">
       <div>
@@ -989,7 +1174,7 @@
 
 <footer>
   <div class="wrap">
-    <p>Helios is built by Pranav Upadhyay.</p>
+    <p>Helios is built by Pranav Upadhyay, M.S. Embedded and Cyber-Physical Systems, UC Irvine.</p>
     <ul>
       <li><a href="https://github.com/pran99-git/helios_ws">Source on GitHub</a></li>
       <li><a href="https://github.com/pran99-git/helios_ws/blob/main/README.md">README</a></li>
@@ -1456,6 +1641,17 @@ dlg.addEventListener("close", () => { dlgVideo.pause(); dlgVideo.removeAttribute
   });
   const m = location.hash.match(/^#sub-(\w+)$/);
   select(m ? m[1] : "perception", { scroll: !!m });
+})();
+
+/* ---------- Floor-level clips: play while on screen ---------- */
+(() => {
+  const vids = [...document.querySelectorAll(".floor video")];
+  if (!vids.length || !("IntersectionObserver" in window)) return;
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const io = new IntersectionObserver(entries => {
+    for (const e of entries) e.isIntersecting ? e.target.play().catch(() => {}) : e.target.pause();
+  }, { threshold: 0.5 });
+  vids.forEach(v => io.observe(v));
 })();
 </script>
 </body>
