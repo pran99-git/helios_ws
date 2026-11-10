@@ -1,9 +1,19 @@
 # Helios
 
-Helios is a four-wheeled **mecanum rover** that builds a map of an indoor space
-while it drives through it, using a 2D laser scanner and a stereo camera. It is
-driven by hand today (a Bluetooth game controller); the mapping runs
-autonomously alongside, so that later it can navigate on its own.
+<p align="center">
+  <a href="docs/media/helios_highlights.mp4">
+    <img src="docs/media/helios_highlights.webp" width="100%"
+         alt="Helios driving itself through a lab beside the RViz view of its map, planned path, costmap and onboard camera">
+  </a>
+  <br>
+  <sub>Helios driving itself to goals with Nav2: the rover on the left, what it sees and plans on the right.
+  Preview sped up. <a href="docs/media/helios_highlights.mp4">Watch the full highlight reel</a>.</sub>
+</p>
+
+Helios is a four-wheeled **mecanum rover** that maps an indoor space with a 2D
+laser scanner and a stereo camera, works out where it is inside that map, and
+drives itself to a goal while steering around obstacles. A Bluetooth game
+controller can take over at any moment.
 
 The whole thing runs on a single onboard computer, an **NVIDIA Jetson AGX
 Orin**, running **ROS 2 Jazzy**. There is no off-board machine: you SSH into the
@@ -35,6 +45,62 @@ runs at rate but has not yet completed a goal under its own direction.
 
 ---
 
+## See it drive
+
+Every run below is autonomous: a goal is set in RViz, and Nav2 plans the route
+and drives it, using the laser and camera to avoid obstacles along the way.
+Previews are sped up; click any one for the full video.
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <a href="docs/media/run_start_to_goal_box_course.mp4"><img src="docs/media/run_start_to_goal_box_course.webp" width="100%" alt="Start to goal through a box course"></a>
+      <br><b>Start to goal, box course</b>
+    </td>
+    <td width="50%" align="center">
+      <a href="docs/media/run_overhead_view_of_the_box_course.mp4"><img src="docs/media/run_overhead_view_of_the_box_course.webp" width="100%" alt="Overhead view of the box course"></a>
+      <br><b>The box course from overhead</b>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="docs/media/run_through_the_chairs_to_the_x.mp4"><img src="docs/media/run_through_the_chairs_to_the_x.webp" width="100%" alt="Through the chairs to the X"></a>
+      <br><b>Through the chairs to the X</b>
+    </td>
+    <td align="center">
+      <a href="docs/media/run_aisle_to_desk.mp4"><img src="docs/media/run_aisle_to_desk.webp" width="100%" alt="Aisle to desk"></a>
+      <br><b>Aisle to desk</b>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="docs/media/run_around_the_cabinet.mp4"><img src="docs/media/run_around_the_cabinet.webp" width="100%" alt="Around the cabinet"></a>
+      <br><b>Around the cabinet</b>
+    </td>
+    <td align="center">
+      <a href="docs/media/run_around_the_lab_bench.mp4"><img src="docs/media/run_around_the_lab_bench.webp" width="100%" alt="Around the lab bench"></a>
+      <br><b>Around the lab bench</b>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="docs/media/run_box_and_chair_gap.mp4"><img src="docs/media/run_box_and_chair_gap.webp" width="100%" alt="Through the gap between a box and a chair"></a>
+      <br><b>The box-and-chair gap</b>
+    </td>
+    <td align="center">
+      <a href="docs/media/run_between_a_box_and_a_pc_tower.mp4"><img src="docs/media/run_between_a_box_and_a_pc_tower.webp" width="100%" alt="Between a box and a PC tower"></a>
+      <br><b>Between a box and a PC tower</b>
+    </td>
+  </tr>
+</table>
+
+**Reading the RViz panel:** grey is the map, the green line is the
+planned path, the yellow square is the robot's footprint, orange dots are live
+laser returns, and the magenta-to-cyan band is the costmap: obstacles plus the
+safety margin the planner keeps away from them. The inset is the ZED camera.
+
+---
+
 ## Hardware
 
 | Part | What it is | Why it's there |
@@ -62,27 +128,53 @@ here.
 
 ## How the software fits together
 
-Data flows in one direction: sensors produce raw measurements, those get fused
-into a single position estimate, and that estimate feeds the mapper.
+The software is one loop: **sense → estimate → decide → act**, and the wheels
+moving feeds straight back into the sensors.
 
 ```
-  HARDWARE                 SENSING                  FUSION            MAPPING
-  ────────                 ───────                  ──────            ───────
+ SENSE                 ESTIMATE                   DECIDE                ACT
+ ─────                 ────────                   ──────                ───
 
-  RoboClaw ──encoder counts──► wheel_odometry ─┐
-  (wheels)                     (mecanum math)  │
-                                               ├──► EKF ──► /odometry/filtered
-  ZED 2i ────depth + IMU─────► zed_wrapper ────┘    (robot_localization)   │
-                                    │                                      │
-                                    └─────── RGB + depth images ───────────┤
-                                                                           │
-  Hokuyo ────laser scan──────► urg_node2 ──► /scan ────────────────────────┤
-                                                                           ▼
-                                                          slam_toolbox  or  RTAB-Map
-                                                           (2D map)        (3D map)
+ RoboClaw ──counts──► wheel_odometry ───┐
+ encoders             (mecanum math)    │
+                                        ├─► EKF ─► /odometry/filtered ──┐
+ ZED 2i ──► zed_wrapper ─► custom_ ─────┘   (odom → base_link)          │
+   │        (VIO)          covariance                                   │
+   │                                                                    ▼
+   └── point cloud ──────────────────────────────────────────►  Nav2 costmaps
+                                                                        │
+ Hokuyo ─► urg_node2 ─► /scan ─┬────────────────────────────►           │
+                               ▼                                        │
+                  slam_toolbox │ RTAB-Map │ AMCL ── /map ──────────►    │
+                  (map → odom, exactly one at a time)                   ▼
+                                                                  Nav2 planner
+ goal pose (RViz) ─────────────────────────────────────────────►  + controller
+                                                                  (Smac + MPPI)
+ goal sentence/photo ─► vla_bridge ◄─HTTP─► omnivla_server              │
+   + ZED RGB                 └───── FollowPath ────────────────►        │
+                                                                        ▼
+                                                     /cmd_vel_smoothed  (prio 10)
+                                                                        │
+ gamepad ─► joy ─┬─► teleop_joy ─► /cmd_vel_joy    (prio 100) ──► twist_mux
+                 └─► estop_node ─┬► /cmd_vel_estop (prio 250) ──►       │
+                                 └► /cmd_vel_lock  (lock, 200) ─►       │ /cmd_vel
+                                                                        ▼
+                                                               roboclaw_driver
+                                                                        │
+                                                                     motors ⟲
 ```
 
-Three ideas make the rest of the repo readable:
+Reading it layer by layer:
+
+| Layer | What runs | Package |
+|---|---|---|
+| **Sense** | RoboClaw encoder reads, the ZED 2i (depth, RGB, visual-inertial odometry), the Hokuyo laser | `low_level_control_pkg`, `perception_pkg` |
+| **Estimate: motion** | Wheel odometry and ZED odometry fused by an EKF into one smooth `odom → base_link` | `wheel_odometry`, `custom_covariance`, `sensor_fusion` |
+| **Estimate: place** | Build a map (slam_toolbox in 2D, RTAB-Map in 3D) **or** localize in a saved one (AMCL). Each publishes `map → odom` | `mapping_localization_pkg` |
+| **Decide** | Nav2 plans a route on the map and an MPPI controller follows it, dodging what the laser and camera see. Optionally, the OmniVLA policy turns a sentence or photo into a short path and hands it to the same controller | `navigation_pkg`, `vla_pkg` |
+| **Act** | `twist_mux` picks one velocity command by priority; the RoboClaw driver turns it into wheel speeds | `low_level_control_pkg` |
+
+Four ideas make the rest of the repo readable:
 
 **1. Odometry means "how far have I moved since I started?"** Three separate
 things answer that question here: the wheels, the camera, and the fused
@@ -106,7 +198,7 @@ nothing errors out, it just behaves strangely.
 
 | Transform | Meaning | Published by |
 |---|---|---|
-| `map → odom` | The drift correction | The mapper (slam_toolbox **or** RTAB-Map, never both) |
+| `map → odom` | The drift correction | Exactly one of slam_toolbox, RTAB-Map or AMCL |
 | `odom → base_link` | Where the robot is | The EKF, and **only** the EKF |
 | `base_link → sensors, wheels` | Where parts are bolted on | `robot_state_publisher`, from the URDF model |
 
@@ -117,7 +209,25 @@ any standard ROS navigation tool will work with this robot unmodified.
 Because of rule 3, the wheel odometry node and the ZED wrapper both run with
 their TF publishing **turned off**. They still publish their measurements as
 topics, which the EKF consumes. They just are not allowed to state where the
-robot is.
+robot is. Nav2 and the VLA layer publish no transforms either: they only read
+the tree.
+
+**4. There is exactly one way into the motors.** The RoboClaw driver listens to
+`/cmd_vel` and nothing else, and only `twist_mux` publishes it. Everything that
+wants the rover to move publishes on its own topic, and the mux forwards the
+highest-priority one that is still talking:
+
+| Source | Topic | Priority | Meaning |
+|---|---|---|---|
+| E-stop | `/cmd_vel_estop` | 250 | Zeros, sent the instant the stop button is pressed |
+| E-stop lock | `/cmd_vel_lock` | 200 | While engaged, blocks everything below it |
+| Joystick | `/cmd_vel_joy` | 100 | Holding the deadman overrides autonomy |
+| Nav2 (and the VLA, through Nav2) | `/cmd_vel_smoothed` | 10 | Autonomy, whenever no human is driving |
+
+The lock is a heartbeat: `estop_node` keeps saying "clear" at 20 Hz, and if it
+stops, the mux engages the lock on its own. So if `estop_node` is not running,
+**nothing drives the rover**. That is deliberate, but it looks like "the rover
+ignores me" if you forget it.
 
 ---
 
