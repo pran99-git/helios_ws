@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>mobile_gateway</name>
+  <version>0.1.0</version>
+  <description>Authenticated read-only mobile telemetry gateway for Helios</description>
+  <maintainer email="upadhyp1@uci.edu">pran</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_python</buildtool_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>ros2launch</exec_depend>
+  <exec_depend>ros2run</exec_depend>
+  <exec_depend>ros2node</exec_depend>
+  <exec_depend>ros2topic</exec_depend>
+  <exec_depend>ros2service</exec_depend>
+  <exec_depend>ros2lifecycle</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
+  <export><build_type>ament_python</build_type></export>
+</package>
