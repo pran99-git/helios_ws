@@ -37,6 +37,14 @@ twist_mux:
         topic: cmd_vel_smoothed
         timeout: 0.5      # s
         priority: 10
+      # The subgoal walker turning the rover on the spot. Above navigation so
+      # the turn wins over velocity_smoother's zeros while it runs, below the
+      # joystick so the deadman still takes control. It publishes nothing while
+      # following a route, so the timeout hands navigation straight back.
+      walker:
+        topic: cmd_vel_walker
+        timeout: 0.5      # s
+        priority: 20
 
     # A lock publishes std_msgs/Bool; true blocks every input BELOW its
     # priority. At 200 that is teleop and navigation, but not cmd_vel_estop

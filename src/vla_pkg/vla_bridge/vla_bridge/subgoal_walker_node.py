@@ -15,7 +15,7 @@ import math
 
 import rclpy
 import tf2_ros
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Twist
 from nav2_msgs.action import ComputePathToPose
 from nav_msgs.msg import Path
 from rclpy.action import ActionClient
@@ -27,10 +27,13 @@ from std_msgs.msg import String
 from vla_bridge.goal_resolution import Pose2D, yaw_from_quaternion
 from vla_bridge.subgoal import (
     DEFAULT_LOOKAHEAD,
+    DEFAULT_TURN_FIRST,
     ProgressMonitor,
+    bearing_to,
     carrot,
     project,
     remaining,
+    turn_in_place,
 )
 
 
@@ -47,6 +50,16 @@ class SubgoalWalkerNode(Node):
         self.declare_parameter("planner_action", "compute_path_to_pose")
         self.declare_parameter("planner_id", "GridBased")
         self.declare_parameter("lookahead_distance", DEFAULT_LOOKAHEAD)  # m
+        # The policy only proposes forward motion, so a carrot behind the rover
+        # yields a chunk pointing the wrong way and nothing downstream corrects
+        # it. Above this bearing the walker turns the rover itself.
+        self.declare_parameter("turn_first_angle", DEFAULT_TURN_FIRST)  # rad
+        self.declare_parameter("turn_rate", 0.60)  # rad/s
+        self.declare_parameter("turn_accel", 2.00)  # rad/s^2
+        self.declare_parameter("turn_cmd_topic", "/cmd_vel_walker")
+        # Below this carrot range the bearing is mostly pose noise, and the
+        # translation left is shorter than the turn would cost.
+        self.declare_parameter("turn_min_range", 0.50)  # m
         self.declare_parameter("tick_rate", 5.0)  # Hz
         self.declare_parameter("replan_period", 1.0)  # s
         self.declare_parameter("route_deviation", 1.0)  # m before replanning early
@@ -64,6 +77,13 @@ class SubgoalWalkerNode(Node):
             return str(self.get_parameter(name).value)
 
         self._lookahead = flt("lookahead_distance")
+        self._turn_first = flt("turn_first_angle")
+        self._turn_rate = flt("turn_rate")
+        self._turn_accel = flt("turn_accel")
+        self._turn_min_range = flt("turn_min_range")
+        self._turning = False
+        self._turn_wz = 0.0
+        self._tick_dt = 1.0 / flt("tick_rate")
         self._replan_period = flt("replan_period")
         self._deviation = flt("route_deviation")
         self._goal_tolerance = flt("goal_tolerance")
@@ -87,6 +107,9 @@ class SubgoalWalkerNode(Node):
         self._subgoal_pub = self.create_publisher(PoseStamped, text("subgoal_topic"), 1)
         self._route_pub = self.create_publisher(Path, text("route_topic"), 1)
         self._status_pub = self.create_publisher(String, text("status_topic"), 1)
+        # Same twist_mux input the controller uses, so the joystick still
+        # outranks this and the e-stop still overrides it.
+        self._turn_pub = self.create_publisher(Twist, text("turn_cmd_topic"), 1)
         self.create_subscription(
             PoseStamped, text("route_goal_topic"), self._on_route_goal, 1
         )
@@ -129,6 +152,10 @@ class SubgoalWalkerNode(Node):
         self._route_at = None
         self._monitor.reset()
         self._status = reason
+        if self._turning:
+            self._turning = False
+            self._turn_wz = 0.0
+            self._publish_turn(0.0)
         self.get_logger().warn(f"route abandoned: {reason}")
 
     # ---------------------------------------------------------------- route ---
@@ -237,6 +264,38 @@ class SubgoalWalkerNode(Node):
             self._request_route()
 
         target = carrot(self._route, robot.x, robot.y, self._lookahead)
+
+        # Turn to face the carrot before handing it over. RotationShimController
+        # cannot do this: it sits downstream of the policy and aligns to the
+        # chunk, which always reads as straight ahead.
+        bearing = bearing_to(robot, target)
+        carrot_range = math.hypot(target.x - robot.x, target.y - robot.y)
+        far_enough = carrot_range > self._turn_min_range
+        if far_enough and (
+            abs(bearing) > self._turn_first
+            or (self._turning and abs(bearing) > self._turn_first * 0.4)
+        ):
+            self._turning = True
+            self._turn_wz = turn_in_place(
+                bearing,
+                self._turn_rate,
+                self._turn_accel,
+                self._turn_wz,
+                self._tick_dt,
+            )
+            self._publish_turn(self._turn_wz)
+            self._status = (
+                f"turning to face the carrot ({math.degrees(bearing):+.0f} deg, "
+                f"{left:.2f} m left)"
+            )
+            # Still an active goal, but the policy must not drive meanwhile.
+            return False
+
+        if self._turning:
+            self._turning = False
+            self._turn_wz = 0.0
+            self._publish_turn(0.0)
+
         self._publish_subgoal(target)
         self._status = (
             f"following ({left:.2f} m left, {projection.offset:.2f} m off route)"
@@ -256,6 +315,12 @@ class SubgoalWalkerNode(Node):
         if not emitting and self._emitting:
             self._clear_subgoal()
         self._emitting = emitting
+
+    def _publish_turn(self, wz: float) -> None:
+        """Command a pure rotation. Hysteresis in _walk stops it chattering."""
+        msg = Twist()
+        msg.angular.z = wz
+        self._turn_pub.publish(msg)
 
     def _clear_subgoal(self) -> None:
         """Tell the bridge to drop its pose goal.

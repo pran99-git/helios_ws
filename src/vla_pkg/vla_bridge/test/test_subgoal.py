@@ -8,12 +8,14 @@ import pytest
 from vla_bridge.goal_resolution import Pose2D
 from vla_bridge.subgoal import (
     ProgressMonitor,
+    bearing_to,
     carrot,
     heading_error,
     point_at_arc,
     project,
     remaining,
     route_length,
+    turn_in_place,
 )
 
 #: A 10 m straight route east along y=0, at the planner's 5 cm spacing.
@@ -170,3 +172,87 @@ class TestGoalClearingContract:
         """An unreachable carrot is as useless as an absent one."""
         assert self._is_clear(math.inf, 0.0)
         assert self._is_clear(0.0, -math.inf)
+
+
+class TestBearingTo:
+    """Which way must the rover turn to point at the carrot.
+
+    This is the quantity the walker needs and the rotation shim never sees:
+    the shim aligns to the policy's chunk, which always reads as forward.
+    """
+
+    def test_target_straight_ahead_is_zero(self):
+        robot = Pose2D(0.0, 0.0, 0.0)
+        assert bearing_to(robot, Pose2D(2.0, 0.0, 0.0)) == pytest.approx(0.0, abs=1e-9)
+
+    def test_target_to_the_left_is_positive(self):
+        robot = Pose2D(0.0, 0.0, 0.0)
+        assert bearing_to(robot, Pose2D(0.0, 2.0, 0.0)) == pytest.approx(math.pi / 2)
+
+    def test_target_behind_is_near_pi(self):
+        """The case that broke the 10 m run: carrot at -178 deg."""
+        robot = Pose2D(1.33, 11.30, math.radians(60.0))
+        carrot = Pose2D(0.34, 10.00, 0.0)
+        assert abs(bearing_to(robot, carrot)) > math.radians(150.0)
+
+    def test_it_ignores_the_target_orientation(self):
+        """Direction OF the target, not alignment WITH it."""
+        robot = Pose2D(0.0, 0.0, 0.0)
+        a = bearing_to(robot, Pose2D(2.0, 0.0, 0.0))
+        b = bearing_to(robot, Pose2D(2.0, 0.0, math.pi))
+        assert a == pytest.approx(b)
+
+    def test_robot_heading_is_subtracted(self):
+        """Facing the target gives zero however the world is oriented."""
+        for yaw in (0.0, 1.0, -2.5, math.pi):
+            robot = Pose2D(0.0, 0.0, yaw)
+            target = Pose2D(math.cos(yaw), math.sin(yaw), 0.0)
+            assert bearing_to(robot, target) == pytest.approx(0.0, abs=1e-9)
+
+
+class TestTurnInPlace:
+    """Yaw rate that reaches the bearing without sailing past it."""
+
+    RATE, ACCEL, DT = 0.80, 2.00, 0.2
+
+    def test_a_large_error_commands_the_full_rate_eventually(self):
+        w = 0.0
+        for _ in range(20):
+            w = turn_in_place(math.pi, self.RATE, self.ACCEL, w, self.DT)
+        assert w == pytest.approx(self.RATE, abs=1e-6)
+
+    def test_it_respects_the_acceleration_limit(self):
+        """One step can change the rate by at most accel * dt."""
+        w = turn_in_place(math.pi, self.RATE, self.ACCEL, 0.0, self.DT)
+        assert w <= self.ACCEL * self.DT + 1e-9
+
+    def test_it_slows_inside_the_stopping_distance(self):
+        """At w^2/2a of remaining angle, the rate must already be falling."""
+        stopping = self.RATE**2 / (2 * self.ACCEL)  # 0.16 rad at 0.8/2.0
+        w = turn_in_place(stopping * 0.5, self.RATE, self.ACCEL, self.RATE, self.DT)
+        assert w < self.RATE
+
+    def test_a_tiny_error_commands_a_tiny_rate(self):
+        w = turn_in_place(0.01, self.RATE, self.ACCEL, 0.0, self.DT)
+        assert abs(w) < 0.25
+
+    def test_sign_follows_the_error(self):
+        assert turn_in_place(+1.0, self.RATE, self.ACCEL, 0.0, self.DT) > 0
+        assert turn_in_place(-1.0, self.RATE, self.ACCEL, 0.0, self.DT) < 0
+
+    def test_a_full_turn_converges_without_overshoot(self):
+        """Integrate a 178 deg turn and check it lands, not oscillates."""
+        err, w = math.radians(178.0), 0.0
+        for _ in range(400):
+            w = turn_in_place(err, self.RATE, self.ACCEL, w, self.DT)
+            err -= w * self.DT
+            if abs(err) < math.radians(2.0) and abs(w) < 0.05:
+                break
+        assert abs(err) < math.radians(5.0), f"left {math.degrees(err):.1f} deg"
+        assert abs(w) < 0.1, f"still turning at {w:.3f}"
+
+    def test_nonsense_configuration_raises(self):
+        with pytest.raises(ValueError):
+            turn_in_place(1.0, 0.0, self.ACCEL, 0.0, self.DT)
+        with pytest.raises(ValueError):
+            turn_in_place(1.0, self.RATE, self.ACCEL, 0.0, 0.0)

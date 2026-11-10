@@ -108,6 +108,15 @@ subgoal_walker:
     stuck_progress: 0.15                # m of route progress required
     stuck_window: 8.0                   # s allowed without it
 
+    # Above this carrot bearing the walker turns the rover itself: the policy
+    # only proposes forward motion, and RotationShimController cannot help
+    # because it aligns to the chunk, which always reads as straight ahead.
+    turn_first_angle: 0.90              # rad (~52 deg)
+    turn_rate: 0.60                     # rad/s, matches wz_max headroom
+    turn_accel: 2.00                    # rad/s^2, velocity_smoother's ceiling
+    turn_cmd_topic: "/cmd_vel_walker"   # own twist_mux input, priority 20
+    turn_min_range: 0.50                # m, below this the carrot bearing is noise
+
     planner_timeout: 5.00               # s to wait for planner_server at startup
     map_frame: "map"                    # routes are planned in map
     base_frame: "base_link"

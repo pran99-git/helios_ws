@@ -21,6 +21,15 @@ from vla_bridge.goal_resolution import Pose2D, wrap_angle
 #: ~1 m reach so it is always heading somewhere rather than arriving.
 DEFAULT_LOOKAHEAD: Final[float] = 1.5
 
+#: Carrot bearing beyond which the policy cannot be used, radians.
+#:
+#: The policy only ever proposes forward motion, so a carrot behind the rover
+#: produces a chunk pointing the wrong way. RotationShimController cannot
+#: rescue that: it sits DOWNSTREAM of the policy and aligns to the chunk, which
+#: already reads as straight ahead, so the real heading error is never seen.
+#: Above this the walker must turn the rover itself.
+DEFAULT_TURN_FIRST: Final[float] = 0.90
+
 #: Segments shorter than this are treated as duplicate points.
 _EPS: Final[float] = 1e-9
 
@@ -123,8 +132,36 @@ def remaining(route: Sequence[Pose2D], x: float, y: float) -> float:
 
 
 def heading_error(carrot_pose: Pose2D, robot_yaw: float) -> float:
-    """Signed angle the robot must turn to face the carrot, radians."""
+    """Signed angle to align with the carrot's own orientation, radians."""
     return wrap_angle(carrot_pose.yaw - robot_yaw)
+
+
+def bearing_to(robot: Pose2D, target: Pose2D) -> float:
+    """Signed angle from the robot's heading to the direction OF the target.
+
+    Distinct from `heading_error`, which compares orientations. This is "which
+    way must I turn to point at it", which is what decides whether the policy
+    can be used at all.
+    """
+    return wrap_angle(math.atan2(target.y - robot.y, target.x - robot.x) - robot.yaw)
+
+
+def turn_in_place(
+    bearing: float, max_rate: float, max_accel: float, current_rate: float, dt: float
+) -> float:
+    """Yaw rate to turn toward `bearing`, decelerating so it does not overshoot.
+
+    Ramps down inside the stopping distance `w^2 / 2a`, because a constant-rate
+    turn overshoots by exactly that much and then has to come back.
+    """
+    if max_rate <= 0.0 or max_accel <= 0.0 or dt <= 0.0:
+        raise ValueError("max_rate, max_accel and dt must be positive")
+    # Fastest rate from which the remaining angle can still be stopped in.
+    feasible = math.sqrt(2.0 * max_accel * abs(bearing))
+    target = math.copysign(min(max_rate, feasible), bearing)
+    # Respect the acceleration limit from whatever we are doing now.
+    step = max_accel * dt
+    return max(current_rate - step, min(current_rate + step, target))
 
 
 class ProgressMonitor:
