@@ -36,6 +36,38 @@ trajectory's reach.
 Invalid goal combinations (all three set, or none) return **422** rather than a
 guess. `cos`/`sin` arrive unit-normalised and are passed through untouched.
 
+```
+POST /score
+  { "views_b64": [JPEGs, one per candidate],
+    "phrases":   [str, ...] }
+->
+  { "scores":     [[cosine similarity] x phrases] x views,   # typically 0.15-0.35
+    "latency_ms": float }
+```
+
+`/score` answers "which of these directions looks like what I was told to
+find", for the exploration goal selector. It is a **separate endpoint on
+purpose**, and goes through CLIP's own towers rather than the action decoder.
+
+The reason is measured, not stylistic. The decoder's `seq_len` is
+`context_size + 2 + 1 + 1 + 1` = 10 tokens, and
+`MultiLayerDecoder_mask3.forward` ends in `torch.mean(x, dim=1)`, so a text-only
+goal is **one token averaged in with six image tokens**. The result is that the
+policy does not ground language: directional words are inert (`"the hallway on
+the LEFT"` varies by 1.7 degrees across five scenes), and `"stop"` produces
+output statistically identical to a real goal (mean plan length 0.959 m vs
+0.969 m). CLIP's image tower, on the same frames, classifies those scenes
+correctly at 2.5 ms each.
+
+So language enters through CLIP and the policy drives to coordinates. `/score`
+reuses the CLIP instance the policy already loads, so no second copy of the
+weights is held, and it uses `clip.load`'s own transform rather than the
+vendor's observation transform, which would feed the image tower a
+normalisation it was not trained with.
+
+Similarities are comparable **across views for one phrase**, and are **not**
+calibrated across phrases. Normalise per phrase before comparing.
+
 ## Files
 
 | File | What |

@@ -79,9 +79,18 @@ class OmniVLAEdgeBackend:
             raise FileNotFoundError(f"OmniVLA-edge checkpoint not found at {path}")
 
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
-        model, text_encoder, _ = load_model(str(path), MODEL_PARAMS, self.device)
+        model, text_encoder, clip_preprocess = load_model(
+            str(path), MODEL_PARAMS, self.device
+        )
         self.model = model.to(self.device).eval()
+        # The full CLIP model, not just its text tower: `score` uses its image
+        # side, and this is the same instance the policy conditions on, so no
+        # second copy of the weights is loaded.
         self.text_encoder = text_encoder.to(self.device).eval()
+        # CLIP's own transform, as returned by clip.load. Using the vendor's
+        # observation transform here instead would feed the image tower a
+        # different normalisation than it was trained with.
+        self.clip_preprocess = clip_preprocess
 
         # The text embedding depends only on the prompt, and costs ~14 ms of a
         # ~98 ms inference. Goals change far less often than frames do.
@@ -147,6 +156,40 @@ class OmniVLAEdgeBackend:
         # unit-normalised and must not be touched.
         waypoints[:, :2] *= preprocessing.WAYPOINT_SPACING
         return waypoints, modality
+
+    def score(self, views: list[Image.Image], phrases: list[str]) -> np.ndarray:
+        """Cosine similarity between each view and each phrase.
+
+        Used to ask "which of these directions looks like what I was told to
+        find". This goes through CLIP DIRECTLY rather than through the policy,
+        because the policy mean-pools its single text token in with six image
+        tokens and so does not ground language; CLIP's own towers do.
+
+        Args:
+            views: Images to score, typically one per candidate direction.
+            phrases: Natural-language descriptions to score them against.
+
+        Returns:
+            A ``(len(views), len(phrases))`` array of cosine similarities,
+            typically 0.15 to 0.35. Comparable across views for one phrase,
+            NOT calibrated across phrases.
+
+        Raises:
+            ValueError: If either list is empty.
+        """
+        if not views or not phrases:
+            raise ValueError("score needs at least one view and one phrase")
+
+        batch = torch.stack([self.clip_preprocess(v) for v in views]).to(self.device)
+        tokens = clip.tokenize(phrases, truncate=True).to(self.device)
+        with torch.no_grad():
+            image_features = self.text_encoder.encode_image(batch)
+            text_features = self.text_encoder.encode_text(tokens)
+
+        # Cosine similarity is the dot product of the L2-normalised features.
+        image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+        return (image_features @ text_features.T).float().cpu().numpy()
 
 
 def _benchmark(iterations: int = 30) -> None:

@@ -50,6 +50,22 @@ class ActResponse(BaseModel):
     latency_ms: float
 
 
+class ScoreRequest(BaseModel):
+    """A batch of views to rate against a batch of phrases."""
+
+    views_b64: list[str] = Field(description="Base64 JPEGs, one per candidate")
+    phrases: list[str] = Field(description="Descriptions to score them against")
+
+
+class ScoreResponse(BaseModel):
+    """Similarity of every view to every phrase."""
+
+    scores: list[list[float]] = Field(
+        description="(views, phrases) cosine similarities, typically 0.15-0.35"
+    )
+    latency_ms: float
+
+
 @app.get("/health")
 def health() -> dict[str, object]:
     """Readiness probe, so callers can wait out the model load."""
@@ -87,6 +103,31 @@ def act(request: ActRequest) -> ActResponse:
     return ActResponse(
         waypoints=waypoints.tolist(),
         modality_id=modality,
+        latency_ms=(time.perf_counter() - started) * 1000.0,
+    )
+
+
+@app.post("/score", response_model=ScoreResponse)
+def score(request: ScoreRequest) -> ScoreResponse:
+    """Rate candidate views against phrases, for semantic goal selection.
+
+    Deliberately a separate endpoint from /act: this is a retrieval query
+    answered by CLIP's own towers, which do ground language, not by the action
+    decoder, which mean-pools its single text token in with six image tokens
+    and does not.
+    """
+    if _backend is None:
+        raise HTTPException(status_code=503, detail="backend still loading")
+
+    started = time.perf_counter()
+    views = [preprocessing.decode_jpeg(v) for v in request.views_b64]
+    try:
+        scores = _backend.score(views, request.phrases)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return ScoreResponse(
+        scores=scores.tolist(),
         latency_ms=(time.perf_counter() - started) * 1000.0,
     )
 

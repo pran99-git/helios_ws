@@ -41,3 +41,21 @@ class PolicyBackend(Protocol):
             modality id the model was conditioned on.
         """
         ...
+
+    def score(self, views: list[Image.Image], phrases: list[str]) -> np.ndarray:
+        """Rate how well each view matches each phrase.
+
+        Separate from `act` on purpose: this answers "which way looks like
+        where I was told to go", which is a retrieval question, and goes
+        through the vision-language encoder directly rather than through the
+        action decoder.
+
+        Args:
+            views: Images to score.
+            phrases: Descriptions to score them against.
+
+        Returns:
+            A ``(len(views), len(phrases))`` array of similarities, comparable
+            across views for a single phrase.
+        """
+        ...
