@@ -1,0 +1,25 @@
+# Pinned to the set verified on the Jetson AGX Orin (JetPack R39/7.2,
+# CUDA 13.2, sm_87, Python 3.12 aarch64). cu132 wheels are aarch64 + cp312.
+#
+# The CPU backend is the default, not a fallback. Measured on this board with
+# the rover MJCF (3 DOF, 4 geoms): 1.91 M steps/s across 12 threads versus
+# 22.7 k steps/s for mujoco-warp on cuda:0. Batched GPU physics needs either a
+# much heavier per-world model or a discrete GPU to win; the Orin's iGPU shares
+# memory bandwidth with the CPU and the solver kernels dominate at this size.
+--extra-index-url https://download.pytorch.org/whl/cu132
+
+# Physics. mujoco 4.0 splits into mujoco + mujoco-core + mujoco-studio.
+mujoco==4.0.0
+mujoco-warp==4.0.0        # GPU backend, selected by --backend warp
+warp-lang==1.19.0         # Warp runtime; resolves cuda:0 "Orin" sm_87 here
+
+# Training. torch drives the policy network only, never the physics.
+gymnasium==1.4.0
+stable-baselines3==2.9.2  # requires torch >= 2.8
+torch==2.14.0+cu132
+numpy==2.5.4
+tensorboard==2.21.0
+
+# Deployment: policy leaves this venv as ONNX so the ROS node needs no torch.
+onnx==1.23.2
+onnxruntime==1.31.1
