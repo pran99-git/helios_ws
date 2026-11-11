@@ -12,6 +12,8 @@
       slam_toolbox/  - 2D LiDAR SLAM (Hokuyo UST-10LX), publishes /map
       rtabmap/       - 3D RGB-D + LiDAR SLAM (GTSAM pose-graph optimization)
       localization/  - AMCL against an already-built map (no mapping)
+      exploration/   - frontier detection and goal selection over a growing
+                       map, so the rover maps an unknown space by itself
 
     Both are fed by the ZED 2i, the Hokuyo, and the EKF-fused odometry from
     perception_pkg's sensor_fusion, which must already be running.
@@ -20,6 +22,7 @@
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
+  <test_depend>ament_cmake_pytest</test_depend>
 
   <!-- rtabmap/ -->
   <exec_depend>rtabmap_ros</exec_depend>
@@ -28,6 +31,11 @@
   <exec_depend>slam_toolbox</exec_depend>
   <exec_depend>nav2_map_server</exec_depend>
   <exec_depend>rviz2</exec_depend>
+  <!-- exploration/ (frontier detection + goal selection over the live map) -->
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-scipy</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
   <!-- localization/ (AMCL against a saved map). Note: nav2_bringup is NOT
        used or required — amcl_localization.launch.py starts map_server,
        amcl and lifecycle_manager itself. -->

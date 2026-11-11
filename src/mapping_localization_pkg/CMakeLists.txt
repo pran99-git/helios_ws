@@ -63,4 +63,48 @@ install(
   DESTINATION lib/${PROJECT_NAME}
 )
 
+# exploration/ turns the growing SLAM map into goals, so it is mapping's
+# consumer rather than a fourth mapping approach. Same layout rule as above:
+# launch/ and config/ install, test/ does not.
+install(
+  DIRECTORY
+    exploration/launch
+    exploration/config
+  DESTINATION share/${PROJECT_NAME}/exploration
+)
+
+# Same sibling-import pattern as localization/ above: the nodes go to
+# lib/<pkg>/ beside the domain modules they import, so `from
+# frontier_detection import ...` resolves with no package machinery.
+# One call each: CMake's RENAME takes a single file, and the extension is
+# dropped so `ros2 run`/`executable=` names match the other nodes here.
+install(
+  PROGRAMS exploration/frontier_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME frontier_node
+)
+
+install(
+  PROGRAMS exploration/goal_selector_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME goal_selector_node
+)
+
+install(
+  FILES
+    exploration/frontier_detection.py
+    exploration/goal_selection.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_pytest REQUIRED)
+  # The domain modules are pure Python and import no ROS, so they test
+  # without a running graph. PYTHONPATH points at the source folder because
+  # the modules are installed flat into lib/, not as a Python package.
+  ament_add_pytest_test(exploration_tests exploration/test
+    ENV PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/exploration
+  )
+endif()
+
 ament_package()

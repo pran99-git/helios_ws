@@ -4,7 +4,9 @@ Builds the map. This layer takes the sensor data and the fused odometry from
 `perception_pkg` and produces a map of the space the robot has driven through,
 plus the correction that keeps the robot's position from drifting.
 
-Two approaches live here, each in its own folder and each runnable on its own.
+Two mapping approaches live here, each in its own folder and each runnable on
+its own, plus one folder that reuses a saved map and one that drives the rover
+to map a space by itself.
 
 **Read [the root README](../../README.md) first** for the system overview.
 
@@ -98,6 +100,16 @@ rtabmap/
   scripts/save_rtabmap.sh         Exports a finished run to .pgm + .yaml and
                                   to _cloud.ply. Neither is automatic.
   maps/                           Run databases. Contents gitignored.
+exploration/
+  launch/exploration.launch.py    Starts the detector and the selector.
+  config/exploration.yaml         Detection thresholds and scoring weights.
+  frontier_detection.py           The maths. Grid in, ranked frontier poses
+                                  out. No ROS.
+  frontier_node.py                Thin ROS adapter around it.
+  goal_selection.py               Scoring, rejection memory, attempt timeout.
+                                  No ROS.
+  goal_selector_node.py           Thin ROS adapter around it.
+  test/                           62 tests over both maths modules.
 localization/
   launch/amcl_localization.launch.py  AMCL + auto-recovery over a saved map.
   config/amcl.yaml                Particle filter, motion model, and the
@@ -105,30 +117,35 @@ localization/
   amcl_recovery.py                The maths. Costmap ray casting, heading
                                   choice, convergence test. No ROS.
   amcl_recovery_node.py           Thin ROS adapter around it.
-CMakeLists.txt                    Installs launch/, config/, rviz/ and the two
-                                  recovery files; not maps/, not scripts/.
+CMakeLists.txt                    Installs launch/, config/, rviz/ and the
+                                  Python files; not maps/, not scripts/.
 package.xml                       Metadata and dependencies.
 ```
 
-The three folders answer different questions:
+The folders answer different questions:
 
 | Folder | Question | Writes a map? | Owns `map → odom`? |
 |---|---|---|---|
 | `slam_toolbox/` | "What does this place look like?" (2D) | yes | yes |
 | `rtabmap/` | "What does this place look like?" (3D) | yes | only if `publish_tf_map:=true` |
 | `localization/` | "Where am I in a map I already have?" | no, read-only | yes |
+| `exploration/` | "Where should I drive to see more?" | no, reads `/map` | no |
 
-Only **one** of them may run at a time, because all three publish `map → odom`
-and would fight over it.
+Only **one** of the first three may run at a time, because all three publish
+`map → odom` and would fight over it. `exploration/` publishes no transform and
+runs **on top of** `slam_toolbox/`, never instead of it.
 
-**Almost no source code lives here.** Both mappers are third-party ROS packages,
-and what this package holds is the configuration and launch wiring that makes
-them work with *this* robot. That is deliberate: the algorithms are well-tested
-upstream, and the value is in the integration.
+**Little source code lives here.** Both mappers are third-party ROS packages,
+and what this package mostly holds is the configuration and launch wiring that
+makes them work with *this* robot. That is deliberate: the algorithms are
+well-tested upstream, and the value is in the integration.
 
-The one exception is `localization/amcl_recovery*.py`, which closes a loop no
-upstream node closes: local costmap in, AMCL covariance out, Nav2 behaviors in
-between.
+The exceptions are the two places where no upstream node closes the loop:
+
+- `localization/amcl_recovery*.py`: local costmap in, AMCL covariance out,
+  Nav2 behaviors in between.
+- `exploration/`: the live map in, the next goal out. Nav2 ships a planner and
+  a controller but nothing that decides *where to go*.
 
 ### `CMakeLists.txt`
 
@@ -980,6 +997,152 @@ rather than `install/` so they survive rebuilds.
 
 ---
 
+## Exploring an unknown space
+
+The other folders answer "what does this place look like" and "where am I".
+This one answers **"where should I drive to see more"**, which is the piece
+Nav2 does not ship: it has a planner and a controller, but nothing that chooses
+a destination.
+
+It runs **on top of** `slam_toolbox` in mapping mode, publishes no transform,
+and drives nothing itself. It only produces goals.
+
+```
+/map ──► frontier_detector ──► /exploration/frontiers ──► goal_selector
+ (slam_toolbox)                    (PoseArray)                 │
+                                                               ▼
+                                                      /vla/route_goal
+                                                               │
+                                               subgoal_walker ─┴─► the policy
+```
+
+### Run
+
+Needs the full driving stack already up, because it produces goals for it.
+
+```bash
+# Terminals 1-4: the usual stack, but slam_toolbox in MAPPING mode,
+# NOT amcl_localization: exploration needs a map that grows.
+ros2 launch low_level_control_pkg roboclaw_driver.launch.py
+ros2 launch sensor_fusion bringup.launch.py
+ros2 launch mapping_localization_pkg slam_toolbox.launch.py
+ros2 launch navigation_pkg navigation.launch.py
+
+# Terminal 5: the driver
+ros2 launch vla_bridge vla_navigation.launch.py walker:=true
+
+# Terminal 6: exploration
+ros2 launch mapping_localization_pkg exploration.launch.py
+```
+
+Pause and resume without restarting anything:
+
+```bash
+ros2 topic pub -t 4 -r 2 /exploration/enable std_msgs/Bool "{data: false}"
+```
+
+Watch it think:
+
+```bash
+ros2 topic echo /exploration/frontier_status
+ros2 topic echo /exploration/selector_status
+```
+
+In RViz, add a **MarkerArray** on `/exploration/frontier_markers`. Each arrow
+is a frontier, pointing the way it faces; longer and greener means wider.
+
+### How a frontier is found
+
+A **frontier cell** is free space with at least one unknown 4-connected
+neighbour: the boundary between what is mapped and what is not.
+
+Walls exclude themselves, which is the property the whole approach rests on.
+The cell on the near side of a wall has the *wall* as its neighbour, not the
+unknown space behind it, so solid geometry produces no frontier and only
+genuine openings do. The neighbour test is deliberately 4-connected, because a
+diagonal test leaks through the one-cell gap at the corner of two walls and
+invents frontiers inside solid geometry.
+
+Adjacent frontier cells are clustered 8-connected, so one opening is one
+frontier rather than a row of them. Each cluster then reduces to a single pose:
+
+| Step | Why |
+|---|---|
+| Drop clusters under `min_edge` | Below the rover's 0.38 m width an opening is not passable |
+| Keep only cells `min_clearance` from an obstacle | The pose must be somewhere the rover can stand |
+| Of those, take the one nearest the centroid | Puts the pose mid-opening |
+| Face it at the unknown nearby | The rover arrives looking at unexplored space, so the camera sees it |
+
+Two details that are easy to get wrong and are both tested:
+
+- **The map border is not a wall.** `distance_transform_edt` treats everything
+  outside the array as background, so without padding the map's own edge reads
+  as an obstacle, and a frontier sits exactly where that edge is.
+- **Clusters are searched inside their own bounding box.** Rescanning the whole
+  grid per cluster cost 274 ms on a 359x919 map; by bounding box it is 49 ms.
+
+### How the next goal is chosen
+
+The selector **commits** to one frontier and stays with it. Re-choosing every
+cycle makes the rover oscillate between two equally good openings and reach
+neither.
+
+Candidates are ranked on four terms, each normalised to roughly 0..1 so the
+weights are directly comparable:
+
+| Term | Weight | Meaning |
+|---|---|---|
+| Information | +1.00 | A wider opening reveals more map |
+| Travel | -0.60 | A nearer frontier is cheaper |
+| Turning | -0.25 | One behind the rover costs a turn first, up to 4.6 s |
+| Rejection | -1.50 | Somewhere already tried and failed |
+
+A fifth term, **semantic**, is wired in at weight `0.00`. It is where a phrase
+match from `omnivla_server`'s `/score` will go, and is off until the question
+below is answered.
+
+A commitment ends three ways:
+
+| Outcome | Counts as | Then |
+|---|---|---|
+| Within `arrival_radius` | success | choose the next |
+| Frontier mapped away | success, that was the point | choose the next |
+| No closing for `attempt_window` | failure | record a rejection, choose another |
+
+Rejections **decay** rather than blacklisting: a doorway can fail because
+someone was standing in it, and that stops being true. Each halves every
+`rejection_half_life` seconds and falls off as `exp(-(d / radius)^2)` with
+distance. The worst single rejection applies, not the sum, so the penalty stays
+bounded and can always decay away.
+
+When even the best frontier is more rejected than `retry_penalty`, the selector
+**holds** instead of choosing. Without that, a room with one unreachable exit
+retries the same spot every `attempt_window` forever.
+
+### Measured on real saved maps
+
+Detection run over two maps from `slam_toolbox/maps/`:
+
+| Map | Cells | Detect | Frontiers | Largest |
+|---|---|---|---|---|
+| `lab_indoor_run_with_VIO_feed` | 202x271 | 9.5 ms | 1 | 1.05 m |
+| `20260728_175429` | 359x919 | 49.4 ms | 9 | 21.40 m |
+
+`require_clearance` removed 4 of 5 and 7 of 16 frontiers respectively, all of
+them the ragged end of the laser sweep against a wall rather than real
+openings. At the 2.0 s detection period, the larger map costs about 2.5% of one
+core.
+
+### Known limitation
+
+**A frontier the rover has never faced has no view**, so there is nothing to
+hand `/score`. The ZED covers about 110 degrees, and cropping the current frame
+by bearing only works for frontiers already in front of the rover. This is why
+the semantic weight is zero: the geometric terms work today, and the semantic
+one needs this answered first.
+
+---
+
 ## Related
 
 - [`perception_pkg/sensor_fusion`](../perception_pkg/sensor_fusion/README.md):
@@ -990,3 +1153,5 @@ rather than `install/` so they survive rebuilds.
   which directly affect map quality
 - [`navigation_pkg`](../navigation_pkg/README.md): consumes `/map` and the
   `map -> odom` this layer publishes
+- [`vla_pkg/vla_bridge`](../vla_pkg/vla_bridge/README.md): the subgoal walker
+  that consumes `/vla/route_goal` from `exploration/`

@@ -1,0 +1,92 @@
+### Autonomous exploration: frontier detection and goal selection.
+#
+# Consumes:  /map              nav_msgs/OccupancyGrid from slam_toolbox
+#            TF map -> base_link
+# Produces:  /vla/route_goal   the next place to drive to
+#
+# Neither node publishes a transform. Both read the map in its own frame.
+
+frontier_detector:
+  ros__parameters:
+    map_topic: "/map"
+    frontiers_topic: "/exploration/frontiers"
+    edges_topic: "/exploration/frontier_edges"
+    markers_topic: "/exploration/frontier_markers"
+    status_topic: "/exploration/frontier_status"
+
+    # Matches slam_toolbox's map_update_interval: detecting faster than the
+    # map changes just re-reads the same grid at full cost.
+    detect_period: 2.0          # s between detections
+
+    # Below roughly the rover's 0.38 m width an opening is not passable, and
+    # small frontiers are mostly scan noise at the edge of the sweep.
+    min_edge: 0.50              # m of frontier edge to keep a cluster
+
+    # Just over the 0.27 m circumscribed radius of the 0.38 x 0.38 footprint,
+    # so the published pose is somewhere the rover can actually stand.
+    min_clearance: 0.30         # m from the nearest obstacle
+
+    # Drop a frontier with no cell that clear. On a real lab map this removed
+    # 4 of 5 and 7 of 16 frontiers, all of them the ragged end of the laser
+    # sweep against a wall. false chases tight gaps and lets the planner rule.
+    require_clearance: true
+
+    # Detection is O(cells) and shares the CPU with the policy and the ZED.
+    max_frontiers: 40           # count, largest edge kept first
+
+goal_selector:
+  ros__parameters:
+    frontiers_topic: "/exploration/frontiers"
+    edges_topic: "/exploration/frontier_edges"
+    enable_topic: "/exploration/enable"
+    status_topic: "/exploration/selector_status"
+
+    # /vla/route_goal sends the policy through the subgoal walker.
+    # /goal_pose sends Nav2's bt_navigator instead, which is how the two
+    # pipelines are compared on the same exploration run.
+    goal_topic: "/vla/route_goal"
+    start_enabled: true         # false waits for /exploration/enable
+
+    select_period: 1.0          # s between selection cycles
+
+    # Looser than the walker's 0.25 m goal tolerance: arriving anywhere near a
+    # frontier maps it, after which it leaves the list on its own.
+    arrival_radius: 0.60        # m to count as reached
+
+    # A frontier already this close is somewhere the rover is standing, not
+    # somewhere to drive. Without the floor it arrives instantly, re-commits
+    # next cycle, and republishes the goal at the selection rate, which resets
+    # the walker's route before a plan can land.
+    min_select_range: 0.80      # m, below this a frontier is not selectable
+
+    # Detection re-derives each representative cell from scratch, so the same
+    # opening moves between updates. Beyond this it is treated as gone.
+    match_radius: 1.50          # m of drift still counted as the same frontier
+
+    # The selector's own backstop, far slower than the walker's 8 s stall
+    # window: one attempt legitimately includes replanning, a turn in place
+    # and a detour.
+    attempt_progress: 0.30      # m of closing distance required
+    attempt_window: 25.0        # s allowed without it
+
+    # A frontier can fail because someone was standing in the doorway, so
+    # failures decay instead of blacklisting.
+    rejection_half_life: 90.0   # s for a rejection to lose half its weight
+    rejection_radius: 1.00      # m over which a rejection taints neighbours
+
+    # Hold off while even the best frontier is this freshly rejected. Without
+    # it, a room with one unreachable exit retries the same spot every
+    # attempt_window forever rather than waiting for the decay.
+    retry_penalty: 0.50         # 0..1 rejection weight that pauses selection
+
+    # Scoring weights. Each term is normalised to roughly 0..1, so these are
+    # directly comparable. Information leads, travel is strong enough that a
+    # near frontier beats a slightly wider distant one, turning breaks ties.
+    range_cap: 12.0             # m at which the travel term saturates
+    weight_information: 1.00    # prefer a wider opening
+    weight_travel: 0.60         # prefer a nearer one
+    weight_turning: 0.25        # prefer one the rover already faces
+    weight_rejection: 1.50      # avoid one already tried and failed
+
+    map_frame: "map"
+    base_frame: "base_link"
