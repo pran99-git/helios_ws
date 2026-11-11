@@ -69,6 +69,27 @@ integrated GPU also shares memory bandwidth with the CPU.
 `mujoco-warp` stays installed and importable for when the scene gets much
 heavier or a discrete GPU appears. It is not the default.
 
+## Training throughput
+
+Physics is not what limits training. Measured end to end:
+
+| Stage | Rate | 5 M steps |
+|---|---|---|
+| Env stepping only, 1 env | 4,780 control steps/s | 17 min |
+| Env stepping only, 12 workers | 7,409 control steps/s | 11 min |
+| **PPO end to end, cpu** | 552 fps | 2.5 hours |
+| **PPO end to end, cuda** | **1,312 fps** | **64 min** |
+
+Two results worth keeping in mind:
+
+- **12 workers beat 1 env by only 1.5x.** `SubprocVecEnv` pickles every
+  observation across a pipe, so per-step IPC dominates, not physics. An
+  in-process batched env is the fix if it ever matters.
+- **The policy trains on the GPU, unlike the physics.** The usual advice to
+  keep a small MLP on the CPU assumes a discrete card across PCIe. Here memory
+  is unified, so the copy is nearly free and 12 Cortex-A78AE cores lose to the
+  iGPU on batched matmuls.
+
 ## The robot model
 
 `rl_sim/assets/helios.xml` is the same rover RViz shows, in two layers, which is
@@ -139,6 +160,30 @@ To compare against RViz:
 source ~/helios_ws/install/setup.bash
 ros2 launch helios_description description.launch.py
 ```
+
+## Train
+
+```bash
+cd src/rl_pkg/rl_sim
+
+# a short run first, to confirm the loop works end to end
+env -u PYTHONPATH ../../../.venvs/rl_train/bin/python train/ppo.py \
+    --name smoke --timesteps 40000
+
+# the real thing, about an hour
+env -u PYTHONPATH ../../../.venvs/rl_train/bin/python train/ppo.py
+
+# watch it, from another terminal
+../../../.venvs/rl_train/bin/tensorboard --logdir runs/
+```
+
+Everything lands in `runs/<name>_<timestamp>/`, which is gitignored: the exact
+config used, periodic checkpoints, the best model by eval reward, tensorboard
+logs, and `final.zip`. Ctrl-C saves before exiting.
+
+Hyperparameters live in `train/config/rover_ppo.yaml`, one commented line each.
+`envs/reward.py` is the file to iterate on first; on a task this simple the
+shaping matters more than the hyperparameters.
 
 ## Related
 

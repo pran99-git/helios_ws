@@ -19,6 +19,7 @@ stable-baselines3==2.9.2  # requires torch >= 2.8
 torch==2.14.0+cu132
 numpy==2.5.4
 tensorboard==2.21.0
+pyyaml==6.0.3        # training configs
 
 # Asset prep: tools/decimate_meshes.py only. MuJoCo caps STL at 200 k faces
 # and the CAD exports reach 1.66 M, so the meshes are reduced before use.

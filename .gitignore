@@ -49,3 +49,6 @@ rosbag2_*/
 # Decimated sim meshes: derived from helios_description by
 # rl_sim/tools/decimate_meshes.py, so regenerate rather than track them.
 src/rl_pkg/rl_sim/assets/meshes/
+
+# Training runs: checkpoints, tensorboard logs and saved policies.
+src/rl_pkg/rl_sim/runs/
