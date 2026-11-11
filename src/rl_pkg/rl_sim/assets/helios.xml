@@ -1,0 +1,180 @@
+<mujoco model="helios">
+  <!--
+    Helios rover for RL training. Visually the same robot RViz shows, driven
+    through the same interface the real rover exposes: a body twist on
+    /cmd_vel, never individual wheels.
+
+    TWO LAYERS, as in helios_description's URDF:
+      visual     the CAD meshes, excluded from collision, cost nothing
+      collision  one box matching Nav2's 0.38 x 0.38 footprint
+
+    WHY NO WHEELS IN THE PHYSICS. A mecanum wheel's motion comes entirely
+    from its rollers, which the URDF does not describe. Modelling four hinges
+    without them would spin the wheels and move nothing. mecanum_kinematics.py
+    already converts body twist to wheel commands downstream of /cmd_vel, so
+    the sim takes that twist directly: slide x, slide y, hinge z. The wheel
+    meshes are therefore decoration and do not turn.
+
+    GEOMETRY SOURCE. Every number here is traceable to
+    helios_description/urdf/. That package stays the one source of truth; a
+    re-measurement there must be copied here. Mesh geom poses are the URDF's
+    joint origin composed with its visual origin, since the four wheel links
+    and two sensor links collapse into this one body.
+  -->
+
+  <compiler meshdir="meshes" angle="radian" autolimits="true"/>
+
+  <!--
+    4 ms puts the integrator an order of magnitude above the 20 Hz control
+    rate. implicitfast is stable with the stiff velocity actuators below,
+    where Euler needs a far smaller step.
+  -->
+  <option timestep="0.004" integrator="implicitfast"/>
+
+  <default>
+    <!--
+      Visual geoms carry contype and conaffinity 0, so they never enter
+      collision detection. Measured: 202,102 steps/s with all four meshes
+      loaded versus 194,694 for the bare box, i.e. free.
+    -->
+    <default class="visual">
+      <geom type="mesh" contype="0" conaffinity="0" group="2" density="0"/>
+    </default>
+    <default class="collision">
+      <geom group="3" rgba="0.9 0.4 0.1 0.25"/>
+    </default>
+  </default>
+
+  <asset>
+    <!-- Colours copied from helios_description/urdf/common.xacro. -->
+    <material name="chassis_grey" rgba="0.30 0.32 0.35 1.0"/>
+    <material name="wheel_black" rgba="0.10 0.10 0.10 1.0"/>
+    <material name="sensor_blue" rgba="0.10 0.30 0.80 1.0"/>
+    <material name="floor_grey" rgba="0.42 0.44 0.46 1.0"/>
+
+    <!--
+      Decimated by tools/decimate_meshes.py: MuJoCo rejects any STL over
+      200 k faces and the chassis export is 1.66 M. scale converts the CAD
+      millimetres to metres.
+    -->
+    <mesh name="chassis" file="Rover-Chassis.STL" scale="0.001 0.001 0.001"/>
+    <mesh name="wheel_a" file="A4WD3-W-ME-A.STL" scale="0.001 0.001 0.001"/>
+    <mesh name="wheel_b" file="A4WD3-W-ME-B.STL" scale="0.001 0.001 0.001"/>
+    <mesh name="lidar" file="Hokuyo-UST-10LX-Lidar.STL" scale="0.001 0.001 0.001"/>
+    <mesh name="zed" file="ZED2i.STL" scale="0.001 0.001 0.001"/>
+  </asset>
+
+  <worldbody>
+    <light pos="0 0 4" dir="0 0 -1" diffuse="0.8 0.8 0.8"/>
+
+    <!--
+      The floor is decoration. The body has no vertical freedom, so it can
+      never rest on anything, and a colliding plane here just pins four
+      permanent contacts under the footprint box for the solver to chew on
+      every step. Obstacles are the things that need to collide.
+      Re-enable collision here if the base ever gains a free joint.
+    -->
+    <geom name="floor" type="plane" size="20 20 0.1" material="floor_grey"
+          contype="0" conaffinity="0"/>
+
+    <!--
+      base_link sits at wheel-axle height, 0.076 m up, matching the URDF. The
+      three joints below give no vertical freedom, so the body cannot fall or
+      tip and never touches the floor.
+    -->
+    <body name="base_link" pos="0 0 0.076">
+      <!--
+        Only izz is ever used: a planar body cannot roll or pitch. The URDF's
+        0.10 agrees within 7% with the box formula m(L^2 + W^2)/12 for 7 kg at
+        0.32 x 0.24 m, which gives 0.0933.
+
+        MASS IS A PLACEHOLDER. 7.0 kg is the URDF's modelled total, 5.0 for
+        the chassis plus 0.5 per wheel, and it counts neither the sensors
+        (~0.54 kg) nor the battery. Weigh the rover and correct it. The
+        training env should randomise it anyway: under the rate limits below,
+        a 2.4x mass error moves the velocity step response by only 10%.
+      -->
+      <inertial pos="0 0 0" mass="7.0" diaginertia="0.05 0.08 0.10"/>
+
+      <joint name="slide_x" type="slide" axis="1 0 0"/>
+      <joint name="slide_y" type="slide" axis="0 1 0"/>
+      <joint name="hinge_z" type="hinge" axis="0 0 1"/>
+
+      <!--
+        The only colliding geom. 0.19 half-extents match navigation_pkg's
+        footprint, which is the span across the WHEELS (0.38 x 0.38), not the
+        0.32 x 0.24 chassis. Obstacle clearance has to respect the wheels.
+        Half-height is the wheel radius, so the box spans the rover's real
+        vertical extent.
+      -->
+      <geom class="collision" name="footprint" type="box" size="0.19 0.19 0.076"/>
+
+      <!-- Visual: chassis. quat 0.5 0.5 0.5 0.5 is the URDF's shared
+           mesh_rpy of (pi/2, 0, pi/2), which maps the CAD axes to REP-103. -->
+      <geom class="visual" mesh="chassis" material="chassis_grey"
+            pos="-0.16552 -0.13383 -0.03827" quat="0.5 0.5 0.5 0.5"/>
+
+      <!-- Visual: wheels. Mecanum wheels are handed, so diagonal corners
+           share a mesh. Mesh choice and offsets follow base.xacro exactly. -->
+      <geom class="visual" mesh="wheel_b" material="wheel_black"
+            pos="0.02602 0.13667 -0.08436" quat="0.5 0.5 0.5 0.5"/>
+      <geom class="visual" mesh="wheel_a" material="wheel_black"
+            pos="0.02605 -0.19333 -0.08436" quat="0.5 0.5 0.5 0.5"/>
+      <geom class="visual" mesh="wheel_a" material="wheel_black"
+            pos="-0.19395 0.13667 -0.08436" quat="0.5 0.5 0.5 0.5"/>
+      <geom class="visual" mesh="wheel_b" material="wheel_black"
+            pos="-0.19398 -0.19333 -0.08436" quat="0.5 0.5 0.5 0.5"/>
+
+      <!-- Visual: sensors. The ZED mesh has its own CAD axes, hence a
+           different quat: the URDF's (0, 0, pi/2). -->
+      <geom class="visual" mesh="lidar" material="sensor_blue"
+            pos="0.01837 -0.025 0.065" quat="0.5 0.5 0.5 0.5"/>
+      <geom class="visual" mesh="zed" material="sensor_blue"
+            pos="0.12147 -0.08888 0.02872" quat="0.70710678 0 0 0.70710678"/>
+
+      <!--
+        Raycast origins, at the URDF's measured mount points. laser is where
+        mj_multiRay emits the scan from, so it carries slam_toolbox's
+        scan-matching lever arm; it must stay in step with laser_mount_joint.
+      -->
+      <site name="laser" pos="0.05 0 0.100" size="0.01" rgba="1 0 0 1"/>
+      <site name="zed_mount" pos="0.106 0 0.050" size="0.01" rgba="0 0 1 1"/>
+    </body>
+  </worldbody>
+
+  <!--
+    Velocity actuators, one per axis, deliberately stiff. On the real rover
+    acceleration is capped in SOFTWARE by Nav2's velocity_smoother, not by
+    motors fighting inertia, so the env applies that same rate limit to the
+    command (accel 0.80/0.80/2.00, decel -0.50/-0.50/-1.50) and the actuator
+    only has to track it.
+
+    kv sets a first-order lag of tau = mass / kv. These are tuned so that lag
+    is negligible against the rate-limited ramp, measured as residual lag
+    behind the ramp for a full-scale step on each axis:
+
+        kv lin/rot      vx        vy        wz
+           200/40    +37.0ms   +65.2ms    0.0ms
+           400/80    +17.0ms   +25.3ms    0.0ms
+           800/160    +5.0ms    +9.3ms    0.0ms     <- chosen
+          2000/400    +1.0ms    +1.3ms    0.0ms
+
+    vy is the axis that exposes a soft actuator, because its 0.10 m/s step
+    ramps in 119 ms and a 35 ms lag is a third of that. The deliberate choice
+    is a near-ideal actuator here and real command latency modelled
+    explicitly in the env instead: the hardware's delay is transport lag
+    through serial, the RoboClaw PID and the EKF, which is a delay buffer and
+    not a first-order lag, and it needs to be randomisable.
+
+    ctrlrange is the real envelope from navigation_pkg/config/nav2_params.yaml.
+    vy is 0.10 and not 0.40 on purpose: mecanum rollers lose far more to slip
+    sideways than forward, so the rover drives nose-first and strafes only as
+    a fine correction. Training with a free 0.40 m/s strafe teaches a policy
+    to crab in a way the hardware cannot follow.
+  -->
+  <actuator>
+    <velocity name="vx" joint="slide_x" kv="800" ctrlrange="-0.35 0.40"/>
+    <velocity name="vy" joint="slide_y" kv="800" ctrlrange="-0.10 0.10"/>
+    <velocity name="wz" joint="hinge_z" kv="160" ctrlrange="-0.80 0.80"/>
+  </actuator>
+</mujoco>

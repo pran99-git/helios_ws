@@ -20,6 +20,11 @@ torch==2.14.0+cu132
 numpy==2.5.4
 tensorboard==2.21.0
 
+# Asset prep: tools/decimate_meshes.py only. MuJoCo caps STL at 200 k faces
+# and the CAD exports reach 1.66 M, so the meshes are reduced before use.
+trimesh==5.2.0
+fast-simplification==0.2.0
+
 # Deployment: policy leaves this venv as ONNX so the ROS node needs no torch.
 onnx==1.23.2
 onnxruntime==1.31.1

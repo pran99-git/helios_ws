@@ -1,0 +1,150 @@
+# rl_pkg
+
+Reinforcement learning for the Helios rover. Train a driving policy in MuJoCo,
+then deploy it behind the same `/cmd_vel` interface everything else on this
+robot already uses.
+
+This is an umbrella directory, like `perception_pkg` and `vla_pkg`. Only
+`rl_bridge` is a ROS package.
+
+## Why there are two halves
+
+MuJoCo 4.0 pulls `numpy 2.5.4`, and the training stack wants `torch` and
+`gymnasium` beside it. None of that belongs in the interpreter that runs ROS 2
+Jazzy nodes, so the simulation and training code lives in its own virtualenv
+outside ROS, exactly as `omnivla_server` does.
+
+The policy crosses back as an **ONNX file**, not a live process. A driving
+policy is a small MLP, so `onnxruntime` runs it inside the ROS node in well
+under a millisecond. No HTTP boundary is needed, unlike OmniVLA.
+
+## Architecture
+
+```
+   TRAINING (no ROS, .venvs/rl_train)
+   ┌──────────────────────────────────────────┐
+   │  rl_sim/                                 │
+   │    assets/helios.xml   the rover         │
+   │    envs/               gymnasium env     │
+   │    train/              PPO              │
+   │    eval/               scenario suite    │
+   └───────────────────┬──────────────────────┘
+                       │  policy.onnx
+                       v
+   DEPLOYMENT (ROS 2 Jazzy)
+   ┌──────────────────────────────────────────┐
+   │  rl_bridge/                              │
+   │    rl_policy_node    /scan + goal in     │
+   │                      /cmd_vel_rl out     │
+   └───────────────────┬──────────────────────┘
+                       │
+             twist_mux ─┴─► /cmd_vel ─► roboclaw_driver
+```
+
+`/cmd_vel_rl` enters `twist_mux` **below** `cmd_vel_joy`, so the joystick stays
+a hard override and the heartbeat e-stop keeps working unchanged.
+
+## What's in here
+
+| Path | What | ROS package? |
+|---|---|---|
+| `rl_sim/` | Simulation, environment, training, evaluation | no |
+| `rl_bridge/` | The ROS adapter that drives the rover | yes |
+
+## The physics backend: CPU, not GPU
+
+Benchmarked on the AGX Orin with the rover model, 4 ms timestep:
+
+| Backend | Config | Throughput |
+|---|---|---|
+| **MuJoCo CPU** | **12 threads** | **2,966,925 steps/s** |
+| MuJoCo CPU | 1 thread | 198,615 steps/s |
+| `mujoco-warp` | `cuda:0`, 4096 worlds | 22,745 steps/s |
+
+The GPU loses by a wide margin and the reason is structural, not a
+misconfiguration: batched GPU physics pays off when each world is expensive,
+and this rover is 3 degrees of freedom with one colliding box. The Orin's
+integrated GPU also shares memory bandwidth with the CPU.
+
+`mujoco-warp` stays installed and importable for when the scene gets much
+heavier or a discrete GPU appears. It is not the default.
+
+## The robot model
+
+`rl_sim/assets/helios.xml` is the same rover RViz shows, in two layers, which is
+how `helios_description`'s URDF is already organised:
+
+| Layer | Geometry | Cost |
+|---|---|---|
+| Visual | The CAD meshes, `contype=0` | free, measured |
+| Collision | One box, Nav2's 0.38 x 0.38 footprint | the only thing that collides |
+
+**No wheels in the physics.** A mecanum wheel's motion comes from its rollers,
+which the URDF does not describe, so four hinges without them would spin and
+move nothing. `mecanum_kinematics.py` already converts body twist to wheel
+commands downstream of `/cmd_vel`, so the sim takes that twist directly as
+`slide x`, `slide y`, `hinge z`. The wheel meshes are decoration and do not
+turn.
+
+Every dimension traces back to `helios_description/urdf/`. That package stays
+the one source of truth; a re-measurement there has to be copied across.
+
+## Build and setup
+
+`rl_sim` is not built by colcon. It carries `COLCON_IGNORE`.
+
+```bash
+cd ~/helios_ws
+
+# 1. the virtualenv
+python3 -m venv .venvs/rl_train
+.venvs/rl_train/bin/pip install --upgrade pip
+.venvs/rl_train/bin/pip install -r src/rl_pkg/rl_sim/requirements.txt
+
+# 2. the meshes. REQUIRED: MuJoCo rejects any STL over 200,000 faces and the
+#    CAD exports reach 1.66 M, so assets/helios.xml will not load without this.
+cd src/rl_pkg/rl_sim
+env -u PYTHONPATH ../../../.venvs/rl_train/bin/python tools/decimate_meshes.py
+
+# 3. check it
+env -u PYTHONPATH ../../../.venvs/rl_train/bin/python verify_install.py --bench
+```
+
+Step 2 writes `assets/meshes/`, which is **gitignored**. It is derived from
+`helios_description`, so it is regenerated rather than tracked. 148.1 MB of CAD
+becomes 11.7 MB.
+
+### Always scrub PYTHONPATH
+
+Sourcing a ROS workspace puts `/opt/ros/jazzy/lib/python3.12/site-packages`
+**ahead** of the venv on `sys.path`. Nothing overlaps today, so it happens to
+work, but that is luck and not isolation. `env -u PYTHONPATH` makes it
+deterministic, and `verify_install.py` checks for the problem and says so.
+
+## Look at the model
+
+```bash
+cd src/rl_pkg/rl_sim
+env -u PYTHONPATH ../../../.venvs/rl_train/bin/python -m mujoco.viewer \
+    --mjcf=assets/helios.xml
+```
+
+Needs the Jetson's own display, not a plain SSH session. Press `2` and `3` to
+toggle the visual and collision layers; the orange box is the footprint, and
+the red and blue dots are the lidar and camera mount sites.
+
+To compare against RViz:
+
+```bash
+source ~/helios_ws/install/setup.bash
+ros2 launch helios_description description.launch.py
+```
+
+## Related
+
+- [`low_level_control_pkg`](../low_level_control_pkg/README.md): owns
+  `twist_mux`, `/cmd_vel` and the e-stop the policy sits behind
+- [`navigation_pkg`](../navigation_pkg/README.md): the velocity limits and
+  footprint this model copies, and the baseline any policy has to beat
+- [`vla_pkg`](../vla_pkg/README.md): the other learned policy on this robot,
+  and the precedent for the venv split
