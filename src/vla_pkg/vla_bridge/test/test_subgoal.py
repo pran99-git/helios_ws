@@ -15,6 +15,7 @@ from vla_bridge.subgoal import (
     project,
     remaining,
     route_length,
+    turn_arc_speed,
     turn_in_place,
 )
 
@@ -105,6 +106,41 @@ def test_duplicate_points_do_not_break_projection():
     """SmacPlanner2D can emit repeated poses; they must be skipped, not divided by."""
     route = [Pose2D(0.0, 0.0, 0.0), Pose2D(0.0, 0.0, 0.0), Pose2D(1.0, 0.0, 0.0)]
     assert project(route, 0.5, 0.0).arc == pytest.approx(0.5, abs=1e-6)
+
+
+class TestTurnArcSpeed:
+    """Forward speed paired with a turn, so slam_toolbox sees translation."""
+
+    def test_full_speed_when_aligned(self):
+        assert turn_arc_speed(0.0, 0.10) == pytest.approx(0.10)
+
+    def test_zero_at_ninety_degrees(self):
+        assert turn_arc_speed(math.pi / 2, 0.10) == pytest.approx(0.0, abs=1e-9)
+
+    def test_never_reverses_behind_ninety(self):
+        """Clamped, not signed: the rover must not back into unswept space."""
+        for bearing in (math.pi / 2 + 0.1, 2.0, math.pi, -math.pi, -2.5):
+            assert turn_arc_speed(bearing, 0.10) == 0.0
+
+    def test_symmetric_in_sign(self):
+        assert turn_arc_speed(0.8, 0.10) == pytest.approx(turn_arc_speed(-0.8, 0.10))
+
+    def test_exceeds_slam_travel_threshold_over_a_turn(self):
+        """The point of the arc: clear slam_toolbox's 0.05 m scan gate.
+
+        Integrates the turn from the 0.90 rad threshold down to the 0.36 rad
+        hysteresis exit at the walker's 5 Hz tick.
+        """
+        dt, rate, travelled, bearing, wz = 0.2, 0.60, 0.0, 0.90, 0.0
+        while bearing > 0.36:
+            wz = turn_in_place(bearing, rate, 2.00, wz, dt)
+            travelled += turn_arc_speed(bearing, 0.10) * dt
+            bearing -= abs(wz) * dt
+        assert travelled > 0.05, f"only {travelled:.3f} m, under the scan gate"
+
+    def test_rejects_negative_speed(self):
+        with pytest.raises(ValueError):
+            turn_arc_speed(0.0, -0.1)
 
 
 class TestProgressMonitor:

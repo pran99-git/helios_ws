@@ -30,6 +30,13 @@ DEFAULT_LOOKAHEAD: Final[float] = 1.5
 #: Above this the walker must turn the rover itself.
 DEFAULT_TURN_FIRST: Final[float] = 0.90
 
+#: Forward speed paired with a turn-first rotation, m/s.
+#:
+#: A pure spin is invisible to slam_toolbox, whose `shouldProcessScan` gates on
+#: translation alone, so the yaw error accumulated during one arrives as a lurch
+#: when driving resumes. A slow arc keeps scans processing.
+DEFAULT_TURN_VX: Final[float] = 0.10
+
 #: Segments shorter than this are treated as duplicate points.
 _EPS: Final[float] = 1e-9
 
@@ -162,6 +169,29 @@ def turn_in_place(
     # Respect the acceleration limit from whatever we are doing now.
     step = max_accel * dt
     return max(current_rate - step, min(current_rate + step, target))
+
+
+def turn_arc_speed(bearing: float, max_speed: float) -> float:
+    """Forward speed to pair with a turn, so the mapper still sees translation.
+
+    Scaled by `max(0, cos(bearing))`: full speed once aligned, tapering to zero
+    at 90 degrees and staying there beyond it. The rover therefore translates
+    only once it substantially faces where it is going, never into the space
+    behind it, and hands over to the policy already rolling rather than stopped.
+
+    Args:
+        bearing: Signed angle to the target, radians.
+        max_speed: Speed commanded when perfectly aligned, m/s.
+
+    Returns:
+        Forward speed in m/s, never negative.
+
+    Raises:
+        ValueError: If `max_speed` is negative.
+    """
+    if max_speed < 0.0:
+        raise ValueError("max_speed must not be negative")
+    return max_speed * max(0.0, math.cos(bearing))
 
 
 class ProgressMonitor:

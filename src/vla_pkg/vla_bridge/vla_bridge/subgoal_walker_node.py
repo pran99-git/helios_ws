@@ -28,11 +28,13 @@ from vla_bridge.goal_resolution import Pose2D, yaw_from_quaternion
 from vla_bridge.subgoal import (
     DEFAULT_LOOKAHEAD,
     DEFAULT_TURN_FIRST,
+    DEFAULT_TURN_VX,
     ProgressMonitor,
     bearing_to,
     carrot,
     project,
     remaining,
+    turn_arc_speed,
     turn_in_place,
 )
 
@@ -56,6 +58,9 @@ class SubgoalWalkerNode(Node):
         self.declare_parameter("turn_first_angle", DEFAULT_TURN_FIRST)  # rad
         self.declare_parameter("turn_rate", 0.60)  # rad/s
         self.declare_parameter("turn_accel", 2.00)  # rad/s^2
+        # Arc rather than spin: slam_toolbox processes no scan without
+        # translation, so a pure spin leaves its yaw error uncorrected.
+        self.declare_parameter("turn_vx", DEFAULT_TURN_VX)  # m/s
         self.declare_parameter("turn_cmd_topic", "/cmd_vel_walker")
         # Below this carrot range the bearing is mostly pose noise, and the
         # translation left is shorter than the turn would cost.
@@ -80,6 +85,7 @@ class SubgoalWalkerNode(Node):
         self._turn_first = flt("turn_first_angle")
         self._turn_rate = flt("turn_rate")
         self._turn_accel = flt("turn_accel")
+        self._turn_vx = flt("turn_vx")
         self._turn_min_range = flt("turn_min_range")
         self._turning = False
         self._turn_wz = 0.0
@@ -132,6 +138,15 @@ class SubgoalWalkerNode(Node):
     # --------------------------------------------------------------- goals ---
 
     def _on_route_goal(self, msg: PoseStamped) -> None:
+        # A non-finite position means "cancel", the same sentinel this node
+        # uses on the carrot topic and vla_bridge accepts on its pose goal.
+        # A producer that chooses goals programmatically, such as the
+        # exploration goal selector, needs a way to stand the rover down.
+        if not (
+            math.isfinite(msg.pose.position.x) and math.isfinite(msg.pose.position.y)
+        ):
+            self._abandon("cancelled")
+            return
         self._goal = msg
         self._route = []
         self._route_at = None
@@ -155,10 +170,7 @@ class SubgoalWalkerNode(Node):
         self._monitor.reset()
         self._status = reason
         self._note = reason
-        if self._turning:
-            self._turning = False
-            self._turn_wz = 0.0
-            self._publish_turn(0.0)
+        self._stop_turn()
         self.get_logger().warn(f"route abandoned: {reason}")
 
     # ---------------------------------------------------------------- route ---
@@ -293,7 +305,7 @@ class SubgoalWalkerNode(Node):
                 self._turn_wz,
                 self._tick_dt,
             )
-            self._publish_turn(self._turn_wz)
+            self._publish_turn(self._turn_wz, turn_arc_speed(bearing, self._turn_vx))
             self._status = (
                 f"turning to face the carrot ({math.degrees(bearing):+.0f} deg, "
                 f"{left:.2f} m left)"
@@ -301,10 +313,7 @@ class SubgoalWalkerNode(Node):
             # Still an active goal, but the policy must not drive meanwhile.
             return False
 
-        if self._turning:
-            self._turning = False
-            self._turn_wz = 0.0
-            self._publish_turn(0.0)
+        self._stop_turn()
 
         self._publish_subgoal(target)
         self._status = (
@@ -326,11 +335,25 @@ class SubgoalWalkerNode(Node):
             self._clear_subgoal()
         self._emitting = emitting
 
-    def _publish_turn(self, wz: float) -> None:
-        """Command a pure rotation. Hysteresis in _walk stops it chattering."""
+    def _publish_turn(self, wz: float, vx: float) -> None:
+        """Command a turn, as an arc when vx is non-zero.
+
+        This bypasses the controller, so nothing checks the arc against the
+        costmap. `turn_arc_speed` confines it to the heading the laser has
+        already swept. Hysteresis in `_walk` stops it chattering.
+        """
         msg = Twist()
+        msg.linear.x = vx
         msg.angular.z = wz
         self._turn_pub.publish(msg)
+
+    def _stop_turn(self) -> None:
+        """End a running turn and command a stop."""
+        if not self._turning:
+            return
+        self._turning = False
+        self._turn_wz = 0.0
+        self._publish_turn(0.0, 0.0)
 
     def _clear_subgoal(self) -> None:
         """Tell the bridge to drop its pose goal.

@@ -103,9 +103,10 @@ subgoal_walker:
     route_deviation: 1.0                # m off route before replanning early
     goal_tolerance: 0.25                # m, looser than Nav2's 0.15: the policy
                                         # approaches approximately
-    # Progress is measured as arc length ALONG the route, not distance
-    # travelled: a rover hunting in place covers ground without advancing.
-    stuck_progress: 0.15                # m of route progress required
+    # Progress is measured as distance STILL TO RUN to the goal. Distance
+    # travelled counts a rover circling as progress, and arc along the route
+    # restarts at zero on every replan.
+    stuck_progress: 0.15                # m of closing distance required
     stuck_window: 8.0                   # s allowed without it
 
     # Above this carrot bearing the walker turns the rover itself: the policy
@@ -114,6 +115,11 @@ subgoal_walker:
     turn_first_angle: 0.90              # rad (~52 deg)
     turn_rate: 0.60                     # rad/s, matches wz_max headroom
     turn_accel: 2.00                    # rad/s^2, velocity_smoother's ceiling
+    # Turns are arcs, not spins: slam_toolbox's shouldProcessScan gates on
+    # translation, so a pure spin is unobserved and its yaw error arrives as a
+    # lurch when driving resumes. Scaled by cos(bearing), so the rover only
+    # creeps forward once it faces where the laser has already swept.
+    turn_vx: 0.10                       # m/s at full alignment
     turn_cmd_topic: "/cmd_vel_walker"   # own twist_mux input, priority 20
     turn_min_range: 0.50                # m, below this the carrot bearing is noise
 
