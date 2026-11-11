@@ -38,22 +38,28 @@ RUNS = ROOT / "runs"
 
 
 def find_scenario(name: str) -> scenarios.Scenario:
-    """Look a scenario up by name in the evaluation suite.
+    """Resolve a scenario by suite name or by path to a saved map.
+
+    A name ending in .yaml is treated as a slam_toolbox map, so training can
+    run in the real room without the path being baked into the suite.
 
     Args:
-        name: Scenario name, e.g. "sparse".
+        name: Suite name such as "sparse", or a path to a map yaml.
 
     Returns:
         The matching scenario.
 
     Raises:
         ValueError: If no scenario has that name.
+        FileNotFoundError: If a map path does not exist.
     """
+    if name.endswith(".yaml"):
+        return scenarios.map_scenario(Path(name).expanduser().resolve())
     for scenario in scenarios.SUITE:
         if scenario.name == name:
             return scenario
     known = ", ".join(s.name for s in scenarios.SUITE)
-    raise ValueError(f"unknown scenario {name!r}; known: {known}")
+    raise ValueError(f"unknown scenario {name!r}; known: {known}, or a map .yaml")
 
 
 def make_env(cfg: dict[str, Any], scenario_name: str, seed: int):

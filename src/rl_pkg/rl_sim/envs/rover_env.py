@@ -84,8 +84,9 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
 
         # Compiled once with the scenario's fixed layout, to learn the model's
         # dimensions and timing. Reset recompiles only when the layout changes.
+        self._from_map = self._scenario.map_yaml is not None
         layout = scenarios.sample_obstacles(self._scenario, self._rng)
-        self._model = scenarios.build(self._scenario, layout)
+        self._model = self._compile(layout)
         self._data = mujoco.MjData(self._model)
         self._lidar = Lidar(self._model, "laser", "base_link", self._spec)
         self._nominal_mass = float(self._model.body_mass[1])
@@ -99,12 +100,32 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         self._previous_distance = 0.0
         self._previous_twist = np.zeros(3)
         self._elapsed = 0.0
-        self._diagonal = float(np.linalg.norm(self._scenario.bounds)) * 2.0
+        # Normaliser for the goal-distance observation: the longest journey
+        # possible in this world.
+        extent = (
+            scenarios.grid_for(self._scenario).extent
+            if self._from_map
+            else tuple(2.0 * b for b in self._scenario.bounds)
+        )
+        self._diagonal = float(np.linalg.norm(extent))
 
         self.action_space = spaces.Box(-1.0, 1.0, (3,), dtype=np.float32)
         self.observation_space = spaces.Box(
             -1.0, 1.0, (self._spec.beams + 6,), dtype=np.float32
         )
+
+    def _compile(self, layout: tuple[scenarios.Obstacle, ...]) -> mujoco.MjModel:
+        """Compile the world, from a saved map or from generated obstacles.
+
+        Args:
+            layout: Obstacles, ignored when the scenario carries a map.
+
+        Returns:
+            The compiled model.
+        """
+        if self._from_map:
+            return scenarios.build_from_map(self._scenario)
+        return scenarios.build(self._scenario, layout)
 
     @property
     def dt(self) -> float:
@@ -169,10 +190,10 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
             self._rng = np.random.default_rng(seed)
 
         layout = scenarios.sample_obstacles(self._scenario, self._rng)
-        if self._scenario.n_random:
+        if self._scenario.n_random and not self._from_map:
             # Only recompile when the layout actually varies; a fixed scenario
             # reuses the model and resets state, which is far cheaper.
-            self._model = scenarios.build(self._scenario, layout)
+            self._model = self._compile(layout)
             self._data = mujoco.MjData(self._model)
             self._lidar = Lidar(self._model, "laser", "base_link", self._spec)
         else:

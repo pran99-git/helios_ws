@@ -12,7 +12,11 @@ run:
   total_timesteps: 5000000   # control steps; ~64 min per 5 M at 1,312 fps
   seed: 0                    # seeds env, policy init and action sampling
   n_envs: 12                 # SubprocVecEnv workers; matches the Orin's cores
-  scenario: "sparse"         # name from envs/scenarios.SUITE
+  # A name from envs/scenarios.SUITE, or a path to a saved slam_toolbox
+  # map .yaml to train in the real room. A real map costs about 5x the
+  # rollout rate of a synthetic one, but gradient updates still dominate,
+  # so end-to-end training slows far less than that.
+  scenario: "sparse"
   # GPU, despite the policy being two 256-unit layers. Measured end to end on
   # this Orin: 552 fps on cpu against 1,182 on cuda. The usual advice to keep
   # a small MLP on the CPU assumes a discrete card across PCIe; here the
@@ -24,7 +28,7 @@ run:
 eval:
   every: 50000               # control steps between evaluations
   episodes: 20               # episodes per evaluation; 20 keeps noise sane
-  scenario: "sparse"         # evaluate on what we trained on, for now
+  scenario: "sparse"         # suite name or a map .yaml, as above
 
 checkpoint:
   every: 250000              # control steps between saved checkpoints

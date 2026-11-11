@@ -17,6 +17,8 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
+from envs.occupancy import OccupancyGrid, load_ros_map
+
 MODEL = Path(__file__).resolve().parent.parent / "assets" / "helios.xml"
 
 #: Half the diagonal of the 0.38 x 0.38 footprint. Anything closer than this
@@ -65,6 +67,9 @@ class Scenario:
         goal_tolerance: Distance at which the goal counts as reached.
         min_goal_distance: Shortest start-to-goal distance worth training on.
         time_limit: Episode cap in seconds.
+        map_yaml: A saved slam_toolbox map to use as the world instead of
+            `bounds` and `obstacles`. When set, geometry comes from the real
+            room and starts and goals are drawn from its free cells.
     """
 
     name: str = "open_room"
@@ -75,6 +80,88 @@ class Scenario:
     goal_tolerance: float = 0.25
     min_goal_distance: float = 1.5
     time_limit: float = 60.0
+    map_yaml: Path | None = None
+
+
+_GRIDS: dict[Path, OccupancyGrid] = {}
+_FREE: dict[tuple[Path, float], np.ndarray] = {}
+
+
+def grid_for(scenario: Scenario) -> OccupancyGrid:
+    """Load and cache the scenario's occupancy grid.
+
+    Args:
+        scenario: Must have `map_yaml` set.
+
+    Returns:
+        The grid, parsed once per path per process.
+
+    Raises:
+        ValueError: If the scenario has no map.
+    """
+    if scenario.map_yaml is None:
+        raise ValueError(f"scenario {scenario.name!r} has no map_yaml")
+    if scenario.map_yaml not in _GRIDS:
+        _GRIDS[scenario.map_yaml] = load_ros_map(scenario.map_yaml)
+    return _GRIDS[scenario.map_yaml]
+
+
+def free_space(scenario: Scenario, clearance: float) -> np.ndarray:
+    """Cache the map positions where the rover fits.
+
+    The distance transform behind this costs tens of milliseconds, far too
+    much to repeat on every reset.
+
+    Args:
+        scenario: Must have `map_yaml` set.
+        clearance: Required distance from any wall, in metres.
+
+    Returns:
+        An (n, 2) array of world positions.
+
+    Raises:
+        RuntimeError: If no cell is that clear, which means the clearance
+            exceeds the room's narrowest passage.
+    """
+    grid = grid_for(scenario)
+    assert scenario.map_yaml is not None
+    key = (scenario.map_yaml, clearance)
+    if key not in _FREE:
+        free = grid.free_positions(clearance)
+        if len(free) == 0:
+            raise RuntimeError(
+                f"{scenario.map_yaml.name} has no space with {clearance:.2f} m "
+                "clearance; the rover does not fit anywhere in this map"
+            )
+        _FREE[key] = free
+    return _FREE[key]
+
+
+def build_from_map(scenario: Scenario) -> mujoco.MjModel:
+    """Compile the rover inside a saved map's geometry.
+
+    Wall boxes go straight onto the worldbody rather than each into its own
+    body. A static geom needs no body, and one body per rectangle makes
+    mj_kinematics walk all 849 of them every step: measured 3,500 steps/s
+    that way against 67,290 like this.
+
+    Args:
+        scenario: Must have `map_yaml` set.
+
+    Returns:
+        A compiled model ready for `MjData`.
+    """
+    grid = grid_for(scenario)
+    spec = mujoco.MjSpec.from_file(str(MODEL))
+    height = 0.25
+    for cx, cy, hx, hy in grid.boxes():
+        spec.worldbody.add_geom(
+            type=mujoco.mjtGeom.mjGEOM_BOX,
+            size=[hx, hy, height],
+            pos=[cx, cy, height],
+            rgba=[0.55, 0.55, 0.58, 1.0],
+        )
+    return spec.compile()
 
 
 def build(scenario: Scenario, obstacles: tuple[Obstacle, ...]) -> mujoco.MjModel:
@@ -175,9 +262,16 @@ def sample_pose(
         RuntimeError: If no free position is found, which means the room is
             too crowded for the scenario to be solvable.
     """
+    need = FOOTPRINT_RADIUS + clearance
+    if scenario.map_yaml is not None:
+        # A map's free space is sparse and oddly shaped, so rejection sampling
+        # over a bounding box would mostly miss. Draw from the precomputed
+        # free cells instead.
+        free = free_space(scenario, need)
+        return np.asarray(free[rng.integers(len(free))], dtype=np.float64)
+
     half_x, half_y = scenario.bounds
     edge = FOOTPRINT_RADIUS + clearance
-    need = FOOTPRINT_RADIUS + clearance
     for _ in range(attempts):
         point = np.array(
             [
@@ -190,6 +284,35 @@ def sample_pose(
     raise RuntimeError(
         f"no free pose in {scenario.name} after {attempts} attempts; "
         "reduce n_random or enlarge bounds"
+    )
+
+
+def map_scenario(
+    yaml_path: Path,
+    name: str | None = None,
+    time_limit: float = 90.0,
+    min_goal_distance: float = 2.0,
+) -> Scenario:
+    """Build a scenario from a saved slam_toolbox map.
+
+    Not in SUITE because the maps are gitignored run outputs: a hardcoded
+    path would break on a fresh clone. Pass the path explicitly instead.
+
+    Args:
+        yaml_path: The map_server `.yaml`, with its `.pgm` beside it.
+        name: Scenario name. Defaults to the map's filename stem.
+        time_limit: Episode cap in seconds. Longer than the synthetic
+            scenarios because a real room is bigger than a 10 m box.
+        min_goal_distance: Shortest start-to-goal distance worth training on.
+
+    Returns:
+        A scenario whose geometry is the real room.
+    """
+    return Scenario(
+        name=name or yaml_path.stem,
+        map_yaml=yaml_path,
+        time_limit=time_limit,
+        min_goal_distance=min_goal_distance,
     )
 
 

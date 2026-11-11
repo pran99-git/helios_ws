@@ -14,6 +14,8 @@ mujoco-warp==4.0.0        # GPU backend, selected by --backend warp
 warp-lang==1.19.0         # Warp runtime; resolves cuda:0 "Orin" sm_87 here
 
 # Training. torch drives the policy network only, never the physics.
+scipy==1.18.1        # clearance via distance transform, as exploration/ uses
+pillow==13.0.0       # reads the map .pgm
 gymnasium==1.4.0
 stable-baselines3==2.9.2  # requires torch >= 2.8
 torch==2.14.0+cu132

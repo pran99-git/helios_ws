@@ -69,6 +69,50 @@ integrated GPU also shares memory bandwidth with the CPU.
 `mujoco-warp` stays installed and importable for when the scene gets much
 heavier or a discrete GPU appears. It is not the default.
 
+## Train in your own map
+
+A scenario can take a saved `slam_toolbox` map instead of generated obstacles,
+so the policy learns in the room the rover actually drives in. Pass the
+`map_server` `.yaml` as the scenario name:
+
+```bash
+env -u PYTHONPATH ../../../.venvs/rl_train/bin/python train/ppo.py \
+    --name lab --timesteps 200000
+# with run.scenario in the config set to an absolute path ending in .yaml
+```
+
+Occupied cells are merged into as few boxes as possible, and those go straight
+onto the worldbody rather than each into its own body:
+
+| | Lab map, 202x271 at 5 cm |
+|---|---|
+| Occupied cells | 23,341 |
+| Merged rectangles | **698** |
+| Geoms in the model | 707 |
+| Rollout | 956 control steps/s |
+| **Training, end to end** | **1,187 fps**, vs 1,430 synthetic |
+
+**A real map costs only 17% of training speed**, even though its rollout rate
+is 5x lower, because gradient updates dominate the loop.
+
+Two findings behind those numbers:
+
+- **A body per rectangle costs 19x.** With each wall box in its own body,
+  `mj_kinematics` walks all 698 every step: 3,500 steps/s against 67,290 with
+  static worldbody geoms. A static geom needs no body.
+- **Heightfields lose, despite being one geom.** `mjGEOM_HFIELD` steps 12,549/s
+  but raycasts at only 104 scans/s against the boxes' 1,732. Since the lidar
+  fires once per control step, that nets 94 control steps/s versus 1,324.
+
+Unknown cells are sealed by default, so a policy cannot escape into unmapped
+space. Counterintuitively that is also *cheaper*: unknown regions are large
+contiguous blobs, so sealing the lab map gives 698 rectangles where leaving it
+open gives 840.
+
+Starts and goals are drawn from cells with real footprint clearance, computed
+with the same `distance_transform_edt` approach `exploration/` uses. Verified
+over 200 resets with none starting in collision.
+
 ## Training throughput
 
 Physics is not what limits training. Measured end to end:
