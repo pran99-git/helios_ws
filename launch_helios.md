@@ -10,8 +10,9 @@ read [the root README](README.md) and the package READMEs it links to.
 
 ## The short version
 
-Four terminals to map, five to navigate. Order matters for the first one, and
-navigation needs everything below it already running.
+Four terminals to map, five to navigate, seven to explore on its own. Order
+matters for the first one, and each terminal needs everything below it already
+running.
 
 ```bash
 source ~/helios_ws/install/setup.bash        # in EVERY terminal
@@ -22,6 +23,9 @@ ros2 launch low_level_control_pkg joy_teleop.launch.py        # 3. joystick
 ros2 launch mapping_localization_pkg slam_toolbox.launch.py   # 4. a mapper
 ros2 launch navigation_pkg navigation.launch.py               # 5. autonomy
 ```
+
+Two optional terminals sit on top of that: **6** runs the VLA policy instead of
+the global planner, and **7** explores an unknown space with no goals from you.
 
 Hold the **right shoulder button (R)** on the gamepad to drive. Everything below is the
 detail: what to check first, what each terminal actually starts, and what to do
@@ -390,7 +394,9 @@ ros2 launch vla_bridge vla_navigation.launch.py
 ```
 
 Starts three processes: the policy server (outside ROS, in its own
-virtualenv), `vla_bridge_node`, and `path_arbiter_node`.
+virtualenv), `vla_bridge_node`, and `path_arbiter_node`. Add `walker:=true` for
+a fourth, `subgoal_walker_node`, which is what you want for anything further
+than about a metre.
 
 Then give it a goal, exactly one kind at a time:
 
@@ -402,14 +408,24 @@ ros2 topic pub --once /vla/goal_text std_msgs/msg/String "{data: 'the blue chair
 ros2 topic pub --once /vla/goal_text std_msgs/msg/String "{data: ''}"
 ```
 
-For a pose goal, point RViz's **2D Goal Pose** tool at `/vla/goal_pose`.
+For a pose goal, point RViz's **2D Goal Pose** tool at `/vla/goal_pose`, or at
+`/vla/route_goal` with `walker:=true`.
 
 | Argument | Default | Effect |
 |---|---|---|
 | `start_server` | `true` | `false` to use an already-running policy server |
 | `endpoint` | `http://127.0.0.1:8777/act` | A workstation IP also works |
+| `walker` | `false` | `true` routes goals through the planner; they then go to `/vla/route_goal` |
 | `params_file` | the package's `vla_bridge.yaml` | Alternative parameter set |
 | `workspace` | `~/helios_ws` | Where `.venvs/` and `src/vla_pkg/` live |
+
+**Use `walker:=true` for any goal past about a metre.** The policy predicts
+roughly 1 m per chunk and holds no map, so a distant goal makes it drive at the
+bearing until an obstacle stops it. With the walker, `planner_server` chooses
+the route and the policy only ever sees the short-goal case it handles well.
+The walker also turns the rover before handing over, which nothing else can do:
+the policy only proposes forward motion, and `RotationShimController` aligns to
+the chunk, which always reads as straight ahead.
 
 > **Do not use the Nav2 Goal tool while this is running.** Both would command
 > the same controller. That is why the pose goal here is `/vla/goal_pose` and
@@ -435,6 +451,57 @@ ros2 topic echo /vla/arbiter_status --once
 
 First time out, put a Path display on `/vla/plan` in RViz **with the motors
 unplugged** and check the trajectory points where the camera is looking.
+
+---
+
+## Terminal 7: autonomous exploration (optional)
+
+Map an **unknown** space with no goals from you at all. Frontier detection
+finds the boundaries between mapped and unmapped space; a goal selector picks
+one at a time and drives to it.
+
+**Needs terminal 6 with `walker:=true`, and terminal 4 must be `slam_toolbox`
+in mapping mode.** Not AMCL: exploration needs a map that grows. With a fixed
+map there is no unknown space to find, and the selector will say so.
+
+```bash
+ros2 launch mapping_localization_pkg exploration.launch.py
+```
+
+| Argument | Default | Effect |
+|---|---|---|
+| `goal_topic` | `/vla/route_goal` | `/goal_pose` drives with Nav2 instead of the policy |
+| `start_enabled` | `true` | `false` waits for `/exploration/enable` |
+| `params_file` | the package's `exploration.yaml` | Alternative parameter set |
+
+Pause and resume mid-run without restarting anything:
+
+```bash
+ros2 topic pub -t 4 -r 2 /exploration/enable std_msgs/msg/Bool "{data: false}"
+ros2 topic pub -t 4 -r 2 /exploration/enable std_msgs/msg/Bool "{data: true}"
+```
+
+Watch it decide:
+
+```bash
+ros2 topic echo /exploration/frontier_status   # "9 frontiers, largest 21.40 m"
+ros2 topic echo /exploration/selector_status   # "driving to (7.63, 8.87), 6.03 m"
+ros2 topic echo /vla/walker_status             # "turning to face the carrot"
+```
+
+In RViz add a **MarkerArray** on `/exploration/frontier_markers`. Each arrow is
+a frontier pointing the way it faces; longer and greener means wider.
+
+> **Launch order matters here.** The selector publishes a goal only when its
+> choice changes, so starting it before the walker means the first goal is
+> missed. It self-heals after one `attempt_window` (25 s), at the cost of a
+> spurious rejection, but starting terminal 6 first avoids it.
+
+**Stop it the same way you stop anything else:** the joystick deadman outranks
+every autonomous input, and the e-stop outranks that.
+
+The detail of how frontiers are found and ranked is in
+[`src/mapping_localization_pkg/README.md`](src/mapping_localization_pkg/README.md#exploring-an-unknown-space).
 
 ---
 
@@ -511,8 +578,9 @@ you began in should land on itself, not beside itself.
 
 Reverse order, and Ctrl+C each terminal rather than closing the window.
 
-1. **Terminal 5 first** if navigation is running, so no further `/cmd_vel`
-   is issued while the rest comes down.
+1. **The highest-numbered terminal first**, so no further `/cmd_vel` is issued
+   while the rest comes down: exploration (7), then the VLA policy (6), then
+   navigation (5).
 2. **Terminal 4**, especially rtabmap, which writes its database on Ctrl+C.
 3. Terminal 3, the joystick.
 4. Terminal 2, the sensors.
@@ -575,9 +643,13 @@ ros2 launch mapping_localization_pkg amcl_localization.launch.py map:=<path>.yam
 # 5  autonomy (leave 3 running, the joystick outranks it)
 ros2 launch navigation_pkg navigation.launch.py rviz:=true
 
-# 6  VLA policy (needs 5 running)
-ros2 launch vla_bridge vla_navigation.launch.py
+# 6  VLA policy (needs 5 running; walker:=true for goals past ~1 m)
+ros2 launch vla_bridge vla_navigation.launch.py walker:=true
 ros2 topic pub --once /vla/goal_text std_msgs/msg/String "{data: 'the blue chair'}"
+
+# 7  explore an unknown space (needs 6 with walker:=true, and 4 = slam_toolbox)
+ros2 launch mapping_localization_pkg exploration.launch.py
+ros2 topic pub -t 4 -r 2 /exploration/enable std_msgs/msg/Bool "{data: false}"
 
 # save
 ~/helios_ws/src/mapping_localization_pkg/slam_toolbox/scripts/save_slam.sh <name>
