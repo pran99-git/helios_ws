@@ -25,13 +25,13 @@ def _reward(**kwargs: object) -> tuple[float, dict[str, float]]:
 
 def test_closing_on_the_goal_pays() -> None:
     total, terms = _reward(previous_distance=2.0, distance=1.5)
-    assert terms["progress"] == pytest.approx(0.5)
+    assert terms["progress"] == pytest.approx(0.5 * RewardWeights().progress)
     assert total > 0.0
 
 
 def test_retreating_costs() -> None:
     _, terms = _reward(previous_distance=1.5, distance=2.0)
-    assert terms["progress"] == pytest.approx(-0.5)
+    assert terms["progress"] == pytest.approx(-0.5 * RewardWeights().progress)
 
 
 def test_circling_earns_nothing() -> None:
@@ -89,12 +89,42 @@ def test_progress_pays_even_on_a_crash() -> None:
     assert _episode(3.0, 20.0, "crash") > _episode(1.0, 8.0, "crash")
 
 
-def test_crashing_still_scores_worse_than_stalling() -> None:
-    """What the large collision penalty is for, kept without the refund."""
+def test_trying_beats_standing_still() -> None:
+    """The ordering the weights exist to produce.
+
+    NOT "a crash costs more than a stall". Enforcing that with collision at
+    -20, against a best achievable return of +12.75, made creeping optimal:
+    a 5 M step run drove at 0.09 m/s of a possible 0.40 and turned crashes
+    into timeouts rather than successes.
+    """
     stall = _episode(0.0, 90.0, "none")
-    assert _episode(3.0, 20.0, "crash") < stall
-    assert _episode(0.0, 1.0, "crash") < stall
-    assert stall < _episode(3.7, 15.0, "success")
+    assert _episode(4.0, 20.0, "crash") > stall, "a full attempt must beat refusing"
+    assert _episode(0.0, 1.0, "crash") < stall, "but crashing at once must not"
+
+
+def test_more_progress_always_scores_higher() -> None:
+    assert _episode(4.0, 20.0, "crash") > _episode(2.0, 20.0, "crash")
+    assert _episode(2.0, 20.0, "crash") > _episode(0.0, 1.0, "crash")
+
+
+def test_the_expected_value_of_attempting_is_positive_early() -> None:
+    """At a 2% success rate the optimum must already be to attempt.
+
+    This is the bootstrap condition: a policy that cannot yet succeed has to
+    be paid for getting closer, or it never gathers the experience to learn
+    from.
+    """
+    best = _episode(4.0, 15.0, "success")
+    typical_failure = _episode(2.0, 20.0, "crash")
+    stall = _episode(0.0, 90.0, "none")
+    for rate in (0.02, 0.10):
+        assert rate * best + (1 - rate) * typical_failure > stall
+
+
+def test_collision_costs_less_than_the_best_return() -> None:
+    """A penalty larger than anything the task can pay teaches paralysis."""
+    w = RewardWeights()
+    assert abs(w.collision) < _episode(4.0, 15.0, "success")
 
 
 def test_reaching_beats_every_alternative() -> None:

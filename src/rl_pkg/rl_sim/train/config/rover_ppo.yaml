@@ -12,11 +12,14 @@ run:
   total_timesteps: 5000000   # control steps; ~64 min per 5 M at 1,312 fps
   seed: 0                    # seeds env, policy init and action sampling
   n_envs: 12                 # SubprocVecEnv workers; matches the Orin's cores
-  # A name from envs/scenarios.SUITE, or a path to a saved slam_toolbox map
-  # .yaml to train in the real room. A real map costs about 5x the rollout
-  # rate of a synthetic one, but gradient updates still dominate, so
-  # end-to-end training slows far less than that.
-  scenario: "/mnt/ssd/home/pran/helios_ws/src/mapping_localization_pkg/slam_toolbox/maps/slam_toolbox_lab_indoor_run_with_VIO_feed.yaml"
+  # A name from envs/scenarios.SUITE, or a path to a saved slam_toolbox
+  # map .yaml. NOT a saved map for from-scratch training: the lab map has a
+  # median clearance of 0.32 m against a rover of 0.269 m radius, a quarter
+  # of its free space is narrower than the rover, and its most open point is
+  # 1.27 m. Random exploration collides within seconds there, so the policy
+  # never survives long enough to discover that reaching goals pays. Train
+  # here, evaluate on a map.
+  scenario: "sparse"
   # GPU, despite the policy being two 256-unit layers. Measured end to end on
   # this Orin: 552 fps on cpu against 1,182 on cuda. The usual advice to keep
   # a small MLP on the CPU assumes a discrete card across PCIe; here the
@@ -30,10 +33,10 @@ eval:
   # 20 episodes every 50 k was costing about 28% of total compute, since
   # eval runs single-threaded and episodes reach ~1,100 steps.
   episodes: 10
-  # DELIBERATELY NOT the training scenario. Evaluating on a layout the policy
-  # never trains on is the only way to see memorisation happen: if training
-  # reward climbs while this stays flat, the policy is learning the lab's
-  # furniture rather than how to drive.
+  # DELIBERATELY NOT the training scenario. Evaluating on a layout the
+  # policy never trains on is the only way to see memorisation happen: if
+  # training reward climbs while this stays flat, the policy is learning one
+  # furniture arrangement rather than how to drive.
   scenario: "cluttered"
 
 checkpoint:

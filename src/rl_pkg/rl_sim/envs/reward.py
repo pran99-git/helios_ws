@@ -20,13 +20,11 @@ class RewardWeights:
     """Coefficients for each reward term.
 
     Attributes:
-        progress: Per metre of reduction in distance to the goal. The main
-            driver; every other term is a correction to it.
+        progress: Per metre of route closed. The main driver, and weighted
+            so that an attempt which ends badly still beats refusing to move.
         success: One-off bonus for reaching the goal.
-        collision: Penalty for hitting something. Large enough on its own
-            that no crash outscores a stall, so progress is NOT clawed back:
-            see step_reward for why clawing it back stops the policy
-            learning at all.
+        collision: Penalty for hitting something. Deliberately smaller than
+            the best achievable return rather than larger: see step_reward.
         time: Charged every control step, so dawdling costs. Deliberately
             small: a large per-step charge makes ending the episode early a
             way to save money, which rewards crashing.
@@ -41,9 +39,9 @@ class RewardWeights:
             configured to drive nose-first.
     """
 
-    progress: float = 1.00
+    progress: float = 2.00
     success: float = 10.00
-    collision: float = -20.00
+    collision: float = -10.00
     time: float = -0.004
     clearance: float = -0.10
     jerk: float = -0.02
@@ -84,17 +82,30 @@ def step_reward(
     getting anywhere. This mirrors the fix already made in vla_bridge's
     progress monitor.
 
-    Progress is NOT clawed back on a collision, and that matters more than
-    it looks. Early in training essentially every episode ends in a crash, so
-    refunding the progress deletes the dense signal in exactly the regime
-    that needs it: a 3.7 m route scored -21.66 for driving 3 m then crashing
-    against -20.08 for crashing immediately, making the fastest crash the
-    best available outcome. A 3.5 M step run under that rule never once
-    succeeded and its action noise quadrupled.
+    The weights are set so that TRYING BEATS STANDING STILL, which is not
+    the same as making collisions maximally expensive. With collision at -20
+    against a best achievable return of +12.75, a crash cost 1.6x the most
+    the task could ever pay, and the optimal policy for anything short of
+    expert was to creep. A 5 M step run did exactly that: it converted
+    crashes into timeouts, drove at 0.09 m/s of a possible 0.40, and never
+    beat a ten-line hand-written controller.
 
-    Crashing still loses to stalling, which was the point of the large
-    penalty: -18.66 against -7.50 on that same route. The smaller per-step
-    time charge is what buys that, so the two must be changed together.
+    So "a crash must cost more than a stall" is NOT enforced any more. On a
+    4 m route, driving the whole way and then hitting something scores -3.66
+    against -7.50 for refusing to move, and that ordering is deliberate: a
+    rover that tries and occasionally bumps is what we want out of training,
+    and a rover that never moves is not. The orderings that DO hold are the
+    ones that matter:
+
+        reaching the goal          +16.75   beats everything
+        crashing at the goal        -3.66   more progress is always better
+        stalling the full episode   -7.50
+        crashing halfway            -7.66
+        crashing immediately       -10.08   worst
+
+    Progress is not clawed back on a collision either. Early in training
+    nearly every episode ends in a crash, so refunding it deletes the dense
+    signal in exactly the regime that needs it.
 
     Args:
         previous_distance: Distance to the goal before the step, in metres.
