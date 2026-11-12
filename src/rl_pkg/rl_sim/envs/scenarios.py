@@ -33,12 +33,17 @@ class Obstacle:
     """A box obstacle, axis aligned.
 
     Attributes:
-        pos: Centre as (x, y) in metres. Height is fixed to the rover's.
+        pos: Centre as (x, y) in metres.
         half_extent: Half width and half depth as (x, y) in metres.
+        top: Height of the obstacle's top surface above the floor, metres.
+            Matters because the laser plane is at 0.176 m: anything shorter is
+            invisible to it and only the ZED depth fan sees it. Everything
+            still collides, since the footprint box spans 0 to 0.152 m.
     """
 
     pos: tuple[float, float]
     half_extent: tuple[float, float]
+    top: float = 0.50
 
     def clearance_to(self, point: np.ndarray) -> float:
         """Distance from a point to this box, zero inside it.
@@ -65,6 +70,12 @@ class Scenario:
         obstacles: Fixed obstacles. Empty means an open room.
         n_random: Random obstacles added per reset, on top of `obstacles`.
         random_half_extent: Half extent used for random obstacles.
+        n_low: Random LOW obstacles added per reset, short enough that the
+            laser misses them and only the depth fan sees them.
+        low_half_extent: Half extent used for low obstacles.
+        low_top: Range of top heights for low obstacles, metres. Kept between
+            the costmap's 0.036 m floor threshold and the 0.176 m laser plane,
+            so they are exactly the class of obstacle the ZED exists to catch.
         goal_tolerance: Distance at which the goal counts as reached.
         min_goal_distance: Shortest start-to-goal distance worth training on.
         time_limit: Episode cap in seconds.
@@ -78,6 +89,9 @@ class Scenario:
     obstacles: tuple[Obstacle, ...] = field(default_factory=tuple)
     n_random: int = 0
     random_half_extent: tuple[float, float] = (0.25, 0.25)
+    n_low: int = 0
+    low_half_extent: tuple[float, float] = (0.18, 0.18)
+    low_top: tuple[float, float] = (0.06, 0.15)
     goal_tolerance: float = 0.25
     min_goal_distance: float = 1.5
     time_limit: float = 60.0
@@ -209,19 +223,23 @@ def build(scenario: Scenario, obstacles: tuple[Obstacle, ...]) -> mujoco.MjModel
     """
     spec = mujoco.MjSpec.from_file(str(MODEL))
     half_x, half_y = scenario.bounds
-    # Height is cosmetic: the footprint box spans 0 to 0.152 m, so an
-    # obstacle only has to overlap that band to be collidable.
     height = 0.25
 
     for i, ob in enumerate(obstacles):
+        # Boxes sit ON the floor, so a top of t means half-height t/2 centred
+        # at t/2. Obstacle height is NOT cosmetic any more: the laser plane at
+        # 0.176 m sees over anything shorter.
+        half_z = ob.top / 2.0
         body = spec.worldbody.add_body(
-            name=f"obstacle_{i}", pos=[ob.pos[0], ob.pos[1], height]
+            name=f"obstacle_{i}", pos=[ob.pos[0], ob.pos[1], half_z]
         )
         body.add_geom(
             name=f"obstacle_{i}_geom",
             type=mujoco.mjtGeom.mjGEOM_BOX,
-            size=[ob.half_extent[0], ob.half_extent[1], height],
-            rgba=[0.75, 0.25, 0.20, 1.0],
+            size=[ob.half_extent[0], ob.half_extent[1], half_z],
+            # Low obstacles drawn differently, so the viewer shows at a glance
+            # which ones only the camera can see.
+            rgba=[0.90, 0.55, 0.10, 1.0] if ob.top < 0.176 else [0.75, 0.25, 0.20, 1.0],
         )
 
     # Four walls, so a policy cannot escape the room and wander forever.
@@ -257,17 +275,24 @@ def sample_obstacles(
         The fixed obstacles followed by the randomly placed ones.
     """
     half_x, half_y = scenario.bounds
-    margin = max(scenario.random_half_extent) + FOOTPRINT_RADIUS
     extra: list[Obstacle] = []
+
+    def draw(half_extent: tuple[float, float], top: float) -> Obstacle:
+        margin = max(half_extent) + FOOTPRINT_RADIUS
+        return Obstacle(
+            pos=(
+                float(rng.uniform(-half_x + margin, half_x - margin)),
+                float(rng.uniform(-half_y + margin, half_y - margin)),
+            ),
+            half_extent=half_extent,
+            top=top,
+        )
+
     for _ in range(scenario.n_random):
+        extra.append(draw(scenario.random_half_extent, 0.50))
+    for _ in range(scenario.n_low):
         extra.append(
-            Obstacle(
-                pos=(
-                    float(rng.uniform(-half_x + margin, half_x - margin)),
-                    float(rng.uniform(-half_y + margin, half_y - margin)),
-                ),
-                half_extent=scenario.random_half_extent,
-            )
+            draw(scenario.low_half_extent, float(rng.uniform(*scenario.low_top)))
         )
     return (*scenario.obstacles, *extra)
 
@@ -353,8 +378,8 @@ def map_scenario(
 #: runs and against the Nav2 baseline.
 SUITE: tuple[Scenario, ...] = (
     Scenario(name="open_room", n_random=0),
-    Scenario(name="sparse", n_random=3),
-    Scenario(name="cluttered", n_random=8, time_limit=90.0),
+    Scenario(name="sparse", n_random=3, n_low=1),
+    Scenario(name="cluttered", n_random=8, n_low=3, time_limit=90.0),
     Scenario(
         name="corridor",
         bounds=(5.0, 2.0),

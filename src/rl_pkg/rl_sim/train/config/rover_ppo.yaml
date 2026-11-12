@@ -12,11 +12,11 @@ run:
   total_timesteps: 5000000   # control steps; ~64 min per 5 M at 1,312 fps
   seed: 0                    # seeds env, policy init and action sampling
   n_envs: 12                 # SubprocVecEnv workers; matches the Orin's cores
-  # A name from envs/scenarios.SUITE, or a path to a saved slam_toolbox
-  # map .yaml to train in the real room. A real map costs about 5x the
-  # rollout rate of a synthetic one, but gradient updates still dominate,
-  # so end-to-end training slows far less than that.
-  scenario: "sparse"
+  # A name from envs/scenarios.SUITE, or a path to a saved slam_toolbox map
+  # .yaml to train in the real room. A real map costs about 5x the rollout
+  # rate of a synthetic one, but gradient updates still dominate, so
+  # end-to-end training slows far less than that.
+  scenario: "/mnt/ssd/home/pran/helios_ws/src/mapping_localization_pkg/slam_toolbox/maps/slam_toolbox_lab_indoor_run_with_VIO_feed.yaml"
   # GPU, despite the policy being two 256-unit layers. Measured end to end on
   # this Orin: 552 fps on cpu against 1,182 on cuda. The usual advice to keep
   # a small MLP on the CPU assumes a discrete card across PCIe; here the
@@ -28,7 +28,11 @@ run:
 eval:
   every: 50000               # control steps between evaluations
   episodes: 20               # episodes per evaluation; 20 keeps noise sane
-  scenario: "sparse"         # suite name or a map .yaml, as above
+  # DELIBERATELY NOT the training scenario. Evaluating on a layout the policy
+  # never trains on is the only way to see memorisation happen: if training
+  # reward climbs while this stays flat, the policy is learning the lab's
+  # furniture rather than how to drive.
+  scenario: "cluttered"
 
 checkpoint:
   every: 250000              # control steps between saved checkpoints

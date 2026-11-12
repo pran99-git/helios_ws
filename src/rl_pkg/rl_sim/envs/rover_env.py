@@ -17,7 +17,20 @@ import numpy as np
 from gymnasium import spaces
 
 from envs import scenarios
-from envs.lidar import Lidar, LidarSpec
+from envs.hardware import (
+    CommandDelay,
+    HardwareModel,
+    PoseEstimator,
+    TwistEstimator,
+)
+from envs.lidar import (
+    UST10LX_DROPOUT,
+    DepthFan,
+    Lidar,
+    LidarSpec,
+    apply_dropout,
+    fuse,
+)
 from envs.rate_limit import RateLimiter, VelocityLimits
 from envs.reward import RewardWeights, step_reward
 from envs.route import Pose2D, point_at_arc, project, route_length
@@ -39,10 +52,11 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
 
     Observation is one flat vector, which is what SB3's MlpPolicy expects:
 
-        [ lidar / max_range        beams values, 1.0 is open space    ]
+        [ fused scan / max_range   beams values, 1.0 is open space    ]
         [ route carrots            2 per lookahead, body frame, /L    ]
         [ remaining route / diag   1 value                            ]
-        [ last twist, normalised   3 values                           ]
+        [ commanded twist          3 values, normalised               ]
+        [ measured twist           3 values, normalised               ]
 
     THE POLICY SEES A ROUTE, NOT A GOAL. A distant goal bearing points through
     walls, and a policy steering by it drives into dead ends with no way to
@@ -54,7 +68,17 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
     divided by its own lookahead, so every component stays in -1..1 and a
     carrot never dominates the vector by being distant.
 
-    Action is [vx, vy, wz] in -1..1, scaled to the rover's real envelope.
+    The scan FUSES laser and depth, because Nav2's costmap does. Commanded
+    and measured twist are both present: the gap between them is slip, load
+    and latency, and a policy that cannot see it cannot compensate for it.
+
+    REWARD IS COMPUTED ON TRUTH, OBSERVATION ON THE ESTIMATE. The policy sees
+    the pose localisation would report, including its rare 6 m jumps, but is
+    rewarded for where it actually went. Rewarding the estimate would teach it
+    to exploit localisation error.
+
+    Action is [vx, vy, wz] in -1..1, scaled to the rover's real envelope, then
+    rate limited and held back by the measured transport delay.
     """
 
     metadata: ClassVar[dict[str, list[str]]] = {"render_modes": []}
@@ -67,6 +91,7 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         weights: RewardWeights | None = None,
         decimation: int = DEFAULT_DECIMATION,
         mass_randomisation: float = 0.3,
+        hardware: HardwareModel | None = None,
         seed: int | None = None,
     ) -> None:
         """Build the environment.
@@ -80,6 +105,8 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
             mass_randomisation: Fractional spread applied to body mass each
                 reset. The model's mass is an estimate, so this converts that
                 uncertainty into robustness instead of a fixed bias.
+            hardware: Latency, noise and localisation-failure model. Defaults
+                to the values measured from datasets/vla_runs.
             seed: Seed for the episode generator.
 
         Raises:
@@ -94,6 +121,7 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         self._weights = weights or RewardWeights()
         self._decimation = decimation
         self._mass_randomisation = mass_randomisation
+        self._hardware = hardware or HardwareModel()
         self._rng = np.random.default_rng(seed)
 
         # Compiled once with the scenario's fixed layout, to learn the model's
@@ -103,14 +131,23 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         self._model = self._compile(layout)
         self._data = mujoco.MjData(self._model)
         self._lidar = Lidar(self._model, "laser", "base_link", self._spec)
+        self._depth = DepthFan(self._model, "zed_mount", "base_link", self._spec)
         self._nominal_mass = float(self._model.body_mass[1])
 
         self._dt = self._model.opt.timestep * decimation
         self._rate = RateLimiter(self._limits, self._dt)
+        self._delay = CommandDelay(self._hardware.delay_steps[0])
+        self._twist_estimator = TwistEstimator(
+            self._hardware,
+            np.abs(np.asarray(self._limits.max_velocity)),
+            self._rng,
+        )
+        self._pose_estimator = PoseEstimator(self._hardware, self._dt, self._rng)
         self._hi = np.asarray(self._limits.max_velocity, dtype=np.float64)
         self._lo = np.asarray(self._limits.min_velocity, dtype=np.float64)
 
         self._goal = np.zeros(2)
+        self._measured_twist = np.zeros(3)
         self._route: list[Pose2D] = []
         self._route_length = 0.0
         self._previous_remaining = 0.0
@@ -130,7 +167,7 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         self.observation_space = spaces.Box(
             -1.0,
             1.0,
-            (self._spec.beams + 2 * len(LOOKAHEADS) + 4,),
+            (self._spec.beams + 2 * len(LOOKAHEADS) + 7,),
             dtype=np.float32,
         )
 
@@ -159,25 +196,36 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         # rather than by a single symmetric gain.
         return np.where(a >= 0.0, a * self._hi, -a * self._lo)
 
-    def _observe(self, ranges: np.ndarray, arc: float) -> np.ndarray:
-        """Assemble the observation vector at the current state.
+    def _sense(self) -> np.ndarray:
+        """Produce the fused scan the policy sees.
 
-        Takes the scan and the route projection rather than recomputing them,
-        because `step` already needs both for the reward.
+        Laser and depth are merged by taking the nearer per bin, matching the
+        local costmap's `observation_sources: scan zed_cloud`. Dropout is
+        applied after fusion, since a dropped laser beam can still be covered
+        by the camera.
+
+        Returns:
+            Fused ranges in metres, one per beam.
+        """
+        laser = self._lidar.scan(self._model, self._data)
+        depth = self._depth.ranges(self._model, self._data)
+        merged = fuse(laser, depth, self._depth.bins)
+        return apply_dropout(merged, UST10LX_DROPOUT, self._spec.max_range, self._rng)
+
+    def _observe(self, ranges: np.ndarray, pose: np.ndarray) -> np.ndarray:
+        """Assemble the observation vector.
 
         Args:
-            ranges: Scan in metres, as returned by `Lidar.scan`.
-            arc: Arc length of the rover's projection onto the route, metres.
+            ranges: Fused scan in metres.
+            pose: The ESTIMATED pose [x, y, yaw], not ground truth. The policy
+                navigates on what localisation tells it.
 
         Returns:
             The observation vector.
         """
         scan = (ranges / self._spec.max_range).astype(np.float32)
-        x, y, yaw = (
-            float(self._data.qpos[0]),
-            float(self._data.qpos[1]),
-            float(self._data.qpos[2]),
-        )
+        x, y, yaw = float(pose[0]), float(pose[1]), float(pose[2])
+        arc = project(self._route, x, y).arc
         # World to body is a rotation by -yaw.
         cos_yaw, sin_yaw = np.cos(-yaw), np.sin(-yaw)
 
@@ -192,14 +240,14 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
             carrots.extend((body_x / lookahead, body_y / lookahead))
 
         left = max(0.0, self._route_length - arc)
-        twist = self._rate.current
-        normalised_twist = twist / np.maximum(np.abs(self._hi), np.abs(self._lo))
+        norm = np.maximum(np.abs(self._hi), np.abs(self._lo))
         return np.concatenate(
             [
                 scan,
                 np.clip(carrots, -1.0, 1.0),
                 [min(left / self._diagonal, 1.0)],
-                normalised_twist,
+                self._rate.current / norm,
+                np.clip(self._measured_twist / norm, -1.0, 1.0),
             ]
         ).astype(np.float32)
 
@@ -264,6 +312,18 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         self._data.qpos[:] = [start[0], start[1], self._rng.uniform(-np.pi, np.pi)]
         self._data.qvel[:] = 0.0
         self._rate.reset()
+        # Transport delay is redrawn per episode: a policy tuned to one
+        # latency will not survive the spread measured on hardware.
+        self._delay = CommandDelay(
+            int(
+                self._rng.integers(
+                    self._hardware.delay_steps[0], self._hardware.delay_steps[1] + 1
+                )
+            )
+        )
+        self._twist_estimator.reset()
+        self._pose_estimator.reset()
+        self._measured_twist = np.zeros(3)
         self._previous_twist = np.zeros(3)
         self._earned_progress = 0.0
         self._elapsed = 0.0
@@ -271,10 +331,12 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
 
         arc = project(self._route, float(start[0]), float(start[1])).arc
         self._previous_remaining = max(0.0, self._route_length - arc)
-        ranges = self._lidar.scan(self._model, self._data)
-        return self._observe(ranges, arc), {
+        estimated = self._pose_estimator.estimate(np.asarray(self._data.qpos))
+        return self._observe(self._sense(), estimated), {
             "goal": self._goal.copy(),
             "route_length": self._route_length,
+            "delay_steps": self._delay.steps,
+            "tracking_scale": self._twist_estimator.scale,
         }
 
     def step(
@@ -288,8 +350,10 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         Returns:
             Observation, reward, terminated, truncated, info.
         """
+        # Order matches the real path: the smoother runs on the Jetson, then
+        # the command crosses serial and the RoboClaw PID, which is the delay.
         twist = self._rate.step(self._scale(action))
-        self._data.ctrl[:] = twist
+        self._data.ctrl[:] = self._delay.push(twist)
 
         collided = False
         for _ in range(self._decimation):
@@ -299,9 +363,15 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
             collided = collided or self._collided()
 
         self._elapsed += self._dt
+        self._measured_twist = self._twist_estimator.estimate(
+            np.asarray(self._data.qvel)
+        )
+        estimated = self._pose_estimator.estimate(np.asarray(self._data.qpos))
+
+        # Truth, for the reward.
         x, y = float(self._data.qpos[0]), float(self._data.qpos[1])
         distance = float(np.linalg.norm(self._goal - self._data.qpos[:2]))
-        ranges = self._lidar.scan(self._model, self._data)
+        ranges = self._sense()
         nearest = float(ranges.min())
         reached = distance <= self._scenario.goal_tolerance
 
@@ -339,10 +409,12 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
             "nearest_obstacle": nearest,
             "is_success": reached,
             "collided": collided,
+            "localisation_lost": self._pose_estimator.lost,
+            "pose_error": float(np.linalg.norm(estimated[:2] - self._data.qpos[:2])),
             "reward_terms": terms,
         }
         return (
-            self._observe(ranges, projection.arc),
+            self._observe(ranges, estimated),
             reward,
             reached or collided,
             truncated,

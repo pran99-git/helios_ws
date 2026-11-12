@@ -30,6 +30,10 @@ class RewardWeights:
             small: a large per-step charge makes ending the episode early a
             way to save money, which rewards crashing.
         clearance: Penalty as the nearest obstacle approaches `danger`.
+            Deliberately small. Its job is to smooth the gradient near
+            obstacles, not to forbid them: the collision penalty already
+            makes contact catastrophic, and a large clearance charge made the
+            cheapest policy in a doorway the one that never entered it.
         jerk: Penalty on change in commanded twist, per unit change.
         strafe: Extra penalty on lateral velocity, since mecanum rollers
             slip far more sideways than forward and the real rover is
@@ -40,7 +44,7 @@ class RewardWeights:
     success: float = 10.00
     collision: float = -20.00
     time: float = -0.004
-    clearance: float = -0.50
+    clearance: float = -0.10
     jerk: float = -0.02
     strafe: float = -0.05
 
@@ -48,9 +52,17 @@ class RewardWeights:
 #: The default coefficients, as a singleton so it is not rebuilt per call.
 DEFAULT_WEIGHTS = RewardWeights()
 
-#: Range at which the clearance penalty starts, in metres. Chosen to match
-#: the inflation layer's influence rather than the hard footprint.
-DANGER_RANGE: float = 0.45
+#: Range at which the clearance penalty starts, in metres.
+#:
+#: 0.30 rather than the inflation layer's 0.45. The footprint's circumscribed
+#: radius is 0.269 and a scan alongside a wall reads about 0.19, so 0.45 was
+#: charging the rover for being in a corridor at all. With the old -0.50
+#: weight a doorway traversal at 0.19 m cost -0.289 per step against progress
+#: of +0.02, which made refusing the doorway the cheapest option. Now it is
+#: -0.037 per step, about -1.5 for a two-second passage: noticeable, not
+#: prohibitive. Measured scans back this up: median valid range is 1.61 m and
+#: p5 is 0.50 m, so under 0.30 m really is close.
+DANGER_RANGE: float = 0.30
 
 
 def step_reward(

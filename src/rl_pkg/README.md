@@ -121,8 +121,9 @@ Physics is not what limits training. Measured end to end:
 |---|---|---|
 | Env stepping only, 1 env | 4,780 control steps/s | 17 min |
 | Env stepping only, 12 workers | 7,409 control steps/s | 11 min |
-| **PPO end to end, cpu** | 552 fps | 2.5 hours |
-| **PPO end to end, cuda** | **1,312 fps** | **64 min** |
+| PPO end to end, cpu | 552 fps | 2.5 hours |
+| PPO end to end, cuda, no realism | 1,312 fps | 64 min |
+| **PPO end to end, full realism** | **803 fps** | **104 min** |
 
 Two results worth keeping in mind:
 
@@ -174,6 +175,65 @@ matters because the RL policy follows the same routes `subgoal_walker_node`
 walks. The cost is that training depends on a ROS package's source layout.
 That coupling lives only in `envs/route.py`, and `test_route.py` fails loudly
 if the path moves or ROS leaks into those files.
+
+## Hardware realism, all of it measured
+
+Nothing in `envs/hardware.py` is a guess. Every constant came out of the 11
+bags in `datasets/vla_runs/`:
+
+| Quantity | Measured | How |
+|---|---|---|
+| `cmd_vel` to `odometry` lag, `vx` | **230 ms** | cross-correlation, r = 0.98-1.00, 9 runs |
+| Same, `wz` | 300 ms | as above |
+| Dead time to 25% of a step, `vx` | 160 ms median, p10 41, p90 263 | n = 38 step events |
+| Settled twist noise sd | 0.0009, 0.0022, 0.0037 | n = 153,931 samples at rest |
+| Steady-state tracking | odom/cmd = 1.04 | plateau comparison |
+| EKF impulse spikes | to **8.63 m/s** on a 0.40 m/s rover | 3 of 11 runs, 0.03-0.06% of samples |
+| Spike decay | 0.79 per 33 ms sample | 8.63 → 7.11 → 5.92 … |
+| `map→odom` correction | 12 mm median every 0.27 s | 2,029 jumps |
+| Worst `map→odom` jump | **6.14 m** | AMCL converging confidently wrong |
+
+The simulator reproduces the **observation**, never the pipeline. There is no
+EKF in sim: `TwistEstimator` reproduces its output characteristics instead,
+which is one stage of calibrated modelling rather than three stages of
+guessing at encoder slip and VIO tracking loss.
+
+Latency is a **delay line, not a first-order lag**, because dead time has no
+response at all for its duration. Each episode redraws it from 1 to 5 control
+periods, since a policy tuned to one latency will not survive the measured
+spread.
+
+### Reward on truth, observation on the estimate
+
+The policy sees the pose localisation would report, including its rare 6 m
+jumps, but is rewarded for where it actually went. Rewarding the estimate
+would teach it to exploit localisation error instead of driving well.
+
+### Depth fused into the scan
+
+Nav2's local costmap uses `observation_sources: scan zed_cloud`, so MPPI
+already sees obstacles the laser cannot. A policy given only the laser would
+be **blind to a class of obstacle its own baseline handles**, making any A/B
+comparison meaningless.
+
+`DepthFan` casts five elevations per azimuth bin from the camera site and
+keeps hits in the costmap's own 0.036 to 0.50 m height band, out to 2.5 m,
+across the ZED's 110 degrees. Verified against a box 1.2 m ahead:
+
+| Obstacle top | Laser | Depth | Who sees it |
+|---|---|---|---|
+| 0.06 m | 3.90 m (the far wall) | 0.95 m | **depth only** |
+| 0.10 m | 3.90 m | 0.80 m | **depth only** |
+| 0.17 m | 3.90 m | 0.80 m | **depth only** |
+| 0.25 m | 0.85 m | 0.80 m | both |
+| 0.50 m | 0.85 m | 0.80 m | both |
+
+The laser plane sits at 0.176 m, so anything shorter is invisible to it.
+Scenarios grow `n_low` obstacles in the 0.06 to 0.15 m band for exactly this
+reason, drawn in orange in the viewer.
+
+Cost: throughput falls from 1,187 to **803 fps**, so 5M steps takes about 104
+minutes rather than 64.
 
 ## The robot model
 
