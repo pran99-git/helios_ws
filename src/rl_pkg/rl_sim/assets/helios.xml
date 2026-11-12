@@ -31,6 +31,16 @@
   -->
   <option timestep="0.004" integrator="implicitfast"/>
 
+  <!-- Offscreen buffer for headless rendering: the 640x480 default is too
+       small for eval/play.py --frames, which is how the rover is inspected
+       over SSH where the interactive viewer has no GL context. -->
+  <visual>
+    <global offwidth="1280" offheight="720"/>
+    <!-- The single overhead light leaves the rover in its own shadow, which
+         makes a recording hard to read. Ambient fill fixes that. -->
+    <headlight ambient="0.45 0.45 0.45" diffuse="0.45 0.45 0.45"/>
+  </visual>
+
   <default>
     <!--
       Visual geoms carry contype and conaffinity 0, so they never enter
@@ -139,6 +149,13 @@
       -->
       <site name="laser" pos="0.05 0 0.100" size="0.01" rgba="1 0 0 1"/>
       <site name="zed_mount" pos="0.106 0 0.050" size="0.01" rgba="0 0 1 1"/>
+
+      <!--
+        Chase camera for eval/play.py. Inside the body, so it follows. Sits
+        1.5 m behind and 1.0 m up, looking forward and down at about 33
+        degrees; xyaxes is the camera's right and up in body coordinates.
+      -->
+      <camera name="chase" pos="-1.5 0 1.0" xyaxes="0 -1 0 0.55 0 0.83"/>
     </body>
   </worldbody>
 

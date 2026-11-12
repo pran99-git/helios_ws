@@ -189,6 +189,30 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         """Control period in seconds."""
         return self._dt
 
+    @property
+    def model(self) -> mujoco.MjModel:
+        """The compiled model, for a viewer to render.
+
+        Recompiled on reset when the layout varies, so a viewer must re-read
+        this after every reset rather than holding the first one.
+        """
+        return self._model
+
+    @property
+    def data(self) -> mujoco.MjData:
+        """Current simulation state, for a viewer to render."""
+        return self._data
+
+    @property
+    def route(self) -> list[Pose2D]:
+        """This episode's planned route, for a viewer to draw."""
+        return list(self._route)
+
+    @property
+    def goal(self) -> np.ndarray:
+        """This episode's goal as (x, y) in metres."""
+        return self._goal.copy()
+
     def _scale(self, action: np.ndarray) -> np.ndarray:
         """Map a -1..1 action onto the rover's asymmetric velocity envelope."""
         a = np.clip(np.asarray(action, dtype=np.float64), -1.0, 1.0)

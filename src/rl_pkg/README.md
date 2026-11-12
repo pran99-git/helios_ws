@@ -330,6 +330,44 @@ Hyperparameters live in `train/config/rover_ppo.yaml`, one commented line each.
 `envs/reward.py` is the file to iterate on first; on a task this simple the
 shaping matters more than the hyperparameters.
 
+## Watch it drive
+
+Training itself cannot be watched: it runs 12 subprocess workers, each with
+its own model and episode, so there is no single thing to look at. Watch a
+**checkpoint** instead, which can be done while the run is still going since
+checkpoints land every 250 k steps.
+
+```bash
+cd src/rl_pkg/rl_sim
+
+# on the Jetson's own display
+env -u PYTHONPATH ../../../.venvs/rl_train/bin/python eval/play.py \
+    runs/<run>/best/best_model.zip --scenario cluttered
+
+# over SSH, where there is no GL context: write PNGs instead
+env -u PYTHONPATH MUJOCO_GL=egl ../../../.venvs/rl_train/bin/python \
+    eval/play.py runs/<run>/best/best_model.zip --frames /tmp/frames
+```
+
+Omit the policy argument to watch random actions, which is a quick way to
+confirm a scenario looks right.
+
+The view follows a chase camera on the rover, and the **planned route is drawn
+in green with the goal as a magenta sphere**. Without that the rover just
+appears to wander, since the thing it is rewarded for following is otherwise
+invisible. Obstacle colour encodes which sensor sees it: **red** is tall
+enough for the laser, **orange** is low enough that only the depth fan does.
+
+Each episode prints its outcome, route remaining and cross-track error.
+
+| Flag | |
+|---|---|
+| `--scenario` | Suite name or a map `.yaml`. Defaults to `cluttered` |
+| `--speed` | Multiple of real time in the viewer |
+| `--stride` | Write every Nth frame; 2 gives about 10 fps |
+| `--camera` | Model camera name, or `-1` for a free camera |
+| `--episodes` | How many to run |
+
 ## Related
 
 - [`low_level_control_pkg`](../low_level_control_pkg/README.md): owns
