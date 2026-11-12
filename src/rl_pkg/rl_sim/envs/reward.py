@@ -23,8 +23,12 @@ class RewardWeights:
         progress: Per metre of reduction in distance to the goal. The main
             driver; every other term is a correction to it.
         success: One-off bonus for reaching the goal.
-        collision: One-off penalty for hitting something.
-        time: Charged every control step, so dawdling costs.
+        collision: BASE penalty for hitting something. The progress earned
+            during the episode is forfeited on top of this, so a journey that
+            ends in a crash earns nothing for having got close.
+        time: Charged every control step, so dawdling costs. Deliberately
+            small: a large per-step charge makes ending the episode early a
+            way to save money, which rewards crashing.
         clearance: Penalty as the nearest obstacle approaches `danger`.
         jerk: Penalty on change in commanded twist, per unit change.
         strafe: Extra penalty on lateral velocity, since mecanum rollers
@@ -34,8 +38,8 @@ class RewardWeights:
 
     progress: float = 1.00
     success: float = 10.00
-    collision: float = -10.00
-    time: float = -0.01
+    collision: float = -20.00
+    time: float = -0.004
     clearance: float = -0.50
     jerk: float = -0.02
     strafe: float = -0.05
@@ -57,6 +61,7 @@ def step_reward(
     previous_twist: np.ndarray,
     reached: bool,
     collided: bool,
+    earned_progress: float = 0.0,
     weights: RewardWeights = DEFAULT_WEIGHTS,
     danger: float = DANGER_RANGE,
 ) -> tuple[float, dict[str, float]]:
@@ -67,6 +72,11 @@ def step_reward(
     getting anywhere. This mirrors the fix already made in vla_bridge's
     progress monitor.
 
+    A collision forfeits the progress earned so far on top of the base
+    penalty. Without that, progress banks incrementally and a crash near the
+    goal keeps its credit, which made crashing score better than stalling:
+    -4.16 against -12.50 for a 10 m goal under the previous weights.
+
     Args:
         previous_distance: Distance to the goal before the step, in metres.
         distance: Distance to the goal after the step, in metres.
@@ -75,6 +85,8 @@ def step_reward(
         previous_twist: Twist applied the step before.
         reached: Whether the goal was reached this step.
         collided: Whether contact occurred this step.
+        earned_progress: Total progress reward credited this episode so far,
+            forfeited if `collided`. Ignored otherwise.
         weights: Term coefficients.
         danger: Range at which the clearance penalty begins, in metres.
 
@@ -97,6 +109,6 @@ def step_reward(
     if reached:
         terms["success"] = weights.success
     if collided:
-        terms["collision"] = weights.collision
+        terms["collision"] = weights.collision - max(earned_progress, 0.0)
 
     return float(sum(terms.values())), terms

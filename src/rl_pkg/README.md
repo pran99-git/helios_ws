@@ -134,6 +134,47 @@ Two results worth keeping in mind:
   is unified, so the copy is nearly free and 12 Cortex-A78AE cores lose to the
   iGPU on batched matmuls.
 
+## Route follower, not goal seeker
+
+The policy is trained to follow a **planned route**, not to steer at a distant
+goal. That matches how deployed systems are built, from Waymo to warehouse
+AMRs: a planner finds the route over a map, and the learned part handles local
+driving. It is also what this repo already concluded for the VLA, in
+`feat(vla_pkg): walk a global route instead of a distant goal`.
+
+The reason is not stylistic. A reactive policy steering at a straight-line
+goal bearing drives into any dead end whose mouth faces the goal, and it
+cannot learn otherwise, because "this is a dead end" is nowhere in its
+observation.
+
+Measured on a U-shaped trap, driving from the mouth toward the back wall:
+
+| Rover moves | Straight-line distance left | Route arc left |
+|---|---|---|
+| x = -0.5 m | 2.50 m | 5.97 m |
+| x = +0.6 m | **1.40 m** | **5.97 m** |
+
+Straight-line progress pays **+1.10** for driving into the trap. Route progress
+pays **zero**. That is the whole argument.
+
+`envs/planner.py` supplies the route in sim, by Dijkstra over the occupancy
+grid inflated by the footprint radius, standing in for Nav2's Smac planner.
+About 6 ms per episode on the lab map, and routing costs 2.5% of throughput
+(932 against 956 control steps/s).
+
+### Borrowed geometry, not copied
+
+`envs/route.py` imports `project`, `remaining`, `point_at_arc` and `carrot`
+from **`vla_bridge/subgoal.py`** rather than reimplementing them. Both that
+module and `goal_resolution.py` beside it are ROS-free by design, so they run
+unchanged in the training venv.
+
+One definition of route geometry serves the robot and the simulator, which
+matters because the RL policy follows the same routes `subgoal_walker_node`
+walks. The cost is that training depends on a ROS package's source layout.
+That coupling lives only in `envs/route.py`, and `test_route.py` fails loudly
+if the path moves or ROS leaks into those files.
+
 ## The robot model
 
 `rl_sim/assets/helios.xml` is the same rover RViz shows, in two layers, which is

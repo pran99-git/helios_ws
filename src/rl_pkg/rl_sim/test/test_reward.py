@@ -18,6 +18,7 @@ def _reward(**kwargs: object) -> tuple[float, dict[str, float]]:
         "previous_twist": STILL,
         "reached": False,
         "collided": False,
+        "earned_progress": 0.0,
     }
     defaults.update(kwargs)
     return step_reward(**defaults)  # type: ignore[arg-type]
@@ -57,6 +58,52 @@ def test_collision_penalty_applied_only_on_contact() -> None:
     assert terms["collision"] == pytest.approx(RewardWeights().collision)
     _, terms = _reward(collided=False)
     assert "collision" not in terms
+
+
+def test_collision_forfeits_earned_progress() -> None:
+    """Otherwise a crash near the goal keeps the credit for getting there."""
+    _, near = _reward(collided=True, earned_progress=10.0)
+    _, far = _reward(collided=True, earned_progress=0.0)
+    assert near["collision"] == pytest.approx(RewardWeights().collision - 10.0)
+    assert near["collision"] < far["collision"]
+
+
+def test_forfeit_ignores_negative_earned_progress() -> None:
+    """A net retreat must not buy a cheaper crash."""
+    _, terms = _reward(collided=True, earned_progress=-5.0)
+    assert terms["collision"] == pytest.approx(RewardWeights().collision)
+
+
+def test_earned_progress_ignored_without_a_collision() -> None:
+    _, a = _reward(earned_progress=0.0)
+    _, b = _reward(earned_progress=99.0)
+    assert a == b
+
+
+def test_crashing_scores_worse_than_stalling() -> None:
+    """The ordering that matters: crash < stall < success, at any distance.
+
+    Before the forfeit rule a crash at the goal beat a full-episode stall,
+    -4.16 against -12.50, because progress banked incrementally.
+    """
+    w = RewardWeights()
+    dt, limit = 0.048, 60.0
+    steps = int(limit / dt)
+
+    def total(distance: float, seconds: float, outcome: str) -> float:
+        n = int(seconds / dt)
+        value = w.progress * distance + w.time * n
+        if outcome == "success":
+            value += w.success
+        if outcome == "crash":
+            value += w.collision - distance
+        return value
+
+    stall = total(0.0, limit, "none")
+    assert total(10.0, 20.0, "crash") < stall
+    assert total(0.2, 1.0, "crash") < stall
+    assert stall < total(10.0, 50.0, "success")
+    assert w.time * steps > w.collision  # the stall must not dominate a crash
 
 
 def test_clearance_penalty_is_off_beyond_danger_range() -> None:

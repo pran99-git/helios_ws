@@ -17,7 +17,8 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
-from envs.occupancy import OccupancyGrid, load_ros_map
+from envs.occupancy import OccupancyGrid, from_obstacles, load_ros_map
+from envs.planner import GridPlanner
 
 MODEL = Path(__file__).resolve().parent.parent / "assets" / "helios.xml"
 
@@ -85,6 +86,7 @@ class Scenario:
 
 _GRIDS: dict[Path, OccupancyGrid] = {}
 _FREE: dict[tuple[Path, float], np.ndarray] = {}
+_PLANNERS: dict[tuple[Path, float], GridPlanner] = {}
 
 
 def grid_for(scenario: Scenario) -> OccupancyGrid:
@@ -135,6 +137,37 @@ def free_space(scenario: Scenario, clearance: float) -> np.ndarray:
             )
         _FREE[key] = free
     return _FREE[key]
+
+
+def planner_for(
+    scenario: Scenario,
+    obstacles: tuple[Obstacle, ...],
+    clearance: float = FOOTPRINT_RADIUS,
+) -> GridPlanner:
+    """Build the route planner for this episode's layout.
+
+    Cached for map scenarios, whose geometry never changes. A synthetic
+    scenario with random obstacles has to rebuild, since the layout is new
+    every reset.
+
+    Args:
+        scenario: The task definition.
+        obstacles: This episode's obstacles, ignored for a map scenario.
+        clearance: Distance the rover's centre keeps from walls, in metres.
+
+    Returns:
+        A planner over the traversable cells.
+    """
+    if scenario.map_yaml is not None:
+        key = (scenario.map_yaml, clearance)
+        if key not in _PLANNERS:
+            _PLANNERS[key] = GridPlanner(grid_for(scenario), clearance)
+        return _PLANNERS[key]
+
+    boxes = [
+        (ob.pos[0], ob.pos[1], ob.half_extent[0], ob.half_extent[1]) for ob in obstacles
+    ]
+    return GridPlanner(from_obstacles(scenario.bounds, boxes), clearance)
 
 
 def build_from_map(scenario: Scenario) -> mujoco.MjModel:

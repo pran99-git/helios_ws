@@ -145,6 +145,44 @@ class OccupancyGrid:
         )
 
 
+def from_obstacles(
+    bounds: tuple[float, float],
+    boxes: list[tuple[float, float, float, float]],
+    resolution: float = 0.05,
+) -> OccupancyGrid:
+    """Rasterise a synthetic scenario into a grid.
+
+    Lets generated scenarios and saved maps share one planner and one route
+    representation, rather than the route only working on real maps.
+
+    Args:
+        bounds: Half extents of the room as (x, y) in metres.
+        boxes: Obstacles as (centre_x, centre_y, half_x, half_y) in metres.
+        resolution: Metres per cell.
+
+    Returns:
+        A grid whose border cells are occupied, matching the walls that
+        `scenarios.build` puts around a synthetic room.
+    """
+    half_x, half_y = bounds
+    cols = int(np.ceil(2.0 * half_x / resolution)) + 1
+    rows = int(np.ceil(2.0 * half_y / resolution)) + 1
+    occupied = np.zeros((rows, cols), bool)
+    occupied[0, :] = occupied[-1, :] = True
+    occupied[:, 0] = occupied[:, -1] = True
+
+    # Cell centres, so a box marks every cell whose centre it contains.
+    ys, xs = np.mgrid[0:rows, 0:cols]
+    world_x = -half_x + xs * resolution
+    world_y = -half_y + (rows - 1 - ys) * resolution
+    for cx, cy, hx, hy in boxes:
+        occupied |= (np.abs(world_x - cx) <= hx) & (np.abs(world_y - cy) <= hy)
+
+    return OccupancyGrid(
+        occupied=occupied, resolution=resolution, origin=(-half_x, -half_y)
+    )
+
+
 def load_ros_map(path: Path, unknown_is_occupied: bool = True) -> OccupancyGrid:
     """Read a map_server `.yaml` and its image.
 
