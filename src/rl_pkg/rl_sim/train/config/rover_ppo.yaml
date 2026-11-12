@@ -26,8 +26,10 @@ run:
   device: "cuda"
 
 eval:
-  every: 50000               # control steps between evaluations
-  episodes: 20               # episodes per evaluation; 20 keeps noise sane
+  every: 100000              # control steps between evaluations
+  # 20 episodes every 50 k was costing about 28% of total compute, since
+  # eval runs single-threaded and episodes reach ~1,100 steps.
+  episodes: 10
   # DELIBERATELY NOT the training scenario. Evaluating on a layout the policy
   # never trains on is the only way to see memorisation happen: if training
   # reward climbs while this stays flat, the policy is learning the lab's
@@ -57,7 +59,10 @@ ppo:
   gamma: 0.99                # discount; ~100-step horizon at 48 ms is ~4.8 s
   gae_lambda: 0.95           # advantage smoothing
   clip_range: 0.2            # PPO trust region on the policy ratio
-  ent_coef: 0.005            # entropy bonus; nonzero so it keeps exploring
+  # Zero, which is SB3's default. At 0.005 and with a flat reward landscape
+  # there was nothing opposing the bonus, so action noise grew from std 1.0
+  # to 4.7 over 3.5 M steps and the policy ended noisier than it began.
+  ent_coef: 0.0
   vf_coef: 0.5               # value loss weight
   max_grad_norm: 0.5         # gradient clipping
   net_arch: [256, 256]       # hidden layers, shared by policy and value

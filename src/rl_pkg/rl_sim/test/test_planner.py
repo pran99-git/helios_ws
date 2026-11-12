@@ -63,8 +63,14 @@ def test_driving_into_the_trap_earns_no_route_progress(trap: GridPlanner) -> Non
     assert straight_after < straight_before - 1.0
 
 
-def test_unreachable_goal_raises() -> None:
-    """A sealed box around the goal must fail loudly, not plan through it."""
+def test_sealed_region_is_excluded_from_the_reachable_set() -> None:
+    """Rather than failing to plan, a walled-off pocket is never sampled.
+
+    The planner keeps only the largest connected component, so a start and a
+    goal drawn from `free_world` always have a route. Before that filter,
+    episodes were being generated with no plannable route at all and reset
+    raised after twenty redraws.
+    """
     walls = [
         (2.0, 0.0, 0.1, 0.8),
         (1.0, 0.0, 0.1, 0.8),
@@ -72,8 +78,21 @@ def test_unreachable_goal_raises() -> None:
         (1.5, -0.8, 0.6, 0.1),
     ]
     planner = GridPlanner(from_obstacles((3.0, 3.0), walls), FOOTPRINT)
-    with pytest.raises(RuntimeError, match="unreachable"):
-        planner.plan(np.array([-2.0, 0.0]), np.array([1.5, 0.0]))
+    inside = np.array([1.5, 0.0])
+    assert len(planner.free_world) > 0
+    nearest = np.min(np.linalg.norm(planner.free_world - inside, axis=1))
+    assert nearest > 0.3, "the sealed pocket must not be offered as a pose"
+
+
+def test_every_sampled_pair_is_plannable() -> None:
+    """The property the component filter exists to guarantee."""
+    planner = GridPlanner(from_obstacles((3.0, 3.0), U_TRAP), FOOTPRINT)
+    rng = np.random.default_rng(0)
+    free = planner.free_world
+    for _ in range(25):
+        a = free[rng.integers(len(free))]
+        b = free[rng.integers(len(free))]
+        assert len(planner.plan(a, b)) >= 2
 
 
 def test_route_keeps_clear_of_obstacles(trap: GridPlanner) -> None:

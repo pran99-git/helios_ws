@@ -134,6 +134,21 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         self._depth = DepthFan(self._model, "zed_mount", "base_link", self._spec)
         self._nominal_mass = float(self._model.body_mass[1])
 
+        # Looked up by name, never assumed. helios.xml lists hinge_z first so
+        # the slides act in the body frame, which makes qpos order [yaw, x, y]
+        # rather than the [x, y, yaw] a positional index would assume.
+        self._adr = {
+            name: int(
+                self._model.jnt_qposadr[
+                    mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_JOINT, name)
+                ]
+            )
+            for name in ("slide_x", "slide_y", "hinge_z")
+        }
+        self._base = mujoco.mj_name2id(
+            self._model, mujoco.mjtObj.mjOBJ_BODY, "base_link"
+        )
+
         self._dt = self._model.opt.timestep * decimation
         self._rate = RateLimiter(self._limits, self._dt)
         self._delay = CommandDelay(self._hardware.delay_steps[0])
@@ -152,7 +167,6 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         self._route_length = 0.0
         self._previous_remaining = 0.0
         self._previous_twist = np.zeros(3)
-        self._earned_progress = 0.0
         self._elapsed = 0.0
         # Normaliser for the goal-distance observation: the longest journey
         # possible in this world.
@@ -169,6 +183,33 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
             1.0,
             (self._spec.beams + 2 * len(LOOKAHEADS) + 7,),
             dtype=np.float32,
+        )
+
+    def _true_pose(self) -> np.ndarray:
+        """Ground-truth world [x, y, yaw].
+
+        Position comes from `xpos`, NOT from the slide joints. With the hinge
+        ahead of them the slides translate along a ROTATED axis, so their
+        qpos values are body-frame displacements and only agree with world
+        coordinates at zero yaw. Reading them as world position sends the
+        rover apparently off the map while it is really driving in circles.
+        """
+        return np.array(
+            [
+                self._data.xpos[self._base][0],
+                self._data.xpos[self._base][1],
+                self._data.qpos[self._adr["hinge_z"]],
+            ]
+        )
+
+    def _true_twist(self) -> np.ndarray:
+        """Ground-truth body twist [vx, vy, wz], read by joint name.
+
+        Body frame, not world, because the slides sit inside the hinge.
+        """
+        v = self._data.qvel
+        return np.array(
+            [v[self._adr["slide_x"]], v[self._adr["slide_y"]], v[self._adr["hinge_z"]]]
         )
 
     def _compile(self, layout: tuple[scenarios.Obstacle, ...]) -> mujoco.MjModel:
@@ -311,29 +352,28 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
                 self._rng.uniform(1.0 - spread, 1.0 + spread)
             )
 
-        start = scenarios.sample_pose(self._scenario, layout, self._rng)
+        # Both drawn from the planner's reachable set, so a route always
+        # exists between them and no retry loop is needed.
+        planner = scenarios.planner_for(self._scenario, layout)
+        start = scenarios.sample_pose(planner, self._rng)
         for _ in range(100):
-            self._goal = scenarios.sample_pose(self._scenario, layout, self._rng)
+            self._goal = scenarios.sample_pose(planner, self._rng)
             if np.linalg.norm(self._goal - start) >= self._scenario.min_goal_distance:
                 break
 
         # The route is what the policy is rewarded for following, so a
         # scenario the planner cannot solve is not a usable episode. Redraw
         # rather than train on an impossible one.
-        planner = scenarios.planner_for(self._scenario, layout)
-        for _ in range(20):
-            try:
-                self._route = planner.plan(start, self._goal)
-                break
-            except RuntimeError:
-                self._goal = scenarios.sample_pose(self._scenario, layout, self._rng)
-        else:
-            raise RuntimeError(
-                f"no reachable goal in {self._scenario.name} after 20 draws"
-            )
+        self._route = planner.plan(start, self._goal)
         self._route_length = route_length(self._route)
 
-        self._data.qpos[:] = [start[0], start[1], self._rng.uniform(-np.pi, np.pi)]
+        yaw = float(self._rng.uniform(-np.pi, np.pi))
+        # World position is Rz(yaw) applied to the slide coordinates, so a
+        # start pose has to be rotated INTO the joint frame before it is set.
+        cos_yaw, sin_yaw = np.cos(-yaw), np.sin(-yaw)
+        self._data.qpos[self._adr["hinge_z"]] = yaw
+        self._data.qpos[self._adr["slide_x"]] = cos_yaw * start[0] - sin_yaw * start[1]
+        self._data.qpos[self._adr["slide_y"]] = sin_yaw * start[0] + cos_yaw * start[1]
         self._data.qvel[:] = 0.0
         self._rate.reset()
         # Transport delay is redrawn per episode: a policy tuned to one
@@ -349,13 +389,12 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         self._pose_estimator.reset()
         self._measured_twist = np.zeros(3)
         self._previous_twist = np.zeros(3)
-        self._earned_progress = 0.0
         self._elapsed = 0.0
         mujoco.mj_forward(self._model, self._data)
 
         arc = project(self._route, float(start[0]), float(start[1])).arc
         self._previous_remaining = max(0.0, self._route_length - arc)
-        estimated = self._pose_estimator.estimate(np.asarray(self._data.qpos))
+        estimated = self._pose_estimator.estimate(self._true_pose())
         return self._observe(self._sense(), estimated), {
             "goal": self._goal.copy(),
             "route_length": self._route_length,
@@ -387,14 +426,13 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
             collided = collided or self._collided()
 
         self._elapsed += self._dt
-        self._measured_twist = self._twist_estimator.estimate(
-            np.asarray(self._data.qvel)
-        )
-        estimated = self._pose_estimator.estimate(np.asarray(self._data.qpos))
+        self._measured_twist = self._twist_estimator.estimate(self._true_twist())
+        truth = self._true_pose()
+        estimated = self._pose_estimator.estimate(truth)
 
         # Truth, for the reward.
-        x, y = float(self._data.qpos[0]), float(self._data.qpos[1])
-        distance = float(np.linalg.norm(self._goal - self._data.qpos[:2]))
+        x, y = float(truth[0]), float(truth[1])
+        distance = float(np.linalg.norm(self._goal - truth[:2]))
         ranges = self._sense()
         nearest = float(ranges.min())
         reached = distance <= self._scenario.goal_tolerance
@@ -414,14 +452,9 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
             previous_twist=self._previous_twist,
             reached=reached,
             collided=collided,
-            earned_progress=self._earned_progress,
             weights=self._weights,
         )
 
-        # Tracked so a collision can forfeit it. Only the positive part
-        # accumulates: retreating already costs through the progress term and
-        # should not also buy a cheaper crash later.
-        self._earned_progress += max(terms["progress"], 0.0)
         self._previous_remaining = left
         self._previous_twist = twist
         truncated = self._elapsed >= self._scenario.time_limit
@@ -434,7 +467,7 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
             "is_success": reached,
             "collided": collided,
             "localisation_lost": self._pose_estimator.lost,
-            "pose_error": float(np.linalg.norm(estimated[:2] - self._data.qpos[:2])),
+            "pose_error": float(np.linalg.norm(estimated[:2] - truth[:2])),
             "reward_terms": terms,
         }
         return (

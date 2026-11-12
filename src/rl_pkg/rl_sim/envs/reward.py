@@ -23,9 +23,10 @@ class RewardWeights:
         progress: Per metre of reduction in distance to the goal. The main
             driver; every other term is a correction to it.
         success: One-off bonus for reaching the goal.
-        collision: BASE penalty for hitting something. The progress earned
-            during the episode is forfeited on top of this, so a journey that
-            ends in a crash earns nothing for having got close.
+        collision: Penalty for hitting something. Large enough on its own
+            that no crash outscores a stall, so progress is NOT clawed back:
+            see step_reward for why clawing it back stops the policy
+            learning at all.
         time: Charged every control step, so dawdling costs. Deliberately
             small: a large per-step charge makes ending the episode early a
             way to save money, which rewards crashing.
@@ -73,7 +74,6 @@ def step_reward(
     previous_twist: np.ndarray,
     reached: bool,
     collided: bool,
-    earned_progress: float = 0.0,
     weights: RewardWeights = DEFAULT_WEIGHTS,
     danger: float = DANGER_RANGE,
 ) -> tuple[float, dict[str, float]]:
@@ -84,10 +84,17 @@ def step_reward(
     getting anywhere. This mirrors the fix already made in vla_bridge's
     progress monitor.
 
-    A collision forfeits the progress earned so far on top of the base
-    penalty. Without that, progress banks incrementally and a crash near the
-    goal keeps its credit, which made crashing score better than stalling:
-    -4.16 against -12.50 for a 10 m goal under the previous weights.
+    Progress is NOT clawed back on a collision, and that matters more than
+    it looks. Early in training essentially every episode ends in a crash, so
+    refunding the progress deletes the dense signal in exactly the regime
+    that needs it: a 3.7 m route scored -21.66 for driving 3 m then crashing
+    against -20.08 for crashing immediately, making the fastest crash the
+    best available outcome. A 3.5 M step run under that rule never once
+    succeeded and its action noise quadrupled.
+
+    Crashing still loses to stalling, which was the point of the large
+    penalty: -18.66 against -7.50 on that same route. The smaller per-step
+    time charge is what buys that, so the two must be changed together.
 
     Args:
         previous_distance: Distance to the goal before the step, in metres.
@@ -97,8 +104,6 @@ def step_reward(
         previous_twist: Twist applied the step before.
         reached: Whether the goal was reached this step.
         collided: Whether contact occurred this step.
-        earned_progress: Total progress reward credited this episode so far,
-            forfeited if `collided`. Ignored otherwise.
         weights: Term coefficients.
         danger: Range at which the clearance penalty begins, in metres.
 
@@ -121,6 +126,6 @@ def step_reward(
     if reached:
         terms["success"] = weights.success
     if collided:
-        terms["collision"] = weights.collision - max(earned_progress, 0.0)
+        terms["collision"] = weights.collision
 
     return float(sum(terms.values())), terms

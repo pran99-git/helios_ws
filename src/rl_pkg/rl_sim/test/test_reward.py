@@ -18,7 +18,6 @@ def _reward(**kwargs: object) -> tuple[float, dict[str, float]]:
         "previous_twist": STILL,
         "reached": False,
         "collided": False,
-        "earned_progress": 0.0,
     }
     defaults.update(kwargs)
     return step_reward(**defaults)  # type: ignore[arg-type]
@@ -60,50 +59,51 @@ def test_collision_penalty_applied_only_on_contact() -> None:
     assert "collision" not in terms
 
 
-def test_collision_forfeits_earned_progress() -> None:
-    """Otherwise a crash near the goal keeps the credit for getting there."""
-    _, near = _reward(collided=True, earned_progress=10.0)
-    _, far = _reward(collided=True, earned_progress=0.0)
-    assert near["collision"] == pytest.approx(RewardWeights().collision - 10.0)
-    assert near["collision"] < far["collision"]
-
-
-def test_forfeit_ignores_negative_earned_progress() -> None:
-    """A net retreat must not buy a cheaper crash."""
-    _, terms = _reward(collided=True, earned_progress=-5.0)
+def test_collision_penalty_is_flat() -> None:
+    """Progress is NOT clawed back; see test_progress_pays_even_on_a_crash."""
+    _, terms = _reward(collided=True, previous_distance=9.0, distance=1.0)
     assert terms["collision"] == pytest.approx(RewardWeights().collision)
 
 
-def test_earned_progress_ignored_without_a_collision() -> None:
-    _, a = _reward(earned_progress=0.0)
-    _, b = _reward(earned_progress=99.0)
-    assert a == b
-
-
-def test_crashing_scores_worse_than_stalling() -> None:
-    """The ordering that matters: crash < stall < success, at any distance.
-
-    Before the forfeit rule a crash at the goal beat a full-episode stall,
-    -4.16 against -12.50, because progress banked incrementally.
-    """
+def _episode(progress: float, seconds: float, outcome: str) -> float:
+    """Total return for a journey, using the real weights."""
     w = RewardWeights()
-    dt, limit = 0.048, 60.0
-    steps = int(limit / dt)
+    dt = 0.048
+    value = w.progress * progress + w.time * int(seconds / dt)
+    if outcome == "success":
+        value += w.success
+    if outcome == "crash":
+        value += w.collision
+    return value
 
-    def total(distance: float, seconds: float, outcome: str) -> float:
-        n = int(seconds / dt)
-        value = w.progress * distance + w.time * n
-        if outcome == "success":
-            value += w.success
-        if outcome == "crash":
-            value += w.collision - distance
-        return value
 
-    stall = total(0.0, limit, "none")
-    assert total(10.0, 20.0, "crash") < stall
-    assert total(0.2, 1.0, "crash") < stall
-    assert stall < total(10.0, 50.0, "success")
-    assert w.time * steps > w.collision  # the stall must not dominate a crash
+def test_progress_pays_even_on_a_crash() -> None:
+    """The signal PPO actually learns from, early on.
+
+    Almost every early episode ends in a collision, so if progress is
+    refunded at the end the landscape is flat and nothing is learnable. A
+    3.5 M step run with the refund in place never once reached a goal and
+    its action noise quadrupled.
+    """
+    assert _episode(3.0, 20.0, "crash") > _episode(0.0, 1.0, "crash")
+    assert _episode(3.0, 20.0, "crash") > _episode(1.0, 8.0, "crash")
+
+
+def test_crashing_still_scores_worse_than_stalling() -> None:
+    """What the large collision penalty is for, kept without the refund."""
+    stall = _episode(0.0, 90.0, "none")
+    assert _episode(3.0, 20.0, "crash") < stall
+    assert _episode(0.0, 1.0, "crash") < stall
+    assert stall < _episode(3.7, 15.0, "success")
+
+
+def test_reaching_beats_every_alternative() -> None:
+    best_failure = max(
+        _episode(0.0, 90.0, "none"),
+        _episode(3.0, 20.0, "crash"),
+        _episode(3.7, 15.0, "crash"),
+    )
+    assert _episode(3.7, 15.0, "success") > best_failure
 
 
 def test_clearance_penalty_is_off_beyond_danger_range() -> None:

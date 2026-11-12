@@ -22,10 +22,18 @@ from envs.planner import GridPlanner
 
 MODEL = Path(__file__).resolve().parent.parent / "assets" / "helios.xml"
 
-#: Half the diagonal of the 0.38 x 0.38 footprint. Anything closer than this
-#: to an obstacle centre is already in contact, so starts and goals are kept
-#: outside it with a margin.
+#: Half the diagonal of the 0.38 x 0.38 footprint. At exactly this distance
+#: the rover is already touching, whatever its heading.
 FOOTPRINT_RADIUS: float = 0.269
+
+#: Clearance the planner and the start/goal sampler both keep, in metres.
+#:
+#: navigation_pkg's inflation_radius, 1.7x the circumscribed radius. Planning
+#: at the bare FOOTPRINT_RADIUS leaves ZERO tracking margin: a route may pass
+#: exactly as close as the rover is wide, so any cross-track error at all is a
+#: collision. Measured with a pure-pursuit baseline, which drifted 0.6 m off
+#: route and hit a wall every time.
+PLANNING_CLEARANCE: float = 0.45
 
 
 @dataclass(frozen=True)
@@ -99,7 +107,6 @@ class Scenario:
 
 
 _GRIDS: dict[Path, OccupancyGrid] = {}
-_FREE: dict[tuple[Path, float], np.ndarray] = {}
 _PLANNERS: dict[tuple[Path, float], GridPlanner] = {}
 
 
@@ -122,41 +129,10 @@ def grid_for(scenario: Scenario) -> OccupancyGrid:
     return _GRIDS[scenario.map_yaml]
 
 
-def free_space(scenario: Scenario, clearance: float) -> np.ndarray:
-    """Cache the map positions where the rover fits.
-
-    The distance transform behind this costs tens of milliseconds, far too
-    much to repeat on every reset.
-
-    Args:
-        scenario: Must have `map_yaml` set.
-        clearance: Required distance from any wall, in metres.
-
-    Returns:
-        An (n, 2) array of world positions.
-
-    Raises:
-        RuntimeError: If no cell is that clear, which means the clearance
-            exceeds the room's narrowest passage.
-    """
-    grid = grid_for(scenario)
-    assert scenario.map_yaml is not None
-    key = (scenario.map_yaml, clearance)
-    if key not in _FREE:
-        free = grid.free_positions(clearance)
-        if len(free) == 0:
-            raise RuntimeError(
-                f"{scenario.map_yaml.name} has no space with {clearance:.2f} m "
-                "clearance; the rover does not fit anywhere in this map"
-            )
-        _FREE[key] = free
-    return _FREE[key]
-
-
 def planner_for(
     scenario: Scenario,
     obstacles: tuple[Obstacle, ...],
-    clearance: float = FOOTPRINT_RADIUS,
+    clearance: float = PLANNING_CLEARANCE,
 ) -> GridPlanner:
     """Build the route planner for this episode's layout.
 
@@ -297,52 +273,29 @@ def sample_obstacles(
     return (*scenario.obstacles, *extra)
 
 
-def sample_pose(
-    scenario: Scenario,
-    obstacles: tuple[Obstacle, ...],
-    rng: np.random.Generator,
-    clearance: float = 0.15,
-    attempts: int = 200,
-) -> np.ndarray:
-    """Draw a collision-free (x, y) inside the room.
+def sample_pose(planner: GridPlanner, rng: np.random.Generator) -> np.ndarray:
+    """Draw a reachable (x, y) the rover fits at.
+
+    Drawn from the planner's own reachable set rather than from raw
+    clearance, so a start and a goal are always connected by a route. At a
+    realistic clearance the clear cells fragment into pockets, and sampling
+    across two of them produced episodes with no plannable route at all.
 
     Args:
-        scenario: Supplies the room bounds.
-        obstacles: Obstacles to stay clear of.
+        planner: Supplies the reachable cells for this layout.
         rng: Source of randomness.
-        clearance: Margin beyond the footprint radius, in metres.
-        attempts: Draws to try before giving up.
 
     Returns:
-        A free position as (x, y).
+        A reachable position as (x, y).
 
     Raises:
-        RuntimeError: If no free position is found, which means the room is
-            too crowded for the scenario to be solvable.
+        RuntimeError: If the layout has no reachable cell, which means the
+            rover does not fit anywhere in it.
     """
-    need = FOOTPRINT_RADIUS + clearance
-    if scenario.map_yaml is not None:
-        # A map's free space is sparse and oddly shaped, so rejection sampling
-        # over a bounding box would mostly miss. Draw from the precomputed
-        # free cells instead.
-        free = free_space(scenario, need)
-        return np.asarray(free[rng.integers(len(free))], dtype=np.float64)
-
-    half_x, half_y = scenario.bounds
-    edge = FOOTPRINT_RADIUS + clearance
-    for _ in range(attempts):
-        point = np.array(
-            [
-                rng.uniform(-half_x + edge, half_x - edge),
-                rng.uniform(-half_y + edge, half_y - edge),
-            ]
-        )
-        if all(ob.clearance_to(point) >= need for ob in obstacles):
-            return point
-    raise RuntimeError(
-        f"no free pose in {scenario.name} after {attempts} attempts; "
-        "reduce n_random or enlarge bounds"
-    )
+    free = planner.free_world
+    if len(free) == 0:
+        raise RuntimeError("no reachable cell in this layout; the rover does not fit")
+    return np.asarray(free[rng.integers(len(free))], dtype=np.float64)
 
 
 def map_scenario(

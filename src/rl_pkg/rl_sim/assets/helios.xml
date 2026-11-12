@@ -106,9 +106,20 @@
       -->
       <inertial pos="0 0 0" mass="7.0" diaginertia="0.05 0.08 0.10"/>
 
+      <!--
+        ORDER MATTERS AND IS NOT COSMETIC. MuJoCo composes a body's joints in
+        the order listed, so the hinge must come FIRST for the slides to act
+        in the body frame. Listed the other way round the slides translate in
+        the WORLD frame: facing +90 degrees, a commanded "forward" of 0.40
+        moves +x instead of +y, and the action space stops meaning body twist
+        at all. test_frames.py guards this.
+
+        Note this also sets the qpos/qvel order to [yaw, x, y], which is why
+        the env looks addresses up by joint name instead of indexing 0,1,2.
+      -->
+      <joint name="hinge_z" type="hinge" axis="0 0 1"/>
       <joint name="slide_x" type="slide" axis="1 0 0"/>
       <joint name="slide_y" type="slide" axis="0 1 0"/>
-      <joint name="hinge_z" type="hinge" axis="0 0 1"/>
 
       <!--
         The only colliding geom. 0.19 half-extents match navigation_pkg's

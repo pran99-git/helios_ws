@@ -12,7 +12,7 @@ search itself.
 from __future__ import annotations
 
 import numpy as np
-from scipy.ndimage import distance_transform_edt
+from scipy.ndimage import distance_transform_edt, label
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import dijkstra
 
@@ -50,7 +50,20 @@ class GridPlanner:
         # Padded so the array border reads as wall; see OccupancyGrid for why.
         padded = np.pad(grid.occupied, 1, constant_values=True)
         distance = np.asarray(distance_transform_edt(~padded))[1:-1, 1:-1]
-        self._free = distance * grid.resolution >= clearance
+        clear = distance * grid.resolution >= clearance
+
+        # Keep only the LARGEST connected component. At a realistic clearance
+        # the clear cells break into pockets the rover cannot drive between,
+        # and sampling a start and a goal in different pockets makes an
+        # unplannable episode. 8-connectivity matches the planner's own
+        # neighbour set, so anything reachable on the graph is in here.
+        components, count = label(clear, structure=np.ones((3, 3), dtype=int))
+        if count:
+            sizes = np.bincount(components.ravel())
+            sizes[0] = 0
+            self._free = components == int(np.argmax(sizes))
+        else:
+            self._free = clear
 
         index = -np.ones((rows, cols), dtype=np.int64)
         free_rc = np.argwhere(self._free)
@@ -92,8 +105,17 @@ class GridPlanner:
 
     @property
     def traversable(self) -> np.ndarray:
-        """Boolean grid of cells whose centre the rover can occupy."""
+        """Boolean grid of cells the rover can occupy AND reach."""
         return self._free
+
+    @property
+    def free_world(self) -> np.ndarray:
+        """World (x, y) of every reachable cell, for sampling poses.
+
+        Drawing starts and goals from here rather than from raw clearance
+        guarantees a route exists between any two of them.
+        """
+        return self._world
 
     def _nearest_node(self, point: np.ndarray) -> int:
         """Index of the traversable cell closest to a world position."""
