@@ -164,16 +164,25 @@ def _step(env: RoverEnv, predict, obs: np.ndarray) -> tuple:
 
 
 def _watch(env: RoverEnv, predict, args: argparse.Namespace) -> int:
-    """Drive in the interactive viewer."""
+    """Drive in the interactive viewer, one viewer per episode.
+
+    The viewer binds to the MjModel and MjData it is handed. A scenario with
+    random obstacles recompiles both on every reset, so a viewer opened once
+    would render the FIRST episode's world forever while the env stepped a
+    different one, and segfault when the old structs were collected out from
+    under its render thread. Opening it per episode keeps it bound to the
+    model actually being stepped.
+    """
     import mujoco.viewer
 
-    obs, info = env.reset(seed=args.seed)
-    with mujoco.viewer.launch_passive(env.model, env.data) as viewer:
-        for episode in range(args.episodes):
-            obs, info = env.reset(seed=args.seed + episode)
+    for episode in range(args.episodes):
+        obs, _info = env.reset(seed=args.seed + episode)
+        # Held for the whole episode so the render thread cannot outlive them.
+        model, data = env.model, env.data
+        steps = 0
+        with mujoco.viewer.launch_passive(model, data) as viewer:
             viewer.user_scn.ngeom = 0
             draw_route(viewer.user_scn, env.route, env.goal)
-            steps = 0
             while viewer.is_running():
                 started = time.perf_counter()
                 obs, _reward, terminated, truncated, info = _step(env, predict, obs)
@@ -189,8 +198,8 @@ def _watch(env: RoverEnv, predict, args: argparse.Namespace) -> int:
                 lag = env.dt / args.speed - (time.perf_counter() - started)
                 if lag > 0:
                     time.sleep(lag)
-            if not viewer.is_running():
-                break
+            else:
+                return 0  # the window was closed
     return 0
 
 
