@@ -124,8 +124,9 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         self._hardware = hardware or HardwareModel()
         self._rng = np.random.default_rng(seed)
 
-        # Compiled once with the scenario's fixed layout, to learn the model's
-        # dimensions and timing. Reset recompiles only when the layout changes.
+        # Compiled ONCE for the whole lifetime of the env. Reset repositions
+        # obstacles in place rather than rebuilding, so every handle below
+        # stays valid and a viewer can follow the env across episodes.
         self._from_map = self._scenario.map_yaml is not None
         layout = scenarios.sample_obstacles(self._scenario, self._rng)
         self._model = self._compile(layout)
@@ -148,6 +149,19 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         self._base = mujoco.mj_name2id(
             self._model, mujoco.mjtObj.mjOBJ_BODY, "base_link"
         )
+        # Obstacle handles, cached once. A scenario's obstacle COUNT is fixed
+        # (scenario.obstacles + n_random + n_low), so only their poses and
+        # sizes vary per episode, and both are mutable on a compiled model.
+        self._obstacle_bodies = [
+            mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, f"obstacle_{i}")
+            for i in range(len(layout))
+        ]
+        self._obstacle_geoms = [
+            mujoco.mj_name2id(
+                self._model, mujoco.mjtObj.mjOBJ_GEOM, f"obstacle_{i}_geom"
+            )
+            for i in range(len(layout))
+        ]
 
         self._dt = self._model.opt.timestep * decimation
         self._rate = RateLimiter(self._limits, self._dt)
@@ -184,6 +198,32 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
             (self._spec.beams + 2 * len(LOOKAHEADS) + 7,),
             dtype=np.float32,
         )
+
+    def _place_obstacles(self, layout: tuple[scenarios.Obstacle, ...]) -> None:
+        """Move this episode's obstacles without recompiling the model.
+
+        Writing `body_pos` and `geom_size` is enough: the obstacles are
+        static bodies, so `mj_forward` derives their world poses from those
+        fields. Mutating `geom_pos` instead does nothing, because a geom's
+        position is relative to its body.
+
+        Recompiling cost 35 ms per reset and, worse, handed back a NEW
+        MjModel and MjData every episode, which no viewer can follow. This
+        costs nothing measurable and keeps one model alive for the whole run.
+
+        Args:
+            layout: This episode's obstacles, same length as at construction.
+        """
+        for body, geom, ob in zip(
+            self._obstacle_bodies, self._obstacle_geoms, layout, strict=True
+        ):
+            half_z = ob.top / 2.0
+            self._model.body_pos[body] = [ob.pos[0], ob.pos[1], half_z]
+            self._model.geom_size[geom] = [
+                ob.half_extent[0],
+                ob.half_extent[1],
+                half_z,
+            ]
 
     def _true_pose(self) -> np.ndarray:
         """Ground-truth world [x, y, yaw].
@@ -337,14 +377,9 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
             self._rng = np.random.default_rng(seed)
 
         layout = scenarios.sample_obstacles(self._scenario, self._rng)
-        if self._scenario.n_random and not self._from_map:
-            # Only recompile when the layout actually varies; a fixed scenario
-            # reuses the model and resets state, which is far cheaper.
-            self._model = self._compile(layout)
-            self._data = mujoco.MjData(self._model)
-            self._lidar = Lidar(self._model, "laser", "base_link", self._spec)
-        else:
-            mujoco.mj_resetData(self._model, self._data)
+        mujoco.mj_resetData(self._model, self._data)
+        if self._obstacle_bodies:
+            self._place_obstacles(layout)
 
         if self._mass_randomisation > 0.0:
             spread = self._mass_randomisation

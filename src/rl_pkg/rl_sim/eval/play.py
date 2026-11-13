@@ -18,6 +18,7 @@ Press Tab for the UI panels.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from itertools import pairwise
@@ -164,43 +165,67 @@ def _step(env: RoverEnv, predict, obs: np.ndarray) -> tuple:
 
 
 def _watch(env: RoverEnv, predict, args: argparse.Namespace) -> int:
-    """Drive in the interactive viewer, one viewer per episode.
+    """Drive every episode in ONE viewer window.
 
-    The viewer binds to the MjModel and MjData it is handed. A scenario with
-    random obstacles recompiles both on every reset, so a viewer opened once
-    would render the FIRST episode's world forever while the env stepped a
-    different one, and segfault when the old structs were collected out from
-    under its render thread. Opening it per episode keeps it bound to the
-    model actually being stepped.
+    The env compiles its model once and repositions obstacles in place, so
+    the MjModel and MjData handed to the viewer stay valid for the whole run
+    and the window does not have to be reopened per episode.
+
+    Args:
+        env: The environment to drive.
+        predict: Maps an observation to an action.
+        args: Parsed command line, for episode count and playback speed.
+
+    Returns:
+        Process exit status.
     """
     import mujoco.viewer
 
-    for episode in range(args.episodes):
-        obs, _info = env.reset(seed=args.seed + episode)
-        # Held for the whole episode so the render thread cannot outlive them.
-        model, data = env.model, env.data
-        steps = 0
-        with mujoco.viewer.launch_passive(model, data) as viewer:
+    obs, _info = env.reset(seed=args.seed)
+    results: list[tuple[int, str]] = []
+    with mujoco.viewer.launch_passive(env.model, env.data) as viewer:
+        for episode in range(args.episodes):
+            if episode:
+                obs, _info = env.reset(seed=args.seed + episode)
+            # Redrawn per episode: the route and goal are new each time.
             viewer.user_scn.ngeom = 0
             draw_route(viewer.user_scn, env.route, env.goal)
+            steps = 0
             while viewer.is_running():
                 started = time.perf_counter()
                 obs, _reward, terminated, truncated, info = _step(env, predict, obs)
                 steps += 1
                 viewer.sync()
                 if terminated or truncated:
-                    print(
-                        f"  episode {episode}: {steps} steps, "
-                        f"{_outcome(info, truncated)}"
-                    )
+                    outcome = _outcome(info, truncated)
+                    print(f"  episode {episode}: {steps} steps, {outcome}")
+                    results.append((steps, outcome))
                     break
                 # Pace to wall clock so the motion is readable.
                 lag = env.dt / args.speed - (time.perf_counter() - started)
                 if lag > 0:
                     time.sleep(lag)
-            else:
-                return 0  # the window was closed
+            if not viewer.is_running():
+                print("  window closed")
+                break
+
+    _summarise(results)
     return 0
+
+
+def _summarise(results: list[tuple[int, str]]) -> None:
+    """Print a tally, so a long run does not have to be read line by line."""
+    if not results:
+        return
+    wins = sum("SUCCESS" in o for _, o in results)
+    crashes = sum("COLLISION" in o for _, o in results)
+    timeouts = sum("timeout" in o for _, o in results)
+    mean = sum(s for s, _ in results) / len(results)
+    print(
+        f"\n  {len(results)} episodes: {wins} success, {crashes} collision, "
+        f"{timeouts} timeout  ({100 * wins / len(results):.0f}% success, "
+        f"mean {mean:.0f} steps)"
+    )
 
 
 def _record(env: RoverEnv, predict, args: argparse.Namespace) -> int:
@@ -237,4 +262,13 @@ def _save(pixels: np.ndarray, path: Path) -> None:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    status = main()
+    # MuJoCo's passive viewer leaves a render thread that does not join before
+    # interpreter teardown on aarch64, and it faults on memory freed out from
+    # under it. Reproduced with a single viewer over a model that never
+    # changes, so it is not about this script's model handling. Exiting
+    # without teardown avoids the race; everything this tool produces is
+    # already written and flushed by here.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(status)
