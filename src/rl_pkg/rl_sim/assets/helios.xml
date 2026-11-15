@@ -107,19 +107,22 @@
       <inertial pos="0 0 0" mass="7.0" diaginertia="0.05 0.08 0.10"/>
 
       <!--
-        ORDER MATTERS AND IS NOT COSMETIC. MuJoCo composes a body's joints in
-        the order listed, so the hinge must come FIRST for the slides to act
-        in the body frame. Listed the other way round the slides translate in
-        the WORLD frame: facing +90 degrees, a commanded "forward" of 0.40
-        moves +x instead of +y, and the action space stops meaning body twist
-        at all. test_frames.py guards this.
+        WORLD-FRAME SLIDES, hinge last. MuJoCo composes a body's joints in
+        the order listed, so putting the hinge first expresses the slides in
+        the rotating frame: world position becomes Rz(yaw) applied to the
+        slide coordinates, and the body ORBITS the origin whenever it turns.
+        Measured at 2 m out, a pure rotation with zero forward command moved
+        it 2.54 m. The policy learned not to turn, correctly.
 
-        Note this also sets the qpos/qvel order to [yaw, x, y], which is why
-        the env looks addresses up by joint name instead of indexing 0,1,2.
+        The slides therefore stay in the world frame and rover_env rotates
+        the commanded body twist into world coordinates before applying it,
+        and rotates the measured velocity back. test_frames.py checks a
+        rotation away from the origin, which is what the old order passed
+        only because every test started at (0, 0).
       -->
-      <joint name="hinge_z" type="hinge" axis="0 0 1"/>
       <joint name="slide_x" type="slide" axis="1 0 0"/>
       <joint name="slide_y" type="slide" axis="0 1 0"/>
+      <joint name="hinge_z" type="hinge" axis="0 0 1"/>
 
       <!--
         The only colliding geom. 0.19 half-extents match navigation_pkg's
@@ -194,15 +197,20 @@
     through serial, the RoboClaw PID and the EKF, which is a delay buffer and
     not a first-order lag, and it needs to be randomisable.
 
-    ctrlrange is the real envelope from navigation_pkg/config/nav2_params.yaml.
-    vy is 0.10 and not 0.40 on purpose: mecanum rollers lose far more to slip
-    sideways than forward, so the rover drives nose-first and strafes only as
-    a fine correction. Training with a free 0.40 m/s strafe teaches a policy
-    to crab in a way the hardware cannot follow.
+    ctrlrange spans the WORLD-frame envelope, not the body one. The slides
+    are world axes, so a body command of "full forward" lands entirely on
+    the y actuator at yaw 90 degrees; per-axis body limits here would clip it
+    to the lateral ceiling and the rover would crawl sideways.
+
+    The real envelope from navigation_pkg -- forward 0.40, lateral a fine
+    correction, yaw 0.80 -- is enforced by RateLimiter in the body frame
+    BEFORE the rotation, which is also where velocity_smoother sits on the
+    rover. These bounds only need to be wide enough to realise any command
+    that survives it.
   -->
   <actuator>
-    <velocity name="vx" joint="slide_x" kv="800" ctrlrange="-0.35 0.40"/>
-    <velocity name="vy" joint="slide_y" kv="800" ctrlrange="-0.10 0.10"/>
+    <velocity name="vx" joint="slide_x" kv="800" ctrlrange="-0.40 0.40"/>
+    <velocity name="vy" joint="slide_y" kv="800" ctrlrange="-0.40 0.40"/>
     <velocity name="wz" joint="hinge_z" kv="160" ctrlrange="-0.80 0.80"/>
   </actuator>
 </mujoco>

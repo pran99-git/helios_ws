@@ -135,9 +135,8 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         self._depth = DepthFan(self._model, "zed_mount", "base_link", self._spec)
         self._nominal_mass = float(self._model.body_mass[1])
 
-        # Looked up by name, never assumed. helios.xml lists hinge_z first so
-        # the slides act in the body frame, which makes qpos order [yaw, x, y]
-        # rather than the [x, y, yaw] a positional index would assume.
+        # Looked up by name, never assumed: the joint order in helios.xml is
+        # load-bearing and has changed once already.
         self._adr = {
             name: int(
                 self._model.jnt_qposadr[
@@ -244,13 +243,41 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         )
 
     def _true_twist(self) -> np.ndarray:
-        """Ground-truth body twist [vx, vy, wz], read by joint name.
+        """Ground-truth BODY twist [vx, vy, wz].
 
-        Body frame, not world, because the slides sit inside the hinge.
+        The slides are world-frame, so their velocities are rotated back
+        through the current yaw. Body frame is what `/cmd_vel` carries and
+        what the observation needs.
         """
         v = self._data.qvel
+        world = np.array([v[self._adr["slide_x"]], v[self._adr["slide_y"]]])
+        yaw = float(self._data.qpos[self._adr["hinge_z"]])
+        cos_yaw, sin_yaw = np.cos(-yaw), np.sin(-yaw)
         return np.array(
-            [v[self._adr["slide_x"]], v[self._adr["slide_y"]], v[self._adr["hinge_z"]]]
+            [
+                cos_yaw * world[0] - sin_yaw * world[1],
+                sin_yaw * world[0] + cos_yaw * world[1],
+                v[self._adr["hinge_z"]],
+            ]
+        )
+
+    def _to_world(self, body_twist: np.ndarray) -> np.ndarray:
+        """Rotate a body twist into the world frame the slides act in.
+
+        Args:
+            body_twist: [vx, vy, wz] in the rover's own frame.
+
+        Returns:
+            The same command with its linear part expressed in world axes.
+        """
+        yaw = float(self._data.qpos[self._adr["hinge_z"]])
+        cos_yaw, sin_yaw = np.cos(yaw), np.sin(yaw)
+        return np.array(
+            [
+                cos_yaw * body_twist[0] - sin_yaw * body_twist[1],
+                sin_yaw * body_twist[0] + cos_yaw * body_twist[1],
+                body_twist[2],
+            ]
         )
 
     def _compile(self, layout: tuple[scenarios.Obstacle, ...]) -> mujoco.MjModel:
@@ -414,13 +441,10 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         self._route = planner.plan(start, self._goal)
         self._route_length = route_length(self._route)
 
-        yaw = float(self._rng.uniform(-np.pi, np.pi))
-        # World position is Rz(yaw) applied to the slide coordinates, so a
-        # start pose has to be rotated INTO the joint frame before it is set.
-        cos_yaw, sin_yaw = np.cos(-yaw), np.sin(-yaw)
-        self._data.qpos[self._adr["hinge_z"]] = yaw
-        self._data.qpos[self._adr["slide_x"]] = cos_yaw * start[0] - sin_yaw * start[1]
-        self._data.qpos[self._adr["slide_y"]] = sin_yaw * start[0] + cos_yaw * start[1]
+        # The slides are world axes, so a start pose is written directly.
+        self._data.qpos[self._adr["hinge_z"]] = self._rng.uniform(-np.pi, np.pi)
+        self._data.qpos[self._adr["slide_x"]] = start[0]
+        self._data.qpos[self._adr["slide_y"]] = start[1]
         self._data.qvel[:] = 0.0
         self._rate.reset()
         # Transport delay is redrawn per episode: a policy tuned to one
@@ -464,7 +488,10 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         # the command crosses serial and the RoboClaw PID, which is the delay.
         clipped = np.clip(np.asarray(action, dtype=np.float64), -1.0, 1.0)
         twist = self._rate.step(self._scale(clipped))
-        self._data.ctrl[:] = self._delay.push(twist)
+        # Rate limiting and the transport delay both act on the BODY command,
+        # as they do on the real rover; only the final actuator write is in
+        # world axes, because that is the frame the slides move in.
+        self._data.ctrl[:] = self._to_world(self._delay.push(twist))
 
         collided = False
         for _ in range(self._decimation):

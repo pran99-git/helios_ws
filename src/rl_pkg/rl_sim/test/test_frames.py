@@ -33,82 +33,62 @@ def addresses(model: mujoco.MjModel) -> dict[str, int]:
     }
 
 
-def test_hinge_is_declared_before_the_slides(model: mujoco.MjModel) -> None:
-    """Joint ORDER is what puts the slides in the body frame."""
+def test_slides_are_declared_before_the_hinge(model: mujoco.MjModel) -> None:
+    """Joint ORDER decides which frame the slides live in.
+
+    Hinge first expresses them in the rotating frame, which makes world
+    position Rz(yaw) applied to the slide coordinates and orbits the body
+    around the origin whenever it turns.
+    """
     names = [
         mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, j)
         for j in range(model.njnt)
     ]
-    assert names.index("hinge_z") < names.index("slide_x")
-    assert names.index("hinge_z") < names.index("slide_y")
+    assert names.index("slide_x") < names.index("hinge_z")
+    assert names.index("slide_y") < names.index("hinge_z")
 
 
-@pytest.mark.parametrize(
-    ("yaw_deg", "axis", "sign"),
-    [(0.0, 0, +1), (90.0, 1, +1), (180.0, 0, -1), (-90.0, 1, -1)],
-)
-def test_forward_follows_the_heading(
-    model: mujoco.MjModel, yaw_deg: float, axis: int, sign: int
-) -> None:
-    """Commanding vx must move the rover along its own nose, not world +x."""
-    data = mujoco.MjData(model)
-    adr = addresses(model)
+def test_model_actuators_are_world_axes(model: mujoco.MjModel) -> None:
+    """At the MODEL level the slides are world axes, whatever the heading.
+
+    Turning a body twist into world axes is rover_env's job, not the
+    model's; test_forward_follows_the_nose_away_from_the_origin covers that
+    half.
+    """
     body = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base_link")
-    data.qpos[adr["hinge_z"]] = np.deg2rad(yaw_deg)
-    mujoco.mj_forward(model, data)
-    start = data.xpos[body][:2].copy()
-
-    data.ctrl[:] = [0.40, 0.0, 0.0]
-    for _ in range(400):
-        mujoco.mj_step(model, data)
-
-    moved = data.xpos[body][:2] - start
-    assert sign * moved[axis] > 0.3, f"expected travel along axis {axis}"
-    assert abs(moved[1 - axis]) < 0.05, "should not drift sideways"
-
-
-def test_strafe_is_perpendicular_to_the_nose(model: mujoco.MjModel) -> None:
-    data = mujoco.MjData(model)
     adr = addresses(model)
-    body = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base_link")
-    data.qpos[adr["hinge_z"]] = np.deg2rad(90.0)
-    mujoco.mj_forward(model, data)
-    start = data.xpos[body][:2].copy()
-
-    data.ctrl[:] = [0.0, 0.10, 0.0]
-    for _ in range(600):
-        mujoco.mj_step(model, data)
-
-    moved = data.xpos[body][:2] - start
-    # Facing +y, a left strafe goes to world -x.
-    assert moved[0] < -0.1
-    assert abs(moved[1]) < 0.05
+    for yaw_deg in (0.0, 90.0, -135.0):
+        data = mujoco.MjData(model)
+        data.qpos[adr["hinge_z"]] = np.deg2rad(yaw_deg)
+        mujoco.mj_forward(model, data)
+        start = data.xpos[body][:2].copy()
+        data.ctrl[:] = [0.40, 0.0, 0.0]
+        for _ in range(400):
+            mujoco.mj_step(model, data)
+        moved = data.xpos[body][:2] - start
+        assert moved[0] > 0.3, "the x actuator must drive world +x"
+        assert abs(moved[1]) < 0.05
 
 
-def test_env_reports_world_position_not_joint_coordinates() -> None:
-    """`xpos`, never the slide qpos.
+def test_env_reports_the_composed_world_transform() -> None:
+    """`_true_pose` reads xpos, which is right whatever the joint ordering.
 
-    With the hinge first the slide coordinates are displacements along a
-    ROTATED axis. Reading them as world x and y made the rover appear to fly
-    off the map while it was really driving in circles.
+    The slide qpos happen to agree with it under world-frame slides, but
+    only up to integration lag, and they stop agreeing entirely if the
+    joint order ever changes again.
     """
     env = RoverEnv(scenario=scenarios.Scenario(bounds=(8.0, 8.0)), seed=0)
     env.reset(seed=0)
-    adr = addresses(env.model)
     body = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_BODY, "base_link")
 
     for _ in range(50):
         env.step(np.array([1.0, 0.0, 0.3], dtype=np.float32))
 
-    reported = env._true_pose()
-    assert reported[:2] == pytest.approx(env.data.xpos[body][:2], abs=1e-9)
-    # And it must NOT be the raw joint values, once yaw is non-zero.
-    joints = np.array([env.data.qpos[adr["slide_x"]], env.data.qpos[adr["slide_y"]]])
-    assert not np.allclose(reported[:2], joints, atol=1e-3)
+    assert env._true_pose()[:2] == pytest.approx(env.data.xpos[body][:2], abs=1e-9)
 
 
 def test_start_pose_lands_where_it_was_asked_to() -> None:
-    """Setting a start has to rotate INTO the joint frame."""
+    """The rover must begin the episode on the route the planner built."""
     env = RoverEnv(scenario=scenarios.Scenario(bounds=(8.0, 8.0)), seed=1)
     for seed in range(20):
         env.reset(seed=seed)
@@ -119,7 +99,11 @@ def test_start_pose_lands_where_it_was_asked_to() -> None:
 
 
 def test_measured_twist_is_body_frame() -> None:
-    """qvel on the slides is already body twist, which the observation wants."""
+    """The slides are world axes, so the reported twist is rotated back.
+
+    The observation and /cmd_vel are both body frame; reporting world
+    velocity would make the policy's own last command unrecognisable to it.
+    """
     env = RoverEnv(scenario=scenarios.Scenario(bounds=(8.0, 8.0)), seed=2)
     env.reset(seed=3)
     for _ in range(80):
@@ -154,3 +138,60 @@ def test_the_same_seed_gives_the_same_episode() -> None:
     first = rollout(7)
     rng = np.random.default_rng(0)
     assert rollout(7) == pytest.approx(first)
+
+
+def _place(env: RoverEnv, x: float, y: float, yaw_deg: float) -> None:
+    """Put the rover somewhere specific, with no command history."""
+    adr = addresses(env.model)
+    env.data.qpos[:] = 0.0
+    env.data.qvel[:] = 0.0
+    env.data.qpos[adr["slide_x"]] = x
+    env.data.qpos[adr["slide_y"]] = y
+    env.data.qpos[adr["hinge_z"]] = np.deg2rad(yaw_deg)
+    mujoco.mj_forward(env.model, env.data)
+    env._rate.reset()
+    env._delay.reset()
+
+
+@pytest.mark.parametrize(("x", "y"), [(0.0, 0.0), (2.0, 0.0), (3.0, 1.0), (-2.5, 2.0)])
+def test_rotating_does_not_move_the_rover(x: float, y: float) -> None:
+    """The bug every other frame test missed by starting at the origin.
+
+    With the hinge ahead of the slides, a pure rotation 2 m out moved the
+    body 2.54 m. The policy then learned never to turn, which was correct:
+    turning flung it across the arena into obstacles.
+    """
+    env = RoverEnv(scenario=scenarios.Scenario(bounds=(20.0, 20.0)), seed=0)
+    env.reset(seed=0)
+    _place(env, x, y, 0.0)
+    before = env._true_pose().copy()
+    for _ in range(40):
+        env.step(np.array([0.0, 0.0, 1.0], dtype=np.float32))
+    after = env._true_pose()
+    assert abs(after[2] - before[2]) > 0.5, "it should actually have turned"
+    assert np.linalg.norm(after[:2] - before[:2]) < 0.01
+
+
+@pytest.mark.parametrize(
+    ("yaw_deg", "axis", "sign"),
+    [(0.0, 0, +1), (90.0, 1, +1), (180.0, 0, -1), (-90.0, 1, -1)],
+)
+def test_forward_follows_the_nose_away_from_the_origin(
+    yaw_deg: float, axis: int, sign: int
+) -> None:
+    """Same claim as the model-level test, but through the env and off-origin.
+
+    Catches the other half: world-frame slides need the command rotated into
+    world axes, and actuator limits wide enough to realise it. Body limits on
+    world axes clipped full forward at yaw 90 to the lateral ceiling.
+    """
+    env = RoverEnv(scenario=scenarios.Scenario(bounds=(20.0, 20.0)), seed=0)
+    env.reset(seed=0)
+    _place(env, 2.0, -1.0, yaw_deg)
+    before = env._true_pose().copy()
+    for _ in range(40):
+        env.step(np.array([1.0, 0.0, 0.0], dtype=np.float32))
+    moved = env._true_pose()[:2] - before[:2]
+    assert sign * moved[axis] > 0.5
+    assert abs(moved[1 - axis]) < 0.05
+    assert env._true_twist()[0] > 0.35, "body vx must reach the real limit"
