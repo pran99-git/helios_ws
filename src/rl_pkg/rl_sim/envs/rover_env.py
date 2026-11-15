@@ -180,7 +180,7 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         self._route: list[Pose2D] = []
         self._route_length = 0.0
         self._previous_remaining = 0.0
-        self._previous_twist = np.zeros(3)
+        self._previous_action = np.zeros(3)
         self._elapsed = 0.0
         # Normaliser for the goal-distance observation: the longest journey
         # possible in this world.
@@ -423,7 +423,7 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         self._twist_estimator.reset()
         self._pose_estimator.reset()
         self._measured_twist = np.zeros(3)
-        self._previous_twist = np.zeros(3)
+        self._previous_action = np.zeros(3)
         self._elapsed = 0.0
         mujoco.mj_forward(self._model, self._data)
 
@@ -450,7 +450,8 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         """
         # Order matches the real path: the smoother runs on the Jetson, then
         # the command crosses serial and the RoboClaw PID, which is the delay.
-        twist = self._rate.step(self._scale(action))
+        clipped = np.clip(np.asarray(action, dtype=np.float64), -1.0, 1.0)
+        twist = self._rate.step(self._scale(clipped))
         self._data.ctrl[:] = self._delay.push(twist)
 
         collided = False
@@ -484,14 +485,15 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
             distance=left,
             nearest_obstacle=nearest,
             twist=twist,
-            previous_twist=self._previous_twist,
+            action=clipped,
+            previous_action=self._previous_action,
             reached=reached,
             collided=collided,
             weights=self._weights,
         )
 
         self._previous_remaining = left
-        self._previous_twist = twist
+        self._previous_action = clipped
         truncated = self._elapsed >= self._scenario.time_limit
 
         info: dict[str, Any] = {

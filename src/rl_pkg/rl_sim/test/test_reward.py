@@ -15,7 +15,8 @@ def _reward(**kwargs: object) -> tuple[float, dict[str, float]]:
         "distance": 2.0,
         "nearest_obstacle": 10.0,
         "twist": STILL,
-        "previous_twist": STILL,
+        "action": STILL,
+        "previous_action": STILL,
         "reached": False,
         "collided": False,
     }
@@ -154,19 +155,31 @@ def test_clearance_penalty_is_continuous_at_the_boundary() -> None:
 
 def test_jerk_penalises_changing_the_command() -> None:
     _, steady = _reward(
-        twist=np.array([0.4, 0, 0]), previous_twist=np.array([0.4, 0, 0])
+        action=np.array([0.4, 0, 0]), previous_action=np.array([0.4, 0, 0])
     )
     _, jumpy = _reward(
-        twist=np.array([0.4, 0, 0]), previous_twist=np.array([-0.3, 0, 0])
+        action=np.array([0.4, 0, 0]), previous_action=np.array([-0.3, 0, 0])
     )
     assert jumpy["jerk"] < steady["jerk"]
     assert steady["jerk"] == pytest.approx(0.0)
 
 
+def test_jerk_reads_the_raw_action_not_the_limited_twist() -> None:
+    """The limiter caps the twist's step, so measuring there sees almost none
+    of the thrashing: 0.062 against 0.376 per step on a trained policy."""
+    _, terms = _reward(
+        twist=STILL,
+        action=np.array([1.0, 0.0, 0.0]),
+        previous_action=np.array([-1.0, 0.0, 0.0]),
+    )
+    assert terms["jerk"] == pytest.approx(2.0 * RewardWeights().jerk)
+
+
 def test_strafing_costs_more_than_driving_forward() -> None:
-    _, forward = _reward(twist=np.array([0.1, 0.0, 0.0]))
-    _, sideways = _reward(twist=np.array([0.0, 0.1, 0.0]))
+    _, forward = _reward(action=np.array([0.5, 0.0, 0.0]))
+    _, sideways = _reward(action=np.array([0.0, 0.5, 0.0]))
     assert sideways["strafe"] < forward["strafe"]
+    assert forward["strafe"] == pytest.approx(0.0)
 
 
 def test_total_is_the_sum_of_terms() -> None:
@@ -174,7 +187,7 @@ def test_total_is_the_sum_of_terms() -> None:
         previous_distance=3.0,
         distance=2.0,
         nearest_obstacle=0.2,
-        twist=np.array([0.2, 0.05, 0.1]),
+        action=np.array([0.2, 0.05, 0.1]),
         reached=True,
     )
     assert total == pytest.approx(sum(terms.values()))
