@@ -86,7 +86,10 @@ class Scenario:
             so they are exactly the class of obstacle the ZED exists to catch.
         goal_tolerance: Distance at which the goal counts as reached.
         min_goal_distance: Shortest start-to-goal distance worth training on.
-        time_limit: Episode cap in seconds.
+        time_limit: Episode cap in seconds. Short on purpose: a 4 m route
+            at 0.40 m/s takes about 10 s, and at 90 s the 7% of episodes
+            that stalled ran to 1,875 steps and consumed roughly half of
+            all simulated steps.
         map_yaml: A saved slam_toolbox map to use as the world instead of
             `bounds` and `obstacles`. When set, geometry comes from the real
             room and starts and goals are drawn from its free cells.
@@ -102,7 +105,7 @@ class Scenario:
     low_top: tuple[float, float] = (0.06, 0.15)
     goal_tolerance: float = 0.25
     min_goal_distance: float = 1.5
-    time_limit: float = 60.0
+    time_limit: float = 40.0
     map_yaml: Path | None = None
 
 
@@ -301,7 +304,7 @@ def sample_pose(planner: GridPlanner, rng: np.random.Generator) -> np.ndarray:
 def map_scenario(
     yaml_path: Path,
     name: str | None = None,
-    time_limit: float = 90.0,
+    time_limit: float = 60.0,
     min_goal_distance: float = 2.0,
 ) -> Scenario:
     """Build a scenario from a saved slam_toolbox map.
@@ -312,7 +315,10 @@ def map_scenario(
     Args:
         yaml_path: The map_server `.yaml`, with its `.pgm` beside it.
         name: Scenario name. Defaults to the map's filename stem.
-        time_limit: Episode cap in seconds. Longer than the synthetic
+        time_limit: Episode cap in seconds. Short on purpose: a 4 m route
+            at 0.40 m/s takes about 10 s, and at 90 s the 7% of episodes
+            that stalled ran to 1,875 steps and consumed roughly half of
+            all simulated steps. Longer than the synthetic
             scenarios because a real room is bigger than a 10 m box.
         min_goal_distance: Shortest start-to-goal distance worth training on.
 
@@ -332,7 +338,7 @@ def map_scenario(
 SUITE: tuple[Scenario, ...] = (
     Scenario(name="open_room", n_random=0),
     Scenario(name="sparse", n_random=3, n_low=1),
-    Scenario(name="cluttered", n_random=8, n_low=3, time_limit=90.0),
+    Scenario(name="cluttered", n_random=8, n_low=3, time_limit=60.0),
     Scenario(
         name="corridor",
         bounds=(5.0, 2.0),

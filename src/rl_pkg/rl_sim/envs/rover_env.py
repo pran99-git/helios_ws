@@ -492,6 +492,12 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         projection = project(self._route, x, y)
         left = max(0.0, self._route_length - projection.arc)
 
+        # Observed before the reward is scored: the alignment term needs
+        # the bearing on both sides of the step, and _observe is what
+        # recomputes it.
+        previous_bearing = self._carrot_bearing
+        observation = self._observe(ranges, estimated)
+
         reward, terms = step_reward(
             previous_distance=self._previous_remaining,
             distance=left,
@@ -499,10 +505,11 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
             twist=twist,
             action=clipped,
             previous_action=self._previous_action,
-            # Deliberately last step's bearing: that is the observation the
-            # policy actually chose this action from, so it is what the
-            # action should be judged against.
-            bearing=self._carrot_bearing,
+            # Last step's bearing: that is the observation the policy
+            # actually chose this action from, so it is what the action
+            # should be judged against.
+            bearing=previous_bearing,
+            next_bearing=self._carrot_bearing,
             reached=reached,
             collided=collided,
             weights=self._weights,
@@ -523,10 +530,4 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
             "pose_error": float(np.linalg.norm(estimated[:2] - truth[:2])),
             "reward_terms": terms,
         }
-        return (
-            self._observe(ranges, estimated),
-            reward,
-            reached or collided,
-            truncated,
-            info,
-        )
+        return observation, reward, reached or collided, truncated, info

@@ -37,6 +37,15 @@ class RewardWeights:
             not the rate-limited twist: the limiter already caps the twist's
             step at accel * dt, so measuring there hides most of the
             thrashing and the term cannot shape what the policy does.
+        align: Paid per radian of heading error closed toward the route.
+            The missing half of `misalign`: without it, turning toward the
+            route and standing still score identically, because a rotation
+            closes no route arc and so earns nothing. The policy then has no
+            reason to prefer turning, and measurably did not.
+
+            Telescoping, so it cannot be farmed: summed over an episode it
+            comes to |bearing at the start| - |bearing at the end|, bounded
+            by pi whatever path is taken in between.
         misalign: Penalty for driving forward faster than the rover's
             alignment with the route allows. Without it, arcing around a
             corner always beats rotating to face it, because an arc earns
@@ -54,9 +63,10 @@ class RewardWeights:
     collision: float = -10.00
     time: float = -0.004
     clearance: float = -0.10
+    align: float = 1.00
     misalign: float = -0.10
-    jerk: float = -0.03
-    strafe: float = -0.01
+    jerk: float = -0.015
+    strafe: float = -0.005
 
 
 #: The default coefficients, as a singleton so it is not rebuilt per call.
@@ -83,6 +93,7 @@ def step_reward(
     action: np.ndarray,
     previous_action: np.ndarray,
     bearing: float,
+    next_bearing: float,
     reached: bool,
     collided: bool,
     weights: RewardWeights = DEFAULT_WEIGHTS,
@@ -128,8 +139,10 @@ def step_reward(
             reporting; the smoothness terms read the action instead.
         action: Raw policy output this step, each axis in -1..1.
         previous_action: Raw policy output the step before.
-        bearing: Signed angle from the rover's nose to the route carrot,
-            radians.
+        bearing: Signed angle from the rover's nose to the route carrot
+            BEFORE this step, radians. That is the observation the policy
+            chose this action from.
+        next_bearing: The same angle after the step.
         reached: Whether the goal was reached this step.
         collided: Whether contact occurred this step.
         weights: Term coefficients.
@@ -147,6 +160,10 @@ def step_reward(
     # grows smoothly rather than switching on at a threshold.
     if nearest_obstacle < danger:
         terms["clearance"] = weights.clearance * (1.0 - nearest_obstacle / danger)
+
+    # Closing heading error pays per radian, exactly as closing distance
+    # pays per metre.
+    terms["align"] = weights.align * (abs(bearing) - abs(next_bearing))
 
     # subgoal_walker's own law: forward speed is capped at cos(bearing) of
     # the maximum, so the rover creeps forward only as it comes into line and

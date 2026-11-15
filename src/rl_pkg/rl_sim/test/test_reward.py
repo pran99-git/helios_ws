@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 import numpy as np
 import pytest
 from envs.reward import DANGER_RANGE, RewardWeights, step_reward
@@ -18,6 +20,7 @@ def _reward(**kwargs: object) -> tuple[float, dict[str, float]]:
         "action": STILL,
         "previous_action": STILL,
         "bearing": 0.0,
+        "next_bearing": 0.0,
         "reached": False,
         "collided": False,
     }
@@ -227,3 +230,41 @@ def test_creeping_within_the_cos_law_is_free() -> None:
     """At 60 degrees, cos is 0.5, so half speed is allowed."""
     _, terms = _reward(bearing=np.deg2rad(60), action=np.array([0.49, 0.0, 0.0]))
     assert "misalign" not in terms
+
+
+# ------------------------------------------------------------- align ------
+
+
+def test_turning_toward_the_route_pays() -> None:
+    """The missing half: a rotation closes no route arc, so without this it
+    scores the same as standing still and the policy will not turn."""
+    _, terms = _reward(bearing=np.pi / 2, next_bearing=np.pi / 4)
+    assert terms["align"] == pytest.approx(RewardWeights().align * np.pi / 4)
+
+
+def test_turning_away_from_the_route_costs() -> None:
+    _, terms = _reward(bearing=np.pi / 4, next_bearing=np.pi / 2)
+    assert terms["align"] < 0.0
+
+
+def test_holding_a_heading_earns_nothing() -> None:
+    _, terms = _reward(bearing=1.0, next_bearing=1.0)
+    assert terms["align"] == pytest.approx(0.0)
+
+
+def test_sign_of_the_bearing_does_not_matter() -> None:
+    _, left = _reward(bearing=-np.pi / 2, next_bearing=-np.pi / 4)
+    _, right = _reward(bearing=np.pi / 2, next_bearing=np.pi / 4)
+    assert left["align"] == pytest.approx(right["align"])
+
+
+def test_align_cannot_be_farmed_by_cycling() -> None:
+    """It telescopes, so a loop back to the starting heading nets zero and
+    there is no free reward in oscillating."""
+    w = RewardWeights()
+    path = [0.5, 1.2, 0.3, 0.9, 0.5]
+    total = sum(
+        _reward(bearing=a, next_bearing=b)[1]["align"] for a, b in pairwise(path)
+    )
+    assert total == pytest.approx(0.0, abs=1e-9)
+    assert w.align > 0.0
