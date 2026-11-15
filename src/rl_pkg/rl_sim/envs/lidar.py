@@ -36,21 +36,6 @@ UST10LX_FOV: float = 1.5 * np.pi
 UST10LX_MAX_RANGE: float = 10.0
 UST10LX_MIN_RANGE: float = 0.06
 
-#: Distance the log encoding treats as "touching", metres.
-#:
-#: Not the sensor's 0.06 m floor: the footprint's circumscribed radius is
-#: 0.269 m, so a return nearer than this means the rover is already in
-#: contact and nothing below it is actionable. Basing the scale here instead
-#: spends no input range on distances that cannot be steered out of, and was
-#: the best of the candidates measured on real rollouts:
-#:
-#:     encoding         sd(<2 m)   input change per 5 cm at 0.30 m
-#:     linear / 10        0.051              0.0050
-#:     linear clip 3 m    0.170              0.0167
-#:     log base 0.06      0.097              0.0301
-#:     log base 0.25      0.134              0.0418
-ENCODE_NEAR: float = 0.25
-
 #: Fraction of beams returning nothing, measured over the bags. All of them
 #: came back as 65.533 m, never zero, so min-pooling a real scan is safe.
 UST10LX_DROPOUT: float = 0.0184
@@ -306,35 +291,6 @@ def fuse(scan: np.ndarray, depth: np.ndarray, bins: np.ndarray) -> np.ndarray:
     out = scan.copy()
     out[bins] = np.minimum(out[bins], depth)
     return out
-
-
-def encode(ranges: np.ndarray, spec: LidarSpec) -> np.ndarray:
-    """Scale ranges into 0..1 for the policy, logarithmically.
-
-    Dividing by max_range looks natural and wastes the input. In a 10 m room
-    it gives the 3-10 m band, which no steering decision depends on, 70% of
-    the range, while the 0.25-0.60 m band that decides whether the rover
-    clips an obstacle gets 3.5%. Closing 5 cm at 0.30 m then moves the
-    network's input by 0.005, the same as closing 5 cm at 6 m.
-
-    A log scale based at ENCODE_NEAR spends the range where the decisions
-    are: 8x the sensitivity at 0.30 m, and 2.6x the variation across
-    everything inside 2 m.
-
-    The ROS node MUST apply this same transform, after clamping a no-return
-    to max_range, or the policy sees a different quantity than it trained on.
-
-    Args:
-        ranges: Ranges in metres.
-        spec: Supplies the range bounds the scale is fitted to.
-
-    Returns:
-        Values in 0..1, where 0 is contact range and 1 is open space.
-    """
-    clipped = np.clip(ranges, ENCODE_NEAR, spec.max_range)
-    return (
-        np.log(clipped / ENCODE_NEAR) / np.log(spec.max_range / ENCODE_NEAR)
-    ).astype(np.float32)
 
 
 def apply_dropout(

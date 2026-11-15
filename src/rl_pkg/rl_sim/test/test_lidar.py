@@ -5,7 +5,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from envs.lidar import (
-    ENCODE_NEAR,
     UST10LX_DROPOUT,
     UST10LX_FOV,
     ZED_FOV,
@@ -14,7 +13,6 @@ from envs.lidar import (
     LidarSpec,
     apply_dropout,
     downsample,
-    encode,
     fuse,
 )
 
@@ -142,62 +140,3 @@ def test_dropout_rate_matches_the_measurement() -> None:
 def test_zero_dropout_is_a_passthrough() -> None:
     ranges = np.full(10, 3.0)
     assert apply_dropout(ranges, 0.0, 10.0, np.random.default_rng(2)) is ranges
-
-
-# --------------------------------------------------------------- encode ---
-
-
-def test_encode_spans_zero_to_one() -> None:
-    spec = LidarSpec()
-    assert encode(np.array([ENCODE_NEAR]), spec)[0] == pytest.approx(0.0)
-    assert encode(np.array([spec.max_range]), spec)[0] == pytest.approx(1.0)
-
-
-def test_encode_floors_at_contact_range() -> None:
-    """Below the footprint radius there is nothing left to steer out of."""
-    spec = LidarSpec()
-    assert encode(np.array([0.10]), spec)[0] == pytest.approx(0.0)
-    assert ENCODE_NEAR < 0.269
-
-
-def test_encode_is_monotonic() -> None:
-    spec = LidarSpec()
-    out = encode(np.linspace(ENCODE_NEAR, spec.max_range, 200), spec)
-    assert np.all(np.diff(out) > 0)
-
-
-def test_encode_clamps_out_of_range_input() -> None:
-    spec = LidarSpec()
-    out = encode(np.array([-5.0, 0.0, 65.533, 1e6]), spec)
-    assert np.all(out >= 0.0)
-    assert np.all(out <= 1.0)
-
-
-def test_encode_spends_its_range_where_decisions_are() -> None:
-    """The point of the log scale.
-
-    Linear normalisation gave the 0.20-0.60 m band 4% of the input range
-    against 70% for 3-10 m, so closing 5 cm at 0.30 m moved the network's
-    input exactly as much as closing 5 cm at 6 m. Compared here per
-    centimetre, which is what the ratio actually is.
-    """
-    spec = LidarSpec()
-
-    def e(r: float) -> float:
-        return float(encode(np.array([r]), spec)[0])
-
-    def linear(r: float) -> float:
-        return min(max(r, spec.min_range), spec.max_range) / spec.max_range
-
-    # resolution at the distance a collision is decided at
-    near_log = e(0.35) - e(0.30)
-    near_lin = linear(0.35) - linear(0.30)
-    assert near_log > 5 * near_lin
-
-    # and the same 5 cm far away, where it does not matter, moves it less
-    assert near_log > 5 * (e(6.05) - e(6.00))
-
-    # the collision band gets several times the range it had
-    band_log = e(0.60) - e(0.25)
-    band_lin = linear(0.60) - linear(0.25)
-    assert band_log > 4 * band_lin

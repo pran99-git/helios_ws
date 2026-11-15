@@ -29,7 +29,6 @@ from envs.lidar import (
     Lidar,
     LidarSpec,
     apply_dropout,
-    encode,
     fuse,
 )
 from envs.rate_limit import RateLimiter, VelocityLimits
@@ -53,7 +52,7 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
 
     Observation is one flat vector, which is what SB3's MlpPolicy expects:
 
-        [ fused scan, log scaled  beams values, 1.0 is open space    ]
+        [ fused scan / max_range   beams values, 1.0 is open space    ]
         [ route carrots            2 per lookahead, body frame, /L    ]
         [ remaining route / diag   1 value                            ]
         [ commanded twist          3 values, normalised               ]
@@ -330,7 +329,7 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         Returns:
             The observation vector.
         """
-        scan = encode(ranges, self._spec)
+        scan = (ranges / self._spec.max_range).astype(np.float32)
         x, y, yaw = float(pose[0]), float(pose[1]), float(pose[2])
         arc = project(self._route, x, y).arc
         # World to body is a rotation by -yaw.
