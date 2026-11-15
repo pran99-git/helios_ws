@@ -380,7 +380,13 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         """
         super().reset(seed=seed)
         if seed is not None:
-            self._rng = np.random.default_rng(seed)
+            # Reseeded IN PLACE, not rebound. The twist and pose estimators
+            # hold a reference to this generator from construction, so
+            # assigning a new one here left their noise unseeded and the
+            # same seed produced different episodes.
+            self._rng.bit_generator.state = np.random.default_rng(
+                seed
+            ).bit_generator.state
 
         layout = scenarios.sample_obstacles(self._scenario, self._rng)
         mujoco.mj_resetData(self._model, self._data)

@@ -127,3 +127,30 @@ def test_measured_twist_is_body_frame() -> None:
     twist = env._true_twist()
     assert twist[0] > 0.2, "forward command should show as forward twist"
     assert abs(twist[1]) < 0.05, "no lateral twist was commanded"
+
+
+def test_the_same_seed_gives_the_same_episode() -> None:
+    """Seeding has to reach the hardware model too.
+
+    reset() used to rebind self._rng, but the twist and pose estimators hold
+    the generator they were constructed with, so their noise carried over
+    between episodes and one seed produced different outcomes.
+    """
+    env = RoverEnv(scenario=scenarios.Scenario(bounds=(6.0, 6.0), n_random=3), seed=0)
+    rng = np.random.default_rng(0)
+
+    def rollout(seed: int) -> list[float]:
+        obs, _ = env.reset(seed=seed)
+        trace = [float(obs.sum())]
+        for _ in range(40):
+            obs, reward, term, trunc, _info = env.step(
+                rng.uniform(-1, 1, 3).astype(np.float32)
+            )
+            trace.append(float(obs.sum()) + reward)
+            if term or trunc:
+                break
+        return trace
+
+    first = rollout(7)
+    rng = np.random.default_rng(0)
+    assert rollout(7) == pytest.approx(first)
