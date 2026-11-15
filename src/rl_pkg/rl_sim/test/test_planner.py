@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from envs.occupancy import from_obstacles
 from envs.planner import GridPlanner
-from envs.route import project, route_length
+from envs.route import point_at_arc, project, route_length
 
 FOOTPRINT = 0.269
 
@@ -129,3 +129,35 @@ def test_route_is_usable_by_project(open_room: GridPlanner) -> None:
     projection = project(route, -2.0, 0.0)
     assert projection.arc == pytest.approx(0.0, abs=0.1)
     assert projection.offset == pytest.approx(0.0, abs=0.1)
+
+
+def test_thinning_preserves_the_shape_of_the_route(trap: GridPlanner) -> None:
+    """Thinning must keep the detour, not collapse it to a straight line.
+
+    Comparing each candidate only against its next dense neighbour leaves a
+    deviation of at most a cell width, which never reaches the tolerance, so
+    the whole route collapsed to its two endpoints. An 88 vertex, 5.63 m path
+    around obstacles became a 2 vertex straight line through them.
+    """
+    start, goal = np.array([-0.5, 0.0]), np.array([2.0, 0.0])
+    route = trap.plan(start, goal)
+    straight = float(np.linalg.norm(goal - start))
+    assert len(route) > 2, "a route around a trap cannot be two points"
+    assert route_length(route) > 1.3 * straight
+
+
+def test_thinned_route_keeps_its_clearance(trap: GridPlanner) -> None:
+    """Sampled along its length, not just at the vertices.
+
+    A straightened segment cuts the corner by up to the thinning tolerance,
+    so the whole path has to be checked, not the kept points.
+    """
+    route = trap.plan(np.array([-0.5, 0.0]), np.array([2.0, 0.0]))
+    total = route_length(route)
+    worst = 99.0
+    for arc in np.arange(0.0, total, 0.05):
+        p = point_at_arc(route, float(arc))
+        for cx, cy, hx, hy in U_TRAP:
+            delta = np.array([abs(p.x - cx) - hx, abs(p.y - cy) - hy])
+            worst = min(worst, float(np.linalg.norm(np.maximum(delta, 0.0))))
+    assert worst > FOOTPRINT - 0.05

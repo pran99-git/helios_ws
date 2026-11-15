@@ -225,6 +225,27 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
                 half_z,
             ]
 
+    def _draw_free_pose(
+        self, planner: scenarios.GridPlanner, truth: tuple[scenarios.Obstacle, ...]
+    ) -> np.ndarray:
+        """Draw a pose the planner can route from that is also really clear.
+
+        Args:
+            planner: Supplies the believed-reachable cells.
+            truth: The obstacles actually present.
+
+        Returns:
+            A position clear of the true obstacles, in metres.
+        """
+        need = scenarios.FOOTPRINT_RADIUS + 0.10
+        for _ in range(200):
+            point = scenarios.sample_pose(planner, self._rng)
+            if all(ob.clearance_to(point) >= need for ob in truth):
+                return point
+        # Every draw was blocked by something unmapped, which means the
+        # staleness is set too high for this layout to be startable.
+        return point
+
     def _true_pose(self) -> np.ndarray:
         """Ground-truth world [x, y, yaw].
 
@@ -426,12 +447,17 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
                 self._rng.uniform(1.0 - spread, 1.0 + spread)
             )
 
-        # Both drawn from the planner's reachable set, so a route always
-        # exists between them and no retry loop is needed.
-        planner = scenarios.planner_for(self._scenario, layout)
-        start = scenarios.sample_pose(planner, self._rng)
+        # The planner gets the map's BELIEF, which may be stale; MuJoCo has
+        # the truth. The gap between them is the policy's job.
+        believed = scenarios.stale_layout(layout, self._scenario, self._rng)
+        planner = scenarios.planner_for(self._scenario, believed)
+
+        # Poses come from the planner's reachable set so a route always
+        # exists, but must also be clear in TRUTH: a believed-free cell can
+        # be where an unmapped obstacle actually sits.
+        start = self._draw_free_pose(planner, layout)
         for _ in range(100):
-            self._goal = scenarios.sample_pose(planner, self._rng)
+            self._goal = self._draw_free_pose(planner, layout)
             if np.linalg.norm(self._goal - start) >= self._scenario.min_goal_distance:
                 break
 

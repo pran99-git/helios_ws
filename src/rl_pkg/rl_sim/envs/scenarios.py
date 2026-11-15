@@ -90,6 +90,18 @@ class Scenario:
             at 0.40 m/s takes about 10 s, and at 90 s the 7% of episodes
             that stalled ran to 1,875 steps and consumed roughly half of
             all simulated steps.
+        stale_moved: Fraction of obstacles the planner's map places at a
+            STALE position: furniture shifted since the map was built. The
+            route goes cleanly around where each one used to be, and the
+            rover meets it somewhere else.
+        stale_move_range: How far a stale obstacle has moved, metres.
+        stale_unmapped: Fraction of obstacles missing from the planner's map
+            altogether: objects that arrived after mapping.
+
+            Together these decide how much of the avoidance the POLICY has
+            to do. At zero the planner routes around everything and
+            following the route blindly succeeds, which is what made the
+            scan decorative: feeding it noise instead cost nothing.
         map_yaml: A saved slam_toolbox map to use as the world instead of
             `bounds` and `obstacles`. When set, geometry comes from the real
             room and starts and goals are drawn from its free cells.
@@ -106,6 +118,9 @@ class Scenario:
     goal_tolerance: float = 0.25
     min_goal_distance: float = 1.5
     time_limit: float = 40.0
+    stale_moved: float = 0.0
+    stale_move_range: tuple[float, float] = (0.5, 1.2)
+    stale_unmapped: float = 0.0
     map_yaml: Path | None = None
 
 
@@ -130,6 +145,60 @@ def grid_for(scenario: Scenario) -> OccupancyGrid:
     if scenario.map_yaml not in _GRIDS:
         _GRIDS[scenario.map_yaml] = load_ros_map(scenario.map_yaml)
     return _GRIDS[scenario.map_yaml]
+
+
+def stale_layout(
+    layout: tuple[Obstacle, ...],
+    scenario: Scenario,
+    rng: np.random.Generator,
+) -> tuple[Obstacle, ...]:
+    """What the planner BELIEVES is there, which is not what is there.
+
+    The planner is never wrong about its own map: it routes around every
+    obstacle it knows, inflated, exactly as Smac2D does. It is the MAP that
+    is out of date. That keeps the route a good guide rather than sending it
+    through the middle of a box, which would put the progress reward and
+    collision avoidance in direct conflict.
+
+    Args:
+        layout: The obstacles actually present.
+        scenario: Supplies the staleness fractions.
+        rng: Source of randomness.
+
+    Returns:
+        The obstacles as the planner's map has them: some displaced, some
+        absent, the rest correct.
+    """
+    if not layout or (scenario.stale_moved <= 0.0 and scenario.stale_unmapped <= 0.0):
+        return layout
+
+    n = len(layout)
+    order = rng.permutation(n)
+    n_unmapped = round(scenario.stale_unmapped * n)
+    n_moved = round(scenario.stale_moved * n)
+    unmapped = set(order[:n_unmapped].tolist())
+    moved = set(order[n_unmapped : n_unmapped + n_moved].tolist())
+
+    believed: list[Obstacle] = []
+    for i, ob in enumerate(layout):
+        if i in unmapped:
+            continue
+        if i in moved:
+            bearing = float(rng.uniform(-np.pi, np.pi))
+            distance = float(rng.uniform(*scenario.stale_move_range))
+            believed.append(
+                Obstacle(
+                    pos=(
+                        ob.pos[0] + distance * np.cos(bearing),
+                        ob.pos[1] + distance * np.sin(bearing),
+                    ),
+                    half_extent=ob.half_extent,
+                    top=ob.top,
+                )
+            )
+        else:
+            believed.append(ob)
+    return tuple(believed)
 
 
 def planner_for(

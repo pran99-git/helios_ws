@@ -11,6 +11,8 @@ search itself.
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 from scipy.ndimage import distance_transform_edt, label
 from scipy.sparse import coo_matrix
@@ -166,16 +168,50 @@ class GridPlanner:
         return _thin(poses)
 
 
-def _thin(poses: list[Pose2D], tolerance: float = 0.05) -> list[Pose2D]:
-    """Drop points that lie on the straight line between their neighbours.
-
-    A cell-by-cell route has a vertex every 5 cm, which makes projection and
-    arc-length needlessly expensive and gives the observation nothing extra.
+def _within(poses: list[Pose2D], first: int, last: int, tolerance: float) -> bool:
+    """Whether every point between two indices lies on the line joining them.
 
     Args:
         poses: The dense route.
-        tolerance: Largest perpendicular deviation to treat as collinear, in
-            metres.
+        first: Index of the line's start.
+        last: Index of the line's end.
+        tolerance: Largest perpendicular deviation allowed, metres.
+
+    Returns:
+        True when the span can be replaced by a single straight segment.
+    """
+    ax, ay = poses[first].x, poses[first].y
+    sx, sy = poses[last].x - ax, poses[last].y - ay
+    length = math.hypot(sx, sy)
+    if length < 1e-9:
+        return True
+    for k in range(first + 1, last):
+        ox, oy = poses[k].x - ax, poses[k].y - ay
+        # Perpendicular distance is the 2D cross product over the span.
+        if abs(sx * oy - sy * ox) / length > tolerance:
+            return False
+    return True
+
+
+def _thin(poses: list[Pose2D], tolerance: float = 0.02) -> list[Pose2D]:
+    """Drop points that lie on the straight line between their neighbours.
+
+    A cell-by-cell route carries a vertex every 5 cm, which makes projection
+    and arc length needlessly expensive and tells the policy nothing extra.
+
+    Each kept point anchors a span that is extended as far as it can go
+    while EVERY intermediate point stays within tolerance of the straight
+    line across it. Comparing only against the next dense neighbour instead
+    is not enough: adjacent cells are 5 cm apart, so the deviation never
+    reaches the tolerance and the whole route collapses to its endpoints. It
+    did exactly that, turning an 88 vertex, 5.63 m path around obstacles
+    into a 2 vertex straight line through them.
+
+    Args:
+        poses: The dense route.
+        tolerance: Largest perpendicular deviation to treat as collinear,
+            in metres. It comes straight off the route's clearance, since a
+            straightened segment cuts the corner by up to this much.
 
     Returns:
         The route with interior collinear points removed. Ends are kept.
@@ -183,21 +219,14 @@ def _thin(poses: list[Pose2D], tolerance: float = 0.05) -> list[Pose2D]:
     if len(poses) <= 2:
         return poses
     out = [poses[0]]
-    for i in range(1, len(poses) - 1):
-        # Measured against the last KEPT point, not the previous dense one, so
-        # a long gentle curve accumulates deviation instead of being thinned
-        # away one imperceptible step at a time.
-        anchor, current, following = out[-1], poses[i], poses[i + 1]
-        span = np.array([following.x - anchor.x, following.y - anchor.y])
-        length = float(np.linalg.norm(span))
-        if length < 1e-9:
-            continue
-        offset = np.array([current.x - anchor.x, current.y - anchor.y])
-        # Perpendicular distance from `current` to the anchor-following line:
-        # the 2D cross product's magnitude over the span length. Written out
-        # because numpy 2 dropped cross() for 2-vectors.
-        deviation = abs(span[0] * offset[1] - span[1] * offset[0]) / length
-        if deviation > tolerance:
-            out.append(current)
-    out.append(poses[-1])
+    anchor = 0
+    while anchor < len(poses) - 1:
+        furthest = anchor + 1
+        for candidate in range(anchor + 2, len(poses)):
+            if _within(poses, anchor, candidate, tolerance):
+                furthest = candidate
+            else:
+                break
+        out.append(poses[furthest])
+        anchor = furthest
     return out
