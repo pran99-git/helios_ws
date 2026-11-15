@@ -32,9 +32,11 @@ run:
 
 eval:
   every: 100000              # control steps between evaluations
-  # 20 episodes every 50 k was costing about 28% of total compute, since
-  # eval runs single-threaded and episodes reach ~1,100 steps.
-  episodes: 10
+  # best_model.zip is chosen on this score, so it has to be quieter than
+  # the thing it is ranking. At 10 the series swung from -8 to +2 between
+  # adjacent evaluations and the pick was partly luck. Episodes are short
+  # enough now that 20 costs about 5% of the run.
+  episodes: 20
   # DELIBERATELY NOT the training scenario. Evaluating on a layout the
   # policy never trains on is the only way to see memorisation happen: if
   # training reward climbs while this stays flat, the policy is learning one
