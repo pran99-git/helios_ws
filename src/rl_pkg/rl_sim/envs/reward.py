@@ -37,11 +37,16 @@ class RewardWeights:
             not the rate-limited twist: the limiter already caps the twist's
             step at accel * dt, so measuring there hides most of the
             thrashing and the term cannot shape what the policy does.
+        misalign: Penalty for driving forward faster than the rover's
+            alignment with the route allows. Without it, arcing around a
+            corner always beats rotating to face it, because an arc earns
+            route progress and a rotation earns none, so the policy learns
+            tight high-speed arcs and never turns on the spot.
         strafe: Penalty on lateral action, since mecanum rollers slip far
             more sideways than forward and the real rover is configured to
-            drive nose-first. On the raw action for the same reason as jerk,
-            which is also why the weight is far below the old twist-based
-            one: the action spans -1..1 where the twist only spans vy_max.
+            drive nose-first. Small, because vy_max of 0.02 already makes
+            strafing nearly a no-op; this only stops the policy spending
+            action range on it.
     """
 
     progress: float = 2.00
@@ -49,8 +54,9 @@ class RewardWeights:
     collision: float = -10.00
     time: float = -0.004
     clearance: float = -0.10
+    misalign: float = -0.10
     jerk: float = -0.03
-    strafe: float = -0.03
+    strafe: float = -0.01
 
 
 #: The default coefficients, as a singleton so it is not rebuilt per call.
@@ -76,6 +82,7 @@ def step_reward(
     twist: np.ndarray,
     action: np.ndarray,
     previous_action: np.ndarray,
+    bearing: float,
     reached: bool,
     collided: bool,
     weights: RewardWeights = DEFAULT_WEIGHTS,
@@ -121,6 +128,8 @@ def step_reward(
             reporting; the smoothness terms read the action instead.
         action: Raw policy output this step, each axis in -1..1.
         previous_action: Raw policy output the step before.
+        bearing: Signed angle from the rover's nose to the route carrot,
+            radians.
         reached: Whether the goal was reached this step.
         collided: Whether contact occurred this step.
         weights: Term coefficients.
@@ -138,6 +147,15 @@ def step_reward(
     # grows smoothly rather than switching on at a threshold.
     if nearest_obstacle < danger:
         terms["clearance"] = weights.clearance * (1.0 - nearest_obstacle / danger)
+
+    # subgoal_walker's own law: forward speed is capped at cos(bearing) of
+    # the maximum, so the rover creeps forward only as it comes into line and
+    # drives hard only once it faces where it is going. Anything above that
+    # cap is what makes an arc tight.
+    allowed = max(0.0, float(np.cos(bearing)))
+    excess = max(0.0, float(action[0]) - allowed)
+    if excess > 0.0:
+        terms["misalign"] = weights.misalign * excess
 
     terms["jerk"] = weights.jerk * float(np.linalg.norm(action - previous_action))
     terms["strafe"] = weights.strafe * abs(float(action[1]))

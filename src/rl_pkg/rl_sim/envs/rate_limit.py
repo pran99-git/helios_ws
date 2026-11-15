@@ -26,13 +26,26 @@ class VelocityLimits:
 
     Attributes:
         max_velocity: Upper bound per axis, [vx, vy, wz] in m/s and rad/s.
-        min_velocity: Lower bound per axis. Reverse is slower than forward.
+        min_velocity: Lower bound per axis.
+
+            vx has NO reverse. The scan has a 90 degree blind spot aft, so
+            reversing is driving blind, and with it available the policy's
+            answer to a carrot behind it was to back toward it rather than
+            turn: measured commanding -1.00 while the bearing held at 131
+            degrees. Denying reverse leaves rotating as the only way to
+            reduce bearing, which is the turn-then-drive profile Nav2 gets
+            from RotationShimController.
+
+            vy is a fine correction, matching the intent of nav2_params'
+            0.10 ceiling rather than its letter. At 0.10 the policy used
+            half of it continuously as dither; forcing it to zero changed
+            success by one episode in forty.
         accel: Largest positive change per second, per axis.
         decel: Largest negative change per second, per axis. Negative values.
     """
 
-    max_velocity: tuple[float, float, float] = (0.40, 0.10, 0.80)
-    min_velocity: tuple[float, float, float] = (-0.35, -0.10, -0.80)
+    max_velocity: tuple[float, float, float] = (0.40, 0.02, 0.80)
+    min_velocity: tuple[float, float, float] = (0.0, -0.02, -0.80)
     accel: tuple[float, float, float] = DEFAULT_ACCEL
     decel: tuple[float, float, float] = DEFAULT_DECEL
 

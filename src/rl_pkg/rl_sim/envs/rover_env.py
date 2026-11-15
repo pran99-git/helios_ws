@@ -176,6 +176,7 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         self._lo = np.asarray(self._limits.min_velocity, dtype=np.float64)
 
         self._goal = np.zeros(2)
+        self._carrot_bearing = 0.0
         self._measured_twist = np.zeros(3)
         self._route: list[Pose2D] = []
         self._route_length = 0.0
@@ -335,6 +336,7 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         cos_yaw, sin_yaw = np.cos(-yaw), np.sin(-yaw)
 
         carrots: list[float] = []
+        self._carrot_bearing = 0.0
         for lookahead in LOOKAHEADS:
             point = point_at_arc(self._route, arc + lookahead)
             dx, dy = point.x - x, point.y - y
@@ -343,6 +345,10 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
             # Divided by its own lookahead so each carrot lands in -1..1 and
             # the far one does not swamp the near one.
             carrots.extend((body_x / lookahead, body_y / lookahead))
+            # The middle lookahead is the one subgoal_walker steers by, so
+            # the reward's alignment law reads the same point.
+            if lookahead == LOOKAHEADS[len(LOOKAHEADS) // 2]:
+                self._carrot_bearing = float(np.arctan2(body_y, body_x))
 
         left = max(0.0, self._route_length - arc)
         norm = np.maximum(np.abs(self._hi), np.abs(self._lo))
@@ -487,6 +493,10 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
             twist=twist,
             action=clipped,
             previous_action=self._previous_action,
+            # Deliberately last step's bearing: that is the observation the
+            # policy actually chose this action from, so it is what the
+            # action should be judged against.
+            bearing=self._carrot_bearing,
             reached=reached,
             collided=collided,
             weights=self._weights,

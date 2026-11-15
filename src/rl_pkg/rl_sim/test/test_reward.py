@@ -17,6 +17,7 @@ def _reward(**kwargs: object) -> tuple[float, dict[str, float]]:
         "twist": STILL,
         "action": STILL,
         "previous_action": STILL,
+        "bearing": 0.0,
         "reached": False,
         "collided": False,
     }
@@ -191,3 +192,38 @@ def test_total_is_the_sum_of_terms() -> None:
         reached=True,
     )
     assert total == pytest.approx(sum(terms.values()))
+
+
+# ---------------------------------------------------------- alignment ------
+
+
+def test_driving_while_aligned_is_free() -> None:
+    _, terms = _reward(bearing=0.0, action=np.array([1.0, 0.0, 0.0]))
+    assert "misalign" not in terms
+
+
+def test_driving_while_misaligned_costs() -> None:
+    """The law subgoal_walker uses: speed is capped at cos(bearing)."""
+    _, terms = _reward(bearing=np.pi / 2, action=np.array([1.0, 0.0, 0.0]))
+    assert terms["misalign"] == pytest.approx(RewardWeights().misalign)
+
+
+def test_misalignment_cost_grows_with_the_angle() -> None:
+    cost = []
+    for deg in (20, 50, 80):
+        _, terms = _reward(bearing=np.deg2rad(deg), action=np.array([1.0, 0.0, 0.0]))
+        cost.append(terms.get("misalign", 0.0))
+    assert cost[0] > cost[1] > cost[2]
+
+
+def test_turning_on_the_spot_is_never_penalised() -> None:
+    """Rotating to face the carrot must stay free, or the policy will arc."""
+    for deg in (0, 90, 180):
+        _, terms = _reward(bearing=np.deg2rad(deg), action=np.array([0.0, 0.0, 1.0]))
+        assert "misalign" not in terms
+
+
+def test_creeping_within_the_cos_law_is_free() -> None:
+    """At 60 degrees, cos is 0.5, so half speed is allowed."""
+    _, terms = _reward(bearing=np.deg2rad(60), action=np.array([0.49, 0.0, 0.0]))
+    assert "misalign" not in terms

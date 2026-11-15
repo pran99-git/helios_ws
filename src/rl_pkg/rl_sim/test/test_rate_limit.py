@@ -43,7 +43,7 @@ def test_command_beyond_the_envelope_is_clipped_not_rejected(
     for _ in range(200):
         out = limiter.step(np.array([9.0, 9.0, 9.0]))
     assert out[0] == pytest.approx(0.40)
-    assert out[1] == pytest.approx(0.10)
+    assert out[1] == pytest.approx(0.02)
     assert out[2] == pytest.approx(0.80)
 
 
@@ -54,10 +54,19 @@ def test_deceleration_uses_the_decel_limit(limiter: RateLimiter) -> None:
     assert out[0] == pytest.approx(0.40 - 0.50 * 0.048)
 
 
-def test_reverse_from_rest_is_bounded_by_decel(limiter: RateLimiter) -> None:
-    """The signed clamp makes reversing use decel, which is not symmetric."""
-    out = limiter.step(np.array([-0.35, 0.0, 0.0]))
-    assert out[0] == pytest.approx(-0.50 * 0.048)
+def test_forward_axis_has_no_reverse(limiter: RateLimiter) -> None:
+    """Reversing is driving into the scan's 90 degree aft blind spot, and
+    with it available the policy backed toward a carrot instead of turning."""
+    for _ in range(200):
+        out = limiter.step(np.array([-1.0, 0.0, 0.0]))
+    assert out[0] == pytest.approx(0.0)
+
+
+def test_lateral_reverse_still_works(limiter: RateLimiter) -> None:
+    """vy is clamped small, not removed: it is a fine correction."""
+    for _ in range(200):
+        out = limiter.step(np.array([0.0, -1.0, 0.0]))
+    assert out[1] == pytest.approx(-0.02)
 
 
 def test_reset_clips_into_the_envelope(limiter: RateLimiter) -> None:
