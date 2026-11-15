@@ -56,7 +56,11 @@ def test_deceleration_uses_the_decel_limit(limiter: RateLimiter) -> None:
 
 def test_forward_axis_has_no_reverse(limiter: RateLimiter) -> None:
     """Reversing is driving into the scan's 90 degree aft blind spot, and
-    with it available the policy backed toward a carrot instead of turning."""
+    with it available the policy backed toward a carrot instead of turning.
+
+    A -0.05 crawl was tried to avoid the flat action region this creates
+    and learned worse, so the hard zero stands.
+    """
     for _ in range(200):
         out = limiter.step(np.array([-1.0, 0.0, 0.0]))
     assert out[0] == pytest.approx(0.0)

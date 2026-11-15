@@ -32,9 +32,16 @@ class VelocityLimits:
             reversing is driving blind, and with it available the policy's
             answer to a carrot behind it was to back toward it rather than
             turn: measured commanding -1.00 while the bearing held at 131
-            degrees. Denying reverse leaves rotating as the only way to
-            reduce bearing, which is the turn-then-drive profile Nav2 gets
-            from RotationShimController.
+            degrees. Denying it leaves rotating as the only way to reduce
+            bearing, which is the turn-then-drive profile Nav2 gets from
+            RotationShimController.
+
+            Hard zero, deliberately. It maps the whole negative half of the
+            action range onto one standstill, which looks like a gradient
+            trap, so a -0.05 crawl was tried instead to keep the mapping
+            monotonic. That learned worse: success peaked at 0.11 against
+            0.41 over the same 400 k steps. Any usable reverse is worth
+            more to the policy than the flat region costs it.
 
             vy is a fine correction, matching the intent of nav2_params'
             0.10 ceiling rather than its letter. At 0.10 the policy used
