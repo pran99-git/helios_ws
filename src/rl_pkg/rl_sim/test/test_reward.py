@@ -21,6 +21,7 @@ def _reward(**kwargs: object) -> tuple[float, dict[str, float]]:
         "previous_distance": 2.0,
         "distance": 2.0,
         "nearest_obstacle": 10.0,
+        "forward_clearance": 10.0,
         "forward_speed": 0.40,
         "cross_track": 0.0,
         "twist": STILL,
@@ -338,3 +339,36 @@ def test_obstacle_avoidance_outweighs_staying_on_the_route() -> None:
     assert hold["clearance"] < swerve["cross_track"], (
         "clipping an obstacle must cost more than swerving around it"
     )
+
+
+# ----------------------------------------------------------- approach ----
+
+
+def test_turning_an_obstacle_out_of_the_way_pays() -> None:
+    """The steering gradient the scalar term could never provide.
+
+    With only `min(ranges)`, feeding the policy pure noise produced the
+    same slowdown as a real scan: direction was discarded before the
+    reward saw it.
+    """
+    _, ahead = _reward(forward_clearance=0.10, nearest_obstacle=0.10)
+    _, beside = _reward(forward_clearance=5.00, nearest_obstacle=0.10)
+    assert ahead["approach"] < 0.0
+    assert "approach" not in beside, "nothing ahead means nothing to pay"
+
+
+def test_approach_is_free_when_stopped() -> None:
+    _, terms = _reward(forward_clearance=0.05, forward_speed=0.0)
+    assert terms.get("approach", 0.0) == pytest.approx(0.0)
+
+
+def test_a_side_obstacle_still_costs_something() -> None:
+    """The rover is 0.38 m wide, so beside is not safe, just safer."""
+    _, beside = _reward(forward_clearance=5.0, nearest_obstacle=0.05)
+    assert beside["clearance"] < 0.0
+
+
+def test_driving_at_something_costs_more_than_sliding_past_it() -> None:
+    _, into = _reward(forward_clearance=0.05, nearest_obstacle=0.05)
+    _, past = _reward(forward_clearance=5.00, nearest_obstacle=0.05)
+    assert sum(into.values()) < sum(past.values())

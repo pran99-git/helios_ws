@@ -36,6 +36,11 @@ UST10LX_FOV: float = 1.5 * np.pi
 UST10LX_MAX_RANGE: float = 10.0
 UST10LX_MIN_RANGE: float = 0.06
 
+#: Half-angle of the sector counted as "ahead", radians. The rover is
+#: 0.38 m wide and drives nose first, so this is the arc it can actually
+#: drive into. Wider than the body alone to leave room to turn out.
+FORWARD_SECTOR: float = np.deg2rad(40.0)
+
 #: Fraction of beams returning nothing, measured over the bags. All of them
 #: came back as 65.533 m, never zero, so min-pooling a real scan is safe.
 UST10LX_DROPOUT: float = 0.0184
@@ -347,3 +352,24 @@ def downsample(ranges: np.ndarray, beams: int) -> np.ndarray:
         raise ValueError(f"cannot upsample {len(ranges)} ranges to {beams} beams")
     edges = np.linspace(0, len(ranges), beams + 1).astype(int)
     return np.array([ranges[a:b].min() for a, b in pairwise(edges)])
+
+
+def forward_clearance(ranges: np.ndarray, spec: LidarSpec) -> float:
+    """Shortest range inside the sector the rover can drive into.
+
+    `min(ranges)` throws direction away, and a reward built on it can only
+    ever teach "slow down when something is close". Measured: feeding the
+    trained policy pure NOISE instead of a real scan produced an identical
+    slowdown, because random values contain small numbers and the alarm is
+    scalar. Restricting to the forward arc makes turning away from an
+    obstacle visible in the reward, which is what a steering gradient needs.
+
+    Args:
+        ranges: Fused scan in metres, ascending in bearing.
+        spec: Supplies the beam bearings.
+
+    Returns:
+        The nearest range within FORWARD_SECTOR of straight ahead.
+    """
+    ahead = np.abs(spec.angles) <= FORWARD_SECTOR
+    return float(np.min(ranges[ahead]))

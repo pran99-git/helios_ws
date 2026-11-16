@@ -28,6 +28,17 @@ class RewardWeights:
         time: Charged every control step, so dawdling costs. Deliberately
             small: a large per-step charge makes ending the episode early a
             way to save money, which rewards crashing.
+        approach: Penalty for closing on something in the arc AHEAD,
+            scaled by forward speed. This is the directional half, and the
+            only term with a steering gradient: turning so an obstacle
+            leaves the forward sector makes it fall, where `clearance`
+            cannot tell left from right.
+
+            Without it the policy's obstacle response was scalar. Feeding
+            it pure noise instead of a real scan produced an identical
+            slowdown, because `min(ranges)` discards direction before the
+            reward ever sees it, so "slow down when something is close" was
+            all the reward could teach.
         clearance: Penalty as the nearest obstacle approaches `danger`,
             SCALED BY FORWARD SPEED. Proximity alone does not bite: measured
             at the moment of collision the rover was doing a full 0.40 m/s
@@ -87,7 +98,8 @@ class RewardWeights:
     success: float = 10.00
     collision: float = -10.00
     time: float = -0.004
-    clearance: float = -0.30
+    approach: float = -0.40
+    clearance: float = -0.15
     cross_track: float = -0.25
     align: float = 1.00
     misalign: float = -0.10
@@ -125,6 +137,7 @@ def step_reward(
     previous_distance: float,
     distance: float,
     nearest_obstacle: float,
+    forward_clearance: float,
     forward_speed: float,
     cross_track: float,
     twist: np.ndarray,
@@ -172,7 +185,10 @@ def step_reward(
     Args:
         previous_distance: Distance to the goal before the step, in metres.
         distance: Distance to the goal after the step, in metres.
-        nearest_obstacle: Shortest lidar range this step, in metres.
+        nearest_obstacle: Shortest lidar range this step, in metres, in
+            any direction. Side scrapes matter too: the rover is 0.38 m
+            wide, so an obstacle beside it is still a collision.
+        forward_clearance: Shortest range inside the forward sector.
         forward_speed: Measured forward velocity, m/s. Scales the clearance
             penalty, so standing still next to a wall is free.
         cross_track: Signed lateral offset from the route, metres.
@@ -199,6 +215,14 @@ def step_reward(
 
     # Linear ramp from zero at `danger` to one at contact, so the penalty
     # grows smoothly rather than switching on at a threshold.
+    if forward_clearance < danger:
+        terms["approach"] = (
+            weights.approach
+            * (1.0 - forward_clearance / danger)
+            * max(0.0, forward_speed)
+            / MAX_FORWARD_SPEED
+        )
+
     if nearest_obstacle < danger:
         proximity = 1.0 - nearest_obstacle / danger
         # Normalised against the forward ceiling so the weight keeps its

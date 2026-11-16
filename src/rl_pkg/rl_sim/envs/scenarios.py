@@ -406,8 +406,15 @@ def map_scenario(
 #: runs and against the Nav2 baseline.
 SUITE: tuple[Scenario, ...] = (
     Scenario(name="open_room", n_random=0),
-    Scenario(name="sparse", n_random=3, n_low=1),
-    Scenario(name="cluttered", n_random=8, n_low=3, time_limit=60.0),
+    Scenario(name="sparse", n_random=3, n_low=1, stale_moved=0.5, stale_unmapped=0.3),
+    Scenario(
+        name="cluttered",
+        n_random=8,
+        n_low=3,
+        time_limit=60.0,
+        stale_moved=0.5,
+        stale_unmapped=0.3,
+    ),
     Scenario(
         name="corridor",
         bounds=(5.0, 2.0),

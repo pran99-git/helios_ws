@@ -29,6 +29,7 @@ from envs.lidar import (
     Lidar,
     LidarSpec,
     apply_dropout,
+    forward_clearance,
     fuse,
 )
 from envs.rate_limit import RateLimiter, VelocityLimits
@@ -548,6 +549,7 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         distance = float(np.linalg.norm(self._goal - truth[:2]))
         ranges = self._sense()
         nearest = float(ranges.min())
+        ahead = forward_clearance(ranges, self._spec)
         reached = distance <= self._scenario.goal_tolerance
 
         # Progress is arc length closed ALONG the route, not straight-line
@@ -567,6 +569,7 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
             previous_distance=self._previous_remaining,
             distance=left,
             nearest_obstacle=nearest,
+            forward_clearance=ahead,
             # Truth, not the estimate: this term anticipates the collision,
             # which is decided by the physics rather than by what the EKF
             # reports.
@@ -594,6 +597,7 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
             "route_remaining": left,
             "cross_track": projection.offset,
             "nearest_obstacle": nearest,
+            "forward_clearance": ahead,
             "is_success": reached,
             "collided": collided,
             "localisation_lost": self._pose_estimator.lost,
