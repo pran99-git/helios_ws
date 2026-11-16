@@ -28,17 +28,22 @@ class RewardWeights:
         time: Charged every control step, so dawdling costs. Deliberately
             small: a large per-step charge makes ending the episode early a
             way to save money, which rewards crashing.
-        approach: Penalty for closing on something in the arc AHEAD,
-            scaled by forward speed. This is the directional half, and the
-            only term with a steering gradient: turning so an obstacle
-            leaves the forward sector makes it fall, where `clearance`
-            cannot tell left from right.
+        approach: Penalty for having something in the arc AHEAD,
+            independent of speed. This is the directional half, and the
+            only term with a steering gradient: the single way to reduce it
+            is to turn until the obstacle leaves the forward sector, where
+            `clearance` cannot tell left from right.
 
-            Without it the policy's obstacle response was scalar. Feeding
-            it pure noise instead of a real scan produced an identical
+            NOT speed scaled, deliberately. Multiplying by speed lets
+            braking zero the term, which is a complete and much cheaper
+            solution than steering, and the policy duly took it: measured
+            0.050 m of cross-track with an obstacle ahead against 0.053 m
+            with the way clear. It never deviated at all, it just slowed.
+
+            Without it the obstacle response was scalar: feeding the
+            policy pure noise instead of a real scan produced an identical
             slowdown, because `min(ranges)` discards direction before the
-            reward ever sees it, so "slow down when something is close" was
-            all the reward could teach.
+            reward ever sees it.
         clearance: Penalty as the nearest obstacle approaches `danger`,
             SCALED BY FORWARD SPEED. Proximity alone does not bite: measured
             at the moment of collision the rover was doing a full 0.40 m/s
@@ -62,8 +67,10 @@ class RewardWeights:
             the obstacle term wins where they genuinely conflict. Kept well
             below `clearance` here for that reason.
 
-            Weighted comparably to `clearance`, because precision is
-            worth as much here as caution. The observation carries carrots
+            Weighted so a detour stays affordable. It competes directly
+            with `approach`: holding the line is how the rover ends up
+            pointing at something, and at -0.25 tracking won and the policy
+            would not deviate to go round anything. The observation carries carrots
             at 0.5, 1.5 and 3.0 m, and the policy had learned to steer by
             the far ones: its cross-track of 0.081 m matches a controller
             following the 1.5 m carrot (0.092 m), not the 0.5 m one
@@ -98,9 +105,9 @@ class RewardWeights:
     success: float = 10.00
     collision: float = -10.00
     time: float = -0.004
-    approach: float = -0.40
+    approach: float = -0.12
     clearance: float = -0.15
-    cross_track: float = -0.25
+    cross_track: float = -0.08
     align: float = 1.00
     misalign: float = -0.10
     jerk: float = -0.015
@@ -216,12 +223,7 @@ def step_reward(
     # Linear ramp from zero at `danger` to one at contact, so the penalty
     # grows smoothly rather than switching on at a threshold.
     if forward_clearance < danger:
-        terms["approach"] = (
-            weights.approach
-            * (1.0 - forward_clearance / danger)
-            * max(0.0, forward_speed)
-            / MAX_FORWARD_SPEED
-        )
+        terms["approach"] = weights.approach * (1.0 - forward_clearance / danger)
 
     if nearest_obstacle < danger:
         proximity = 1.0 - nearest_obstacle / danger

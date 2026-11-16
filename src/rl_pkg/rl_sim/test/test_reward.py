@@ -357,9 +357,28 @@ def test_turning_an_obstacle_out_of_the_way_pays() -> None:
     assert "approach" not in beside, "nothing ahead means nothing to pay"
 
 
-def test_approach_is_free_when_stopped() -> None:
-    _, terms = _reward(forward_clearance=0.05, forward_speed=0.0)
-    assert terms.get("approach", 0.0) == pytest.approx(0.0)
+def test_braking_does_not_escape_the_approach_penalty() -> None:
+    """The escape hatch that made the term useless.
+
+    Scaled by speed, stopping zeroed it, which is a complete and far
+    cheaper answer than steering. The policy took it: 0.050 m of
+    cross-track with an obstacle ahead against 0.053 m with the way clear,
+    so it never deviated, it only slowed.
+    """
+    _, fast = _reward(forward_clearance=0.05, forward_speed=0.40)
+    _, stopped = _reward(forward_clearance=0.05, forward_speed=0.0)
+    assert stopped["approach"] == pytest.approx(fast["approach"])
+    assert stopped["approach"] < 0.0
+
+
+def test_only_turning_away_reduces_approach() -> None:
+    """Which is what makes it a steering gradient rather than a brake."""
+    costs = [
+        _reward(forward_clearance=d, forward_speed=0.0)[1].get("approach", 0.0)
+        for d in (0.10, 0.30, 0.50, 5.00)
+    ]
+    assert costs[0] < costs[1] < costs[2] < 0.0
+    assert costs[3] == 0.0
 
 
 def test_a_side_obstacle_still_costs_something() -> None:
@@ -372,3 +391,14 @@ def test_driving_at_something_costs_more_than_sliding_past_it() -> None:
     _, into = _reward(forward_clearance=0.05, nearest_obstacle=0.05)
     _, past = _reward(forward_clearance=5.00, nearest_obstacle=0.05)
     assert sum(into.values()) < sum(past.values())
+
+
+def test_a_detour_is_cheaper_than_pointing_at_the_obstacle() -> None:
+    """The comparison the policy actually faces.
+
+    At cross_track -0.25 holding the line won and it would not go round
+    anything, so the two terms have to be sized against each other.
+    """
+    _, swerve = _reward(cross_track=0.50, forward_clearance=5.00)
+    _, hold = _reward(cross_track=0.00, forward_clearance=0.10)
+    assert hold["approach"] < swerve["cross_track"]
