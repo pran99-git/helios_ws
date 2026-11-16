@@ -22,6 +22,7 @@ def _reward(**kwargs: object) -> tuple[float, dict[str, float]]:
         "distance": 2.0,
         "nearest_obstacle": 10.0,
         "forward_speed": 0.40,
+        "cross_track": 0.0,
         "twist": STILL,
         "action": STILL,
         "previous_action": STILL,
@@ -306,3 +307,34 @@ def test_full_speed_at_contact_costs_the_whole_weight() -> None:
     """The normalisation keeps the weight's meaning."""
     _, terms = _reward(nearest_obstacle=0.0, forward_speed=MAX_FORWARD_SPEED)
     assert terms["clearance"] == pytest.approx(RewardWeights().clearance)
+
+
+# -------------------------------------------------------- cross track -----
+
+
+def test_drifting_off_the_route_costs() -> None:
+    """Nothing else opposes it: `progress` pays only for arc closed ALONG
+    the route, so sideways drift was free."""
+    _, on = _reward(cross_track=0.0)
+    _, off = _reward(cross_track=0.30)
+    assert off["cross_track"] < on["cross_track"]
+    assert on["cross_track"] == pytest.approx(0.0)
+
+
+def test_cross_track_ignores_which_side() -> None:
+    _, left = _reward(cross_track=-0.20)
+    _, right = _reward(cross_track=0.20)
+    assert left["cross_track"] == pytest.approx(right["cross_track"])
+
+
+def test_obstacle_avoidance_outweighs_staying_on_the_route() -> None:
+    """They are competing terms, as MPPI runs PathAlign against CostCritic.
+
+    Where they genuinely conflict the obstacle term has to win, or the
+    policy would rather clip something than leave the line.
+    """
+    _, swerve = _reward(cross_track=0.40, nearest_obstacle=5.0, forward_speed=0.40)
+    _, hold = _reward(cross_track=0.00, nearest_obstacle=0.05, forward_speed=0.40)
+    assert hold["clearance"] < swerve["cross_track"], (
+        "clipping an obstacle must cost more than swerving around it"
+    )

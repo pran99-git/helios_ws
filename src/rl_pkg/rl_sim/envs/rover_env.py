@@ -571,6 +571,7 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
             # which is decided by the physics rather than by what the EKF
             # reports.
             forward_speed=float(self._true_twist()[0]),
+            cross_track=float(projection.offset),
             twist=twist,
             action=clipped,
             previous_action=self._previous_action,

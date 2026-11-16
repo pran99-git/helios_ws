@@ -44,6 +44,17 @@ class RewardWeights:
             not the rate-limited twist: the limiter already caps the twist's
             step at accel * dt, so measuring there hides most of the
             thrashing and the term cannot shape what the policy does.
+        cross_track: Penalty per metre of lateral offset from the route.
+            This is Nav2's PathAlignCritic, which nav2_params weights at
+            10.0 alongside CostCritic's 8.0: staying on the path and
+            avoiding obstacles are competing terms, not alternatives, and
+            the obstacle term wins where they genuinely conflict. Kept well
+            below `clearance` here for that reason.
+
+            Without it nothing opposes drifting sideways, because
+            `progress` only pays for arc closed ALONG the route. Measured:
+            0.07 m of cross-track on episodes won against 0.17 m at the
+            moment of collision, on a route with 0.15 m of margin.
         align: Paid per radian of heading error closed toward the route.
             The missing half of `misalign`: without it, turning toward the
             route and standing still score identically, because a rotation
@@ -70,6 +81,7 @@ class RewardWeights:
     collision: float = -10.00
     time: float = -0.004
     clearance: float = -0.30
+    cross_track: float = -0.05
     align: float = 1.00
     misalign: float = -0.10
     jerk: float = -0.015
@@ -107,6 +119,7 @@ def step_reward(
     distance: float,
     nearest_obstacle: float,
     forward_speed: float,
+    cross_track: float,
     twist: np.ndarray,
     action: np.ndarray,
     previous_action: np.ndarray,
@@ -155,6 +168,7 @@ def step_reward(
         nearest_obstacle: Shortest lidar range this step, in metres.
         forward_speed: Measured forward velocity, m/s. Scales the clearance
             penalty, so standing still next to a wall is free.
+        cross_track: Signed lateral offset from the route, metres.
         twist: Twist applied this step, [vx, vy, wz]. Used for nothing but
             reporting; the smoothness terms read the action instead.
         action: Raw policy output this step, each axis in -1..1.
@@ -184,6 +198,8 @@ def step_reward(
         # meaning: full speed at contact costs exactly `clearance`.
         pace = max(0.0, forward_speed) / MAX_FORWARD_SPEED
         terms["clearance"] = weights.clearance * proximity * pace
+
+    terms["cross_track"] = weights.cross_track * abs(cross_track)
 
     # Closing heading error pays per radian, exactly as closing distance
     # pays per metre.
