@@ -51,10 +51,17 @@ class RewardWeights:
             the obstacle term wins where they genuinely conflict. Kept well
             below `clearance` here for that reason.
 
-            Without it nothing opposes drifting sideways, because
-            `progress` only pays for arc closed ALONG the route. Measured:
-            0.07 m of cross-track on episodes won against 0.17 m at the
-            moment of collision, on a route with 0.15 m of margin.
+            Weighted comparably to `clearance`, because precision is
+            worth as much here as caution. The observation carries carrots
+            at 0.5, 1.5 and 3.0 m, and the policy had learned to steer by
+            the far ones: its cross-track of 0.081 m matches a controller
+            following the 1.5 m carrot (0.092 m), not the 0.5 m one
+            (0.025 m). A longer lookahead drives faster and smoother and so
+            earns more `progress`, right up until it clips a corner.
+
+            Nothing else opposes that, since `progress` pays only for arc
+            closed ALONG the route. At -0.05 the term carried 4% of the
+            budget and corner cutting still paid better.
         align: Paid per radian of heading error closed toward the route.
             The missing half of `misalign`: without it, turning toward the
             route and standing still score identically, because a rotation
@@ -81,7 +88,7 @@ class RewardWeights:
     collision: float = -10.00
     time: float = -0.004
     clearance: float = -0.30
-    cross_track: float = -0.05
+    cross_track: float = -0.25
     align: float = 1.00
     misalign: float = -0.10
     jerk: float = -0.015
