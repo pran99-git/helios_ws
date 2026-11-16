@@ -28,7 +28,14 @@ class RewardWeights:
         time: Charged every control step, so dawdling costs. Deliberately
             small: a large per-step charge makes ending the episode early a
             way to save money, which rewards crashing.
-        clearance: Penalty as the nearest obstacle approaches `danger`.
+        clearance: Penalty as the nearest obstacle approaches `danger`,
+            SCALED BY FORWARD SPEED. Proximity alone does not bite: measured
+            at the moment of collision the rover was doing a full 0.40 m/s
+            with 0.15 m of margin and a 0.17 m tracking error. Charging for
+            speed near an obstacle makes squeezing through slowly cheap and
+            charging the gap expensive, which is what the gap actually
+            needs. Penalising cross-track instead would fight the stale map,
+            where leaving the route is the correct response.
             Deliberately small. Its job is to smooth the gradient near
             obstacles, not to forbid them: the collision penalty already
             makes contact catastrophic, and a large clearance charge made the
@@ -62,7 +69,7 @@ class RewardWeights:
     success: float = 10.00
     collision: float = -10.00
     time: float = -0.004
-    clearance: float = -0.10
+    clearance: float = -0.30
     align: float = 1.00
     misalign: float = -0.10
     jerk: float = -0.015
@@ -82,13 +89,24 @@ DEFAULT_WEIGHTS = RewardWeights()
 #: -0.037 per step, about -1.5 for a two-second passage: noticeable, not
 #: prohibitive. Measured scans back this up: median valid range is 1.61 m and
 #: p5 is 0.50 m, so under 0.30 m really is close.
-DANGER_RANGE: float = 0.30
+#: Range at which the clearance penalty starts, metres. Derived, not
+#: chosen: from full speed the rover covers 0.09 m during the 230 ms command
+#: latency and another 0.16 m braking at 0.50 m/s^2, and the footprint
+#: reaches 0.19 m ahead of the laser. A reading of 0.44 m is therefore the
+#: last moment it can still stop. At the old 0.30 the bumper was already
+#: 0.11 m out with 0.25 m of stopping distance needed.
+DANGER_RANGE: float = 0.55
+
+#: Forward ceiling from navigation_pkg, m/s. Normalises the clearance
+#: penalty's speed term, and sets the stopping distance above.
+MAX_FORWARD_SPEED: float = 0.40
 
 
 def step_reward(
     previous_distance: float,
     distance: float,
     nearest_obstacle: float,
+    forward_speed: float,
     twist: np.ndarray,
     action: np.ndarray,
     previous_action: np.ndarray,
@@ -135,6 +153,8 @@ def step_reward(
         previous_distance: Distance to the goal before the step, in metres.
         distance: Distance to the goal after the step, in metres.
         nearest_obstacle: Shortest lidar range this step, in metres.
+        forward_speed: Measured forward velocity, m/s. Scales the clearance
+            penalty, so standing still next to a wall is free.
         twist: Twist applied this step, [vx, vy, wz]. Used for nothing but
             reporting; the smoothness terms read the action instead.
         action: Raw policy output this step, each axis in -1..1.
@@ -159,7 +179,11 @@ def step_reward(
     # Linear ramp from zero at `danger` to one at contact, so the penalty
     # grows smoothly rather than switching on at a threshold.
     if nearest_obstacle < danger:
-        terms["clearance"] = weights.clearance * (1.0 - nearest_obstacle / danger)
+        proximity = 1.0 - nearest_obstacle / danger
+        # Normalised against the forward ceiling so the weight keeps its
+        # meaning: full speed at contact costs exactly `clearance`.
+        pace = max(0.0, forward_speed) / MAX_FORWARD_SPEED
+        terms["clearance"] = weights.clearance * proximity * pace
 
     # Closing heading error pays per radian, exactly as closing distance
     # pays per metre.

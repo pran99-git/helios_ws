@@ -6,7 +6,12 @@ from itertools import pairwise
 
 import numpy as np
 import pytest
-from envs.reward import DANGER_RANGE, RewardWeights, step_reward
+from envs.reward import (
+    DANGER_RANGE,
+    MAX_FORWARD_SPEED,
+    RewardWeights,
+    step_reward,
+)
 
 STILL = np.zeros(3)
 
@@ -16,6 +21,7 @@ def _reward(**kwargs: object) -> tuple[float, dict[str, float]]:
         "previous_distance": 2.0,
         "distance": 2.0,
         "nearest_obstacle": 10.0,
+        "forward_speed": 0.40,
         "twist": STILL,
         "action": STILL,
         "previous_action": STILL,
@@ -268,3 +274,35 @@ def test_align_cannot_be_farmed_by_cycling() -> None:
     )
     assert total == pytest.approx(0.0, abs=1e-9)
     assert w.align > 0.0
+
+
+def test_clearance_is_free_when_crawling() -> None:
+    """Squeezing through slowly must cost almost nothing.
+
+    Proximity alone did not bite: at the moment of collision the rover was
+    at a full 0.40 m/s with 0.15 m of margin and 0.17 m of tracking error.
+    """
+    _, fast = _reward(nearest_obstacle=0.05, forward_speed=0.40)
+    _, slow = _reward(nearest_obstacle=0.05, forward_speed=0.05)
+    assert slow["clearance"] > fast["clearance"]
+    assert abs(slow["clearance"]) < 0.2 * abs(fast["clearance"])
+
+
+def test_clearance_is_zero_when_stopped() -> None:
+    """Standing still beside a wall is not a mistake."""
+    _, terms = _reward(nearest_obstacle=0.05, forward_speed=0.0)
+    assert terms.get("clearance", 0.0) == pytest.approx(0.0)
+
+
+def test_clearance_still_grows_as_the_obstacle_nears() -> None:
+    at = [
+        _reward(nearest_obstacle=d, forward_speed=0.40)[1].get("clearance", 0.0)
+        for d in (0.29, 0.20, 0.05)
+    ]
+    assert at[0] > at[1] > at[2]
+
+
+def test_full_speed_at_contact_costs_the_whole_weight() -> None:
+    """The normalisation keeps the weight's meaning."""
+    _, terms = _reward(nearest_obstacle=0.0, forward_speed=MAX_FORWARD_SPEED)
+    assert terms["clearance"] == pytest.approx(RewardWeights().clearance)

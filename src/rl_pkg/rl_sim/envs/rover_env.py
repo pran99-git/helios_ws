@@ -567,6 +567,10 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
             previous_distance=self._previous_remaining,
             distance=left,
             nearest_obstacle=nearest,
+            # Truth, not the estimate: this term anticipates the collision,
+            # which is decided by the physics rather than by what the EKF
+            # reports.
+            forward_speed=float(self._true_twist()[0]),
             twist=twist,
             action=clipped,
             previous_action=self._previous_action,
