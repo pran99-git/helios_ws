@@ -129,6 +129,7 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         # stays valid and a viewer can follow the env across episodes.
         self._from_map = self._scenario.map_yaml is not None
         layout = scenarios.sample_obstacles(self._scenario, self._rng)
+        self._layout = layout
         self._model = self._compile(layout)
         self._data = mujoco.MjData(self._model)
         self._lidar = Lidar(self._model, "laser", "base_link", self._spec)
@@ -334,6 +335,16 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         return self._data
 
     @property
+    def obstacles(self) -> tuple[scenarios.Obstacle, ...]:
+        """This episode's TRUE obstacles, which the planner may not share.
+
+        Under a stale map the planner routes around where obstacles were
+        believed to be, so this is the only way to ask what is actually
+        there.
+        """
+        return self._layout
+
+    @property
     def route(self) -> list[Pose2D]:
         """This episode's planned route, for a viewer to draw."""
         return list(self._route)
@@ -437,6 +448,7 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
             ).bit_generator.state
 
         layout = scenarios.sample_obstacles(self._scenario, self._rng)
+        self._layout = layout
         mujoco.mj_resetData(self._model, self._data)
         if self._obstacle_bodies:
             self._place_obstacles(layout)
