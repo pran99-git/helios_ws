@@ -393,12 +393,30 @@ def test_driving_at_something_costs_more_than_sliding_past_it() -> None:
     assert sum(into.values()) < sum(past.values())
 
 
-def test_a_detour_is_cheaper_than_pointing_at_the_obstacle() -> None:
-    """The comparison the policy actually faces.
+def test_nothing_opposes_the_turn_while_the_way_is_blocked() -> None:
+    """What the gate is for.
 
-    At cross_track -0.25 holding the line won and it would not go round
-    anything, so the two terms have to be sized against each other.
+    While something is in the forward sector, cross-track costs nothing, so
+    the only live gradient is `approach`, which falls only by turning. The
+    policy is free to leave the line exactly when it needs to.
     """
-    _, swerve = _reward(cross_track=0.50, forward_clearance=5.00)
-    _, hold = _reward(cross_track=0.00, forward_clearance=0.10)
-    assert hold["approach"] < swerve["cross_track"]
+    _, blocked = _reward(cross_track=0.50, forward_clearance=0.10)
+    assert "cross_track" not in blocked
+    assert blocked["approach"] < 0.0
+
+
+def test_the_line_pulls_again_once_the_way_is_clear() -> None:
+    """And the detour is not free forever: once past, it is drawn back."""
+    _, clear = _reward(cross_track=0.50, forward_clearance=5.00)
+    assert clear["cross_track"] < 0.0
+    assert "approach" not in clear
+
+
+def test_tracking_weight_is_unchanged_on_open_route() -> None:
+    """The gate must not quietly cost run 9's precision.
+
+    Lowering the weight instead of gating it cost 68 points of lab-map
+    success for avoidance that never appeared.
+    """
+    _, terms = _reward(cross_track=0.10, forward_clearance=10.0)
+    assert terms["cross_track"] == pytest.approx(RewardWeights().cross_track * 0.10)

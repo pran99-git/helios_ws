@@ -67,10 +67,13 @@ class RewardWeights:
             the obstacle term wins where they genuinely conflict. Kept well
             below `clearance` here for that reason.
 
-            Weighted so a detour stays affordable. It competes directly
-            with `approach`: holding the line is how the rover ends up
-            pointing at something, and at -0.25 tracking won and the policy
-            would not deviate to go round anything. The observation carries carrots
+            GATED on the forward sector: full weight while the way
+            ahead is clear, nothing while something is in it. Tracking
+            precision and the freedom to leave the line are needed at
+            different moments, not traded against each other. Lowering the
+            weight instead bought deviation everywhere, including on open
+            route where holding the line is the whole job, and cost 68
+            points of lab-map success for avoidance that never appeared. The observation carries carrots
             at 0.5, 1.5 and 3.0 m, and the policy had learned to steer by
             the far ones: its cross-track of 0.081 m matches a controller
             following the 1.5 m carrot (0.092 m), not the 0.5 m one
@@ -107,7 +110,7 @@ class RewardWeights:
     time: float = -0.004
     approach: float = -0.12
     clearance: float = -0.15
-    cross_track: float = -0.08
+    cross_track: float = -0.25
     align: float = 1.00
     misalign: float = -0.10
     jerk: float = -0.015
@@ -232,7 +235,9 @@ def step_reward(
         pace = max(0.0, forward_speed) / MAX_FORWARD_SPEED
         terms["clearance"] = weights.clearance * proximity * pace
 
-    terms["cross_track"] = weights.cross_track * abs(cross_track)
+    # Only while there is nothing to go around. See `cross_track` above.
+    if forward_clearance >= danger:
+        terms["cross_track"] = weights.cross_track * abs(cross_track)
 
     # Closing heading error pays per radian, exactly as closing distance
     # pays per metre.
