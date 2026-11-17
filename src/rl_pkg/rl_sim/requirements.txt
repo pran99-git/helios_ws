@@ -33,4 +33,5 @@ pytest==9.2.0
 
 # Deployment: policy leaves this venv as ONNX so the ROS node needs no torch.
 onnx==1.23.2
-onnxruntime==1.31.1
+onnxruntime==1.31.1        # also used to verify an export against its .zip
+onnxscript==0.7.2          # torch.onnx.export's exporter since torch 2.9
