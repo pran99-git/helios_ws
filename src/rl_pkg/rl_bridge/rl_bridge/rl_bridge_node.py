@@ -495,10 +495,11 @@ class RlBridgeNode(Node):
         The first live runs are judged on this line, so it carries the
         quantities that explain a command rather than just the verdict.
         """
-        clearance = float(self._scan.min()) if self._scan is not None else float("nan")
         parts = [
             self._status,
-            f"clearance {clearance:.2f} m",
+            f"clearance {self._scan.min():.2f} m"
+            if self._scan is not None
+            else "no scan yet",
             f"carrot {math.degrees(self._bearing):+.0f} deg",
         ]
         if self._route:

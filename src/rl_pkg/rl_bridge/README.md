@@ -154,6 +154,7 @@ of the stack untouched.
 | Residual weave | 2.43 wz sign reversals/s with blinding on, against a 1.5 gate | Unsolved; see the policy notes |
 | Replanning is new to it | The simulator plans once per episode, so channel 66 only ever falls. Here a route arrives every second and that value can step. | Raise `replan_period` if it shows |
 | Sensing latency | 230 ms measured on hardware against the 1 to 5 step delay trained | Unmeasured live |
+| It cannot see an override | While the joystick or e-stop holds the mux, this node keeps publishing and its commanded-twist channel claims a twist the wheels never got. The policy reads that as total slip, and resumes from a command the rover is not at. | A supervisor comparing `/cmd_vel_rl` against `/cmd_vel` would close it |
 | No supervisor | Nothing demotes to Nav2 on loss of progress or a scan floor | Not built |
 
 ## Build
