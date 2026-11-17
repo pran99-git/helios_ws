@@ -4,10 +4,10 @@ Rays are cast with `mj_multiRay`, which is fast enough to be irrelevant to
 training cost: 60 beams measured 77,338 scans/s on one core, against the
 4,800 scans/s that 240 environments at 20 Hz actually need.
 
-The policy sees a DOWNSAMPLED scan, not the hardware's full resolution. The
-real `/scan` carries 1081 beams at 40 Hz, far more than a driving policy can
-use, and the ROS node must reduce it the same way this module does or the
-observation will not match at deployment.
+The policy sees a DOWNSAMPLED scan, not the hardware's full resolution: the
+real `/scan` carries 1081 beams at 40 Hz. The reduction itself lives in
+`rl_bridge.contract`, with the rest of the observation layout, so the ROS
+node and this module cannot reduce a scan differently.
 
 The scan is FUSED with ZED depth, because Nav2's local costmap already fuses
 both (`observation_sources: scan zed_cloud`). The laser plane sits at 0.176 m
@@ -20,21 +20,19 @@ MPPI meaningless.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from itertools import pairwise
 
 import mujoco
 import numpy as np
 
-#: The UST-10LX sweeps 270 degrees, not a full circle: the rear quadrant is
-#: the cable and the housing's dead zone.
-UST10LX_FOV: float = 1.5 * np.pi
+from envs.deploy import MAX_RANGE, MIN_RANGE, SCAN_FOV
 
-#: Effective range. The driver advertises range_max 30.0 and reports
-#: no-return as 65.533, but the furthest real return measured across the bags
-#: was 9.02 m, so 10.0 is the honest ceiling. The ROS node must clamp to this
-#: before normalising, or a no-return reads 6.55 instead of 1.0.
-UST10LX_MAX_RANGE: float = 10.0
-UST10LX_MIN_RANGE: float = 0.06
+#: Scan geometry, aliased from the deployment contract rather than restated.
+#: `max_range` divides the scan on its way into the observation, so the
+#: simulator and the ROS node normalising by different ceilings would be a
+#: silent mismatch. See rl_bridge/contract.py for how each was measured.
+UST10LX_FOV: float = SCAN_FOV
+UST10LX_MAX_RANGE: float = MAX_RANGE
+UST10LX_MIN_RANGE: float = MIN_RANGE
 
 #: Half-angle of the sector counted as "ahead", radians. The rover is
 #: 0.38 m wide and drives nose first, so this is the arc it can actually
@@ -324,34 +322,6 @@ def apply_dropout(
     out = ranges.copy()
     out[rng.random(len(out)) < rate] = max_range
     return out
-
-
-def downsample(ranges: np.ndarray, beams: int) -> np.ndarray:
-    """Reduce a full-resolution scan to `beams` values.
-
-    Each output beam takes the MINIMUM of its input bin, never the mean. A
-    mean lets a narrow obstacle average away against the open space beside
-    it, which is exactly the obstacle that matters.
-
-    Intended for the ROS node, so a real `/scan` is reduced the same way the
-    training scan was built.
-
-    Args:
-        ranges: Full-resolution ranges, ascending in bearing.
-        beams: Number of output beams. Must not exceed the input length.
-
-    Returns:
-        The reduced scan.
-
-    Raises:
-        ValueError: If `beams` exceeds the input length or is below 1.
-    """
-    if beams < 1:
-        raise ValueError("beams must be at least 1")
-    if beams > len(ranges):
-        raise ValueError(f"cannot upsample {len(ranges)} ranges to {beams} beams")
-    edges = np.linspace(0, len(ranges), beams + 1).astype(int)
-    return np.array([ranges[a:b].min() for a, b in pairwise(edges)])
 
 
 def forward_clearance(ranges: np.ndarray, spec: LidarSpec) -> float:

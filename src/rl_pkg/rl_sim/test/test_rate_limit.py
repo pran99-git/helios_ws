@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from envs.rate_limit import RateLimiter, VelocityLimits
+from envs.deploy import RateLimiter, VelocityLimits
 
 
 @pytest.fixture

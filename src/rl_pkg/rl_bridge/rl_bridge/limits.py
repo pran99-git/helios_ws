@@ -1,10 +1,14 @@
-"""Per-axis acceleration limiting, matching Nav2's velocity_smoother.
+"""Per-axis velocity envelope and acceleration limiting.
 
 On the real rover the acceleration ceiling is imposed in software by
-`velocity_smoother`, not by motors fighting inertia. Reproducing it here is
-what makes the sim's step response match the hardware's, and it is also why
-the model's mass can be approximate: under these limits a 2.4x mass error
-moves the velocity step response by only about 10%.
+`velocity_smoother`, not by motors fighting inertia. Reproducing it in the
+simulator is what makes the sim's step response match the hardware's, and it
+is also why the model's mass can be approximate: under these limits a 2.4x
+mass error moves the velocity step response by only about 10%.
+
+The numbers here are part of the policy's contract, not a tuning knob: the
+observation carries the commanded twist divided by `max_velocity`, so a
+changed ceiling silently rescales an input the policy was fitted to.
 
 Imports nothing from ROS or MuJoCo.
 """
@@ -66,6 +70,19 @@ class VelocityLimits:
             for hi, lo in zip(self.max_velocity, self.min_velocity, strict=True)
         ):
             raise ValueError("max_velocity must exceed min_velocity on every axis")
+
+    @property
+    def scale(self) -> np.ndarray:
+        """Per-axis divisor that puts a twist into -1..1.
+
+        The larger of the two bounds per axis, so a twist at either limit
+        normalises to magnitude 1 and the observation's commanded and
+        measured twists share one scale.
+        """
+        return np.maximum(
+            np.abs(np.asarray(self.max_velocity, dtype=np.float64)),
+            np.abs(np.asarray(self.min_velocity, dtype=np.float64)),
+        )
 
 
 class RateLimiter:

@@ -17,6 +17,14 @@ import numpy as np
 from gymnasium import spaces
 
 from envs import scenarios
+from envs.deploy import (
+    LOOKAHEADS,
+    ObservationContract,
+    RateLimiter,
+    VelocityLimits,
+    assemble,
+    scale_action,
+)
 from envs.hardware import (
     CommandDelay,
     HardwareModel,
@@ -32,20 +40,12 @@ from envs.lidar import (
     forward_clearance,
     fuse,
 )
-from envs.rate_limit import RateLimiter, VelocityLimits
 from envs.reward import RewardWeights, step_reward
-from envs.route import Pose2D, point_at_arc, project, route_length
+from envs.route import Pose2D, project, route_length
 
 #: Physics steps per control step. The model runs at 4 ms, so 12 gives a
 #: 48 ms control period, close to the 20 Hz the real controller runs at.
 DEFAULT_DECIMATION: int = 12
-
-#: Arc lengths ahead of the rover's projection at which the route is sampled,
-#: metres. Three rather than one so the policy can see the route's CURVATURE
-#: and start turning before a corner, not just its immediate direction. The
-#: 1.5 m middle value matches subgoal_walker's DEFAULT_LOOKAHEAD, so the
-#: policy and the VLA walker read the same route the same way.
-LOOKAHEADS: tuple[float, ...] = (0.5, 1.5, 3.0)
 
 
 class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
@@ -173,8 +173,6 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
             self._rng,
         )
         self._pose_estimator = PoseEstimator(self._hardware, self._dt, self._rng)
-        self._hi = np.asarray(self._limits.max_velocity, dtype=np.float64)
-        self._lo = np.asarray(self._limits.min_velocity, dtype=np.float64)
 
         self._goal = np.zeros(2)
         self._carrot_bearing = 0.0
@@ -193,12 +191,21 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         )
         self._diagonal = float(np.linalg.norm(extent))
 
+        # Built from the same spec and limits the simulation runs on, so the
+        # vector the policy trains against and the one the ROS node will
+        # assemble differ only in where their numbers came from.
+        self._contract = ObservationContract(
+            diagonal=self._diagonal,
+            beams=self._spec.beams,
+            fov=self._spec.fov,
+            max_range=self._spec.max_range,
+            lookaheads=LOOKAHEADS,
+            limits=self._limits,
+        )
+
         self.action_space = spaces.Box(-1.0, 1.0, (3,), dtype=np.float32)
         self.observation_space = spaces.Box(
-            -1.0,
-            1.0,
-            (self._spec.beams + 2 * len(LOOKAHEADS) + 7,),
-            dtype=np.float32,
+            -1.0, 1.0, (self._contract.dim,), dtype=np.float32
         )
 
     def _place_obstacles(self, layout: tuple[scenarios.Obstacle, ...]) -> None:
@@ -355,12 +362,10 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         """This episode's goal as (x, y) in metres."""
         return self._goal.copy()
 
-    def _scale(self, action: np.ndarray) -> np.ndarray:
-        """Map a -1..1 action onto the rover's asymmetric velocity envelope."""
-        a = np.clip(np.asarray(action, dtype=np.float64), -1.0, 1.0)
-        # Forward and reverse limits differ, so each side scales separately
-        # rather than by a single symmetric gain.
-        return np.where(a >= 0.0, a * self._hi, -a * self._lo)
+    @property
+    def contract(self) -> ObservationContract:
+        """What this env's observation vector means, for a deployed policy."""
+        return self._contract
 
     def _sense(self) -> np.ndarray:
         """Produce the fused scan the policy sees.
@@ -389,38 +394,17 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         Returns:
             The observation vector.
         """
-        scan = (ranges / self._spec.max_range).astype(np.float32)
-        x, y, yaw = float(pose[0]), float(pose[1]), float(pose[2])
-        arc = project(self._route, x, y).arc
-        # World to body is a rotation by -yaw.
-        cos_yaw, sin_yaw = np.cos(-yaw), np.sin(-yaw)
-
-        carrots: list[float] = []
-        self._carrot_bearing = 0.0
-        for lookahead in LOOKAHEADS:
-            point = point_at_arc(self._route, arc + lookahead)
-            dx, dy = point.x - x, point.y - y
-            body_x = cos_yaw * dx - sin_yaw * dy
-            body_y = sin_yaw * dx + cos_yaw * dy
-            # Divided by its own lookahead so each carrot lands in -1..1 and
-            # the far one does not swamp the near one.
-            carrots.extend((body_x / lookahead, body_y / lookahead))
-            # The middle lookahead is the one subgoal_walker steers by, so
-            # the reward's alignment law reads the same point.
-            if lookahead == LOOKAHEADS[len(LOOKAHEADS) // 2]:
-                self._carrot_bearing = float(np.arctan2(body_y, body_x))
-
-        left = max(0.0, self._route_length - arc)
-        norm = np.maximum(np.abs(self._hi), np.abs(self._lo))
-        return np.concatenate(
-            [
-                scan,
-                np.clip(carrots, -1.0, 1.0),
-                [min(left / self._diagonal, 1.0)],
-                self._rate.current / norm,
-                np.clip(self._measured_twist / norm, -1.0, 1.0),
-            ]
-        ).astype(np.float32)
+        observation = assemble(
+            self._contract,
+            ranges,
+            pose,
+            self._route,
+            self._route_length,
+            self._rate.current,
+            self._measured_twist,
+        )
+        self._carrot_bearing = observation.carrot_bearing
+        return observation.vector
 
     def _collided(self) -> bool:
         """Whether the footprint is touching anything this step."""
@@ -526,7 +510,7 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
         # Order matches the real path: the smoother runs on the Jetson, then
         # the command crosses serial and the RoboClaw PID, which is the delay.
         clipped = np.clip(np.asarray(action, dtype=np.float64), -1.0, 1.0)
-        twist = self._rate.step(self._scale(clipped))
+        twist = self._rate.step(scale_action(clipped, self._limits))
         # Rate limiting and the transport delay both act on the BODY command,
         # as they do on the real rover; only the final actuator write is in
         # world axes, because that is the frame the slides move in.
