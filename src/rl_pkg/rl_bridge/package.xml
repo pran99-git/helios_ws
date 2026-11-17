@@ -1,0 +1,54 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>rl_bridge</name>
+  <version>0.1.0</version>
+  <description>
+    ROS adapter for the reinforcement-learning navigation policy trained in
+    rl_sim. Rebuilds the exact observation the policy was fitted to from live
+    sensors (a reduced laser scan, carrots along a planned route, the EKF's
+    twist), runs the exported actor with onnxruntime, and publishes the
+    resulting body twist on cmd_vel_rl.
+
+    The policy is the primary controller and Nav2 sits below it in twist_mux
+    as the fallback, so this node going silent hands the rover back to Nav2
+    rather than stopping it.
+
+    The observation layout, the velocity envelope and the action scaling live
+    in contract.py and limits.py, which import no ROS and are the SAME code
+    the simulator trains against. That is deliberate: a policy fed a vector
+    assembled differently returns a plausible twist for a question nobody
+    asked, with no error to notice.
+
+    Publishes no transforms. The EKF keeps odom -> base_link and AMCL keeps
+    map -> odom, exactly as with Nav2.
+  </description>
+  <maintainer email="upadhyp1@uci.edu">pran</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>nav2_msgs</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <!-- Route geometry: project onto a polyline, sample a point at an arc
+       length. One definition, shared with subgoal_walker_node. -->
+  <exec_depend>vla_bridge</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <!-- onnxruntime is NOT declared here: it has no apt package and no rosdep
+       key on Ubuntu 24.04, so naming it would break `rosdep install` for the
+       whole workspace. Install it with pip; the README has the command.
+       Inference only, so torch and stable-baselines3 stay on the training
+       side: the actor is three matrix multiplies. -->
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

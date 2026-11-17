@@ -1,0 +1,65 @@
+### The RL policy as the rover's controller.
+#
+# Consumes:  /scan               urg_node2, reduced to 60 beams here
+#            /odometry/filtered  the EKF, for the measured twist
+#            /map                the map server, for the route normaliser
+#            /rl/goal_pose       where to drive
+# Produces:  /cmd_vel_rl         into twist_mux above navigation
+#            /rl/status          one human-readable line per second
+#            /rl/route           the planned route, for RViz
+#
+# Every number the policy's observation depends on is a CONTRACT, not a
+# tuning knob: the vector is normalised by these, so changing one silently
+# rescales an input the policy was fitted to. The velocity envelope and the
+# scan geometry are not here for that reason, they live in limits.py and
+# contract.py beside the code that uses them.
+
+rl_bridge:
+  ros__parameters:
+    # Exported by rl_sim/tools/export_onnx.py, which verifies the export
+    # against the original .zip before writing it.
+    policy: ''
+
+    scan_topic: /scan
+    # The policy was TRAINED on a scan fused from the laser and the ZED's
+    # depth, because Nav2's local costmap fuses both. Empty means laser
+    # only, which is blind to anything below the laser plane at 0.176 m.
+    # Nothing publishes such a topic yet; see the README.
+    depth_scan_topic: ''
+    odom_topic: /odometry/filtered    # the EKF output, NOT /wheel/odometry
+    map_topic: /map
+    goal_topic: /rl/goal_pose
+    cmd_topic: /cmd_vel_rl
+    status_topic: /rl/status
+
+    planner_action: compute_path_to_pose
+    planner_id: GridBased             # must match nav2_params' planner name
+
+    # The simulator's control period is 48 ms to the step. The policy's
+    # commanded-twist channel is its own previous output, so a different
+    # rate changes what that channel means.
+    control_rate: 20.83               # Hz
+
+    map_frame: map
+    base_frame: base_link
+
+    goal_tolerance: 0.25              # m, looser than Nav2's
+    replan_period: 1.0                # s between routes
+    route_deviation: 1.0              # m off route before replanning early
+    planner_timeout: 5.0              # s to wait for planner_server at startup
+
+    # Older than this and an input is further out of date than the rover's
+    # braking distance, so the policy is held rather than driven on it.
+    sensor_timeout: 0.30              # s
+
+    # A leash for the first live runs. Scales what is published, not what the
+    # policy believes it asked for, so the difference shows up in the
+    # measured-twist channel as the slip it was trained with. 1.0 is the
+    # policy's full 0.40 m/s.
+    speed_scale: 1.0
+
+    # Zero the commanded and measured yaw-rate channels before inference.
+    # The policy's response to them is a learned D-term through the loop's
+    # own lag, which sustains a limit cycle at about 1.7 Hz; blinding them
+    # measured 3.83 -> 2.43 wz sign reversals/s at no cost in success.
+    blind_yaw_feedback: true

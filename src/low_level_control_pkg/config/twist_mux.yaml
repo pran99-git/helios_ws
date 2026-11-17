@@ -37,6 +37,15 @@ twist_mux:
         topic: cmd_vel_smoothed
         timeout: 0.5      # s
         priority: 10
+      # The RL policy, which steers directly rather than through a
+      # controller. Above navigation because it is the primary controller and
+      # Nav2 is its fallback: when rl_bridge stops publishing, the timeout
+      # hands the rover to Nav2 by itself. Below the joystick, so the deadman
+      # still takes it away from both.
+      reinforcement:
+        topic: cmd_vel_rl
+        timeout: 0.5      # s
+        priority: 30
       # The subgoal walker turning the rover on the spot. Above navigation so
       # the turn wins over velocity_smoother's zeros while it runs, below the
       # joystick so the deadman still takes control. It publishes nothing while

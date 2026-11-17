@@ -10,9 +10,9 @@ read [the root README](README.md) and the package READMEs it links to.
 
 ## The short version
 
-Four terminals to map, five to navigate, seven to explore on its own. Order
-matters for the first one, and each terminal needs everything below it already
-running.
+Four terminals to map, five to navigate, seven to explore on its own, eight to
+drive with the RL policy. Order matters for the first one, and each terminal
+needs everything below it already running.
 
 ```bash
 source ~/helios_ws/install/setup.bash        # in EVERY terminal
@@ -24,8 +24,9 @@ ros2 launch mapping_localization_pkg slam_toolbox.launch.py   # 4. a mapper
 ros2 launch navigation_pkg navigation.launch.py               # 5. autonomy
 ```
 
-Two optional terminals sit on top of that: **6** runs the VLA policy instead of
-the global planner, and **7** explores an unknown space with no goals from you.
+Three optional terminals sit on top of that: **6** runs the VLA policy instead
+of the global planner, **7** explores an unknown space with no goals from you,
+and **8** drives with the RL policy instead of Nav2's controller.
 
 Hold the **right shoulder button (R)** on the gamepad to drive. Everything below is the
 detail: what to check first, what each terminal actually starts, and what to do
@@ -89,6 +90,7 @@ One-time setup, each owned by a package README:
 | Gamepad paired, axis mapping confirmed | [`low_level_control_pkg`](src/low_level_control_pkg/README.md) |
 | `sudo apt install ros-jazzy-twist-mux` | started with the driver; without it nothing publishes `/cmd_vel` |
 | VLA virtualenv and checkpoint (only for terminal 6) | [`vla_pkg`](src/vla_pkg/README.md) |
+| `pip install --user --break-system-packages onnxruntime` and an exported policy (only for terminal 8) | [`rl_bridge`](src/rl_pkg/rl_bridge/README.md) |
 
 Then build:
 
@@ -143,7 +145,13 @@ outranks both.
 | `/cmd_vel_estop` zeros, from `estop_node` | 250 |
 | `/cmd_vel_lock` latched lock, from `estop_node` | lock at 200 |
 | `/cmd_vel_joy` teleop | 100 |
+| `/cmd_vel_rl` the RL policy, terminal 8 | 30 |
+| `/cmd_vel_walker` the VLA walker turning in place | 20 |
 | `/cmd_vel_smoothed` Nav2 and the VLA | 10 |
+
+The RL policy sits above Nav2 on purpose: it is the primary controller there,
+and when `rl_bridge` stops publishing the 0.5 s timeout hands the rover back to
+Nav2 by itself.
 
 > **Press L on the gamepad to stop everything.** It latches: teleop and
 > autonomy stay blocked until you hold **Start** for a second to clear it.
@@ -505,6 +513,72 @@ The detail of how frontiers are found and ranked is in
 
 ---
 
+## Terminal 8: RL policy navigation (optional)
+
+Drive to a 2D pose with the policy trained in MuJoCo, instead of Nav2's
+controller.
+
+**Needs terminal 5 running, for `planner_server` alone.** Unlike terminal 6,
+this does not hand paths to `controller_server`: the policy steers the rover
+itself on `/cmd_vel_rl` at priority 30, above Nav2. Nav2 is the fallback
+underneath, which the 0.5 s `twist_mux` timeout selects on its own if this node
+stops. Pair it with AMCL (terminal 4), since the policy needs `map` and a
+latched `/map`.
+
+One-time setup, since `onnxruntime` has no apt package on 24.04:
+
+```bash
+pip install --user --break-system-packages onnxruntime
+colcon build --packages-select rl_bridge --symlink-install
+```
+
+```bash
+ros2 launch rl_bridge rl_bridge.launch.py \
+    policy:=$HOME/helios_ws/src/rl_pkg/rl_sim/policies/tracker_v1.onnx \
+    speed_scale:=0.6
+```
+
+Then give it a goal. Point RViz's **2D Goal Pose** tool at `/rl/goal_pose`, or:
+
+```bash
+ros2 topic pub --once /rl/goal_pose geometry_msgs/PoseStamped \
+    '{header: {frame_id: map}, pose: {position: {x: 2.0, y: 1.0}, orientation: {w: 1.0}}}'
+
+# stand down: a non-finite position clears the goal
+ros2 topic pub --once /rl/goal_pose geometry_msgs/PoseStamped \
+    '{header: {frame_id: map}, pose: {position: {x: .nan, y: .nan}}}'
+```
+
+| Argument | Default | Effect |
+|---|---|---|
+| `policy` | required | The exported `.onnx` |
+| `speed_scale` | `1.0` | Leash on the published twist; `1.0` is 0.40 m/s |
+| `blind_yaw_feedback` | `true` | Zeroes the two wz channels, which cuts the policy's yaw oscillation by about a third |
+| `config` | the package's `rl_bridge.yaml` | Alternative parameter set |
+
+> **Do not use the Nav2 Goal tool while this is running.** Both would drive.
+> That is why the goal here is `/rl/goal_pose` and not `/goal_pose`.
+>
+> **Leave terminal 3 running.** The joystick outranks the policy, so holding
+> the deadman is how you take an RL run away from it.
+
+**This policy does not avoid obstacles.** It follows the planner's route and
+tracks it well (93.6% over 500 simulated episodes on the saved lab map), but
+replacing its entire scan with noise costs it nothing measurable. It is also
+running laser-only, while it trained on a scan fused with ZED depth, so it is
+blind below the 0.176 m laser plane. Treat the first outings as experiments,
+start at `speed_scale:=0.6`, and keep a hand on the deadman.
+
+```bash
+ros2 topic echo /rl/status --once   # driving | clearance 1.42 m | carrot +3 deg
+ros2 topic hz   /cmd_vel_rl         # ~20.8 Hz while a goal is active
+```
+
+What it measures, what it cannot do, and the parameters in full are in
+[`src/rl_pkg/rl_bridge/README.md`](src/rl_pkg/rl_bridge/README.md).
+
+---
+
 ## Saving a run
 
 ### slam_toolbox
@@ -651,6 +725,10 @@ ros2 topic pub --once /vla/goal_text std_msgs/msg/String "{data: 'the blue chair
 ros2 launch mapping_localization_pkg exploration.launch.py
 ros2 topic pub -t 4 -r 2 /exploration/enable std_msgs/msg/Bool "{data: false}"
 
+# 8  RL policy (needs 5 for planner_server, and 4 = AMCL; does not avoid obstacles)
+ros2 launch rl_bridge rl_bridge.launch.py \
+    policy:=$HOME/helios_ws/src/rl_pkg/rl_sim/policies/tracker_v1.onnx speed_scale:=0.6
+
 # save
 ~/helios_ws/src/mapping_localization_pkg/slam_toolbox/scripts/save_slam.sh <name>
 ~/helios_ws/src/mapping_localization_pkg/rtabmap/scripts/save_rtabmap.sh <name> --map-only
@@ -667,3 +745,5 @@ ros2 topic pub -t 4 -r 2 /exploration/enable std_msgs/msg/Bool "{data: false}"
 - [`mapping_localization_pkg`](src/mapping_localization_pkg/README.md): the three mappers in depth
 - [`navigation_pkg`](src/navigation_pkg/README.md): Nav2, and the mecanum-specific tuning
 - [`vla_pkg`](src/vla_pkg/README.md): the OmniVLA policy, and how it feeds Nav2
+- [`rl_pkg`](src/rl_pkg/README.md): the RL policy, how it is trained, and what
+  it measures on the robot

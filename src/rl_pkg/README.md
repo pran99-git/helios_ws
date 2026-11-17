@@ -34,22 +34,34 @@ under a millisecond. No HTTP boundary is needed, unlike OmniVLA.
    DEPLOYMENT (ROS 2 Jazzy)
    ┌──────────────────────────────────────────┐
    │  rl_bridge/                              │
-   │    rl_policy_node    /scan + goal in     │
+   │    rl_bridge_node    /scan + goal in     │
    │                      /cmd_vel_rl out     │
+   │    contract.py       the 73-value layout │
+   │    limits.py         the velocity envelope│
    └───────────────────┬──────────────────────┘
                        │
              twist_mux ─┴─► /cmd_vel ─► roboclaw_driver
 ```
 
-`/cmd_vel_rl` enters `twist_mux` **below** `cmd_vel_joy`, so the joystick stays
-a hard override and the heartbeat e-stop keeps working unchanged.
+`/cmd_vel_rl` enters `twist_mux` at priority 30: **above** Nav2, so the policy
+is the primary controller and Nav2 is what the rover falls back to when this
+node stops publishing, and **below** `cmd_vel_joy`, so the joystick stays a
+hard override and the heartbeat e-stop keeps working unchanged.
+
+Note which half owns the contract. `contract.py` and `limits.py` live in
+`rl_bridge` and `rl_sim` imports them, not the other way round, so the package
+that ships on the rover depends on nothing outside its own install. Training
+and deployment then assemble the observation with the same function. A second
+copy of a 73-value layout would be a silent failure waiting to happen: the
+policy keeps returning plausible twists, it is just answering a different
+question.
 
 ## What's in here
 
 | Path | What | ROS package? |
 |---|---|---|
 | `rl_sim/` | Simulation, environment, training, evaluation | no |
-| `rl_bridge/` | The ROS adapter that drives the rover | yes |
+| `rl_bridge/` | The ROS adapter that drives the rover, and the shared contract | yes |
 
 ## The physics backend: CPU, not GPU
 
@@ -368,8 +380,35 @@ Each episode prints its outcome, route remaining and cross-track error.
 | `--camera` | Model camera name, or `-1` for a free camera |
 | `--episodes` | How many to run |
 
+## Deploy
+
+Export the actor, which checks itself against the original `.zip`:
+
+```bash
+cd rl_sim
+env -u PYTHONPATH ../../../.venvs/rl_train/bin/python \
+    tools/export_onnx.py policies/tracker_v1.zip
+```
+
+It drives the simulator with the `.zip` and replays every observation through
+the exported file. Measured agreement is 4e-07 on `cluttered` and 5e-07 on the
+lab map, against a 1e-05 tolerance, and a failure exits non-zero.
+
+Then run it on the robot. `rl_bridge/README.md` has the wiring, the parameters
+and the known gaps; `launch_helios.md` has the full stack order.
+
+```bash
+ros2 launch rl_bridge rl_bridge.launch.py \
+    policy:=$PWD/rl_sim/policies/tracker_v1.onnx speed_scale:=0.6
+```
+
+The policy is a 73 to 3 MLP, so inference measures **0.05 ms** per call
+against a 48 ms control period. The GPU stays free for the ZED.
+
 ## Related
 
+- [`rl_bridge`](rl_bridge/README.md): the ROS adapter, the observation
+  contract, and what the deployed policy cannot do
 - [`low_level_control_pkg`](../low_level_control_pkg/README.md): owns
   `twist_mux`, `/cmd_vel` and the e-stop the policy sits behind
 - [`navigation_pkg`](../navigation_pkg/README.md): the velocity limits and
