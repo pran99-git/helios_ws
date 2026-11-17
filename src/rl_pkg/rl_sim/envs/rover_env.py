@@ -569,7 +569,6 @@ class RoverEnv(gym.Env[np.ndarray, np.ndarray]):
             previous_distance=self._previous_remaining,
             distance=left,
             nearest_obstacle=nearest,
-            forward_clearance=ahead,
             # Truth, not the estimate: this term anticipates the collision,
             # which is decided by the physics rather than by what the EKF
             # reports.

@@ -186,3 +186,26 @@ def test_reset_clears_a_jump() -> None:
     p.reset()
     assert not p.lost
     assert np.allclose(p.offset, 0.0)
+
+
+def test_pose_jitter_holds_between_corrections() -> None:
+    """One jitter sample per localisation correction, held in between.
+
+    The real map->odom error is a step function at AMCL's 0.27 s cadence.
+    Redrawing it every 48 ms control step made it white noise, and the
+    steering loop chased it: the wz command flipped sign three times a
+    second and the rover weaved down straight routes.
+    """
+    model = HardwareModel()
+    dt = 0.048
+    estimator = PoseEstimator(model, dt, np.random.default_rng(0))
+    truth = np.array([1.0, 2.0, 0.5])
+    steps_held = round(model.pose_correction_period / dt)
+
+    first = estimator.estimate(truth)
+    for _ in range(steps_held - 2):
+        assert estimator.estimate(truth) == pytest.approx(first)
+    later = [estimator.estimate(truth) for _ in range(3)]
+    assert any(abs(p - first).max() > 1e-12 for p in later), (
+        "a new correction must eventually arrive"
+    )

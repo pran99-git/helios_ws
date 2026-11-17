@@ -28,22 +28,6 @@ class RewardWeights:
         time: Charged every control step, so dawdling costs. Deliberately
             small: a large per-step charge makes ending the episode early a
             way to save money, which rewards crashing.
-        approach: Penalty for having something in the arc AHEAD,
-            independent of speed. This is the directional half, and the
-            only term with a steering gradient: the single way to reduce it
-            is to turn until the obstacle leaves the forward sector, where
-            `clearance` cannot tell left from right.
-
-            NOT speed scaled, deliberately. Multiplying by speed lets
-            braking zero the term, which is a complete and much cheaper
-            solution than steering, and the policy duly took it: measured
-            0.050 m of cross-track with an obstacle ahead against 0.053 m
-            with the way clear. It never deviated at all, it just slowed.
-
-            Without it the obstacle response was scalar: feeding the
-            policy pure noise instead of a real scan produced an identical
-            slowdown, because `min(ranges)` discards direction before the
-            reward ever sees it.
         clearance: Penalty as the nearest obstacle approaches `danger`,
             SCALED BY FORWARD SPEED. Proximity alone does not bite: measured
             at the moment of collision the rover was doing a full 0.40 m/s
@@ -67,22 +51,12 @@ class RewardWeights:
             the obstacle term wins where they genuinely conflict. Kept well
             below `clearance` here for that reason.
 
-            GATED on the forward sector: full weight while the way
-            ahead is clear, nothing while something is in it. Tracking
-            precision and the freedom to leave the line are needed at
-            different moments, not traded against each other. Lowering the
-            weight instead bought deviation everywhere, including on open
-            route where holding the line is the whole job, and cost 68
-            points of lab-map success for avoidance that never appeared. The observation carries carrots
-            at 0.5, 1.5 and 3.0 m, and the policy had learned to steer by
-            the far ones: its cross-track of 0.081 m matches a controller
-            following the 1.5 m carrot (0.092 m), not the 0.5 m one
-            (0.025 m). A longer lookahead drives faster and smoother and so
-            earns more `progress`, right up until it clips a corner.
-
-            Nothing else opposes that, since `progress` pays only for arc
-            closed ALONG the route. At -0.05 the term carried 4% of the
-            budget and corner cutting still paid better.
+            Weighted for precision: the observation carries carrots at
+            0.5, 1.5 and 3.0 m, and with this term weak the policy steered
+            by the far ones, whose 0.081 m of corner cutting matched a
+            1.5 m-lookahead controller where the 0.5 m carrot reaches
+            0.025 m. Nothing else opposes drifting sideways, since
+            `progress` pays only for arc closed ALONG the route.
         align: Paid per radian of heading error closed toward the route.
             The missing half of `misalign`: without it, turning toward the
             route and standing still score identically, because a rotation
@@ -108,8 +82,7 @@ class RewardWeights:
     success: float = 10.00
     collision: float = -10.00
     time: float = -0.004
-    approach: float = -0.12
-    clearance: float = -0.15
+    clearance: float = -0.30
     cross_track: float = -0.25
     align: float = 1.00
     misalign: float = -0.10
@@ -147,7 +120,6 @@ def step_reward(
     previous_distance: float,
     distance: float,
     nearest_obstacle: float,
-    forward_clearance: float,
     forward_speed: float,
     cross_track: float,
     twist: np.ndarray,
@@ -198,7 +170,6 @@ def step_reward(
         nearest_obstacle: Shortest lidar range this step, in metres, in
             any direction. Side scrapes matter too: the rover is 0.38 m
             wide, so an obstacle beside it is still a collision.
-        forward_clearance: Shortest range inside the forward sector.
         forward_speed: Measured forward velocity, m/s. Scales the clearance
             penalty, so standing still next to a wall is free.
         cross_track: Signed lateral offset from the route, metres.
@@ -225,9 +196,6 @@ def step_reward(
 
     # Linear ramp from zero at `danger` to one at contact, so the penalty
     # grows smoothly rather than switching on at a threshold.
-    if forward_clearance < danger:
-        terms["approach"] = weights.approach * (1.0 - forward_clearance / danger)
-
     if nearest_obstacle < danger:
         proximity = 1.0 - nearest_obstacle / danger
         # Normalised against the forward ceiling so the weight keeps its
@@ -235,9 +203,7 @@ def step_reward(
         pace = max(0.0, forward_speed) / MAX_FORWARD_SPEED
         terms["clearance"] = weights.clearance * proximity * pace
 
-    # Only while there is nothing to go around. See `cross_track` above.
-    if forward_clearance >= danger:
-        terms["cross_track"] = weights.cross_track * abs(cross_track)
+    terms["cross_track"] = weights.cross_track * abs(cross_track)
 
     # Closing heading error pays per radian, exactly as closing distance
     # pays per metre.

@@ -53,6 +53,13 @@ class HardwareModel:
         spike_magnitude: Range of the initial impulse, as a multiple of the
             axis limit. Measured peak was 21x on vx.
         spike_decay: Per-sample decay of an active impulse.
+        pose_correction_period: How long one localisation correction
+            stays in force, seconds. AMCL publishes a new map->odom about
+            every 0.27 s, so the jitter is a step function at that cadence,
+            NOT white noise per control step. Redrawing it every 48 ms
+            multiplied its high-frequency content 5.6x and taught the
+            policy to chase it: the wz command flipped sign three times a
+            second and the rover visibly weaved down straight routes.
         pose_jitter_sd: Noise on the pose estimate, metres. The median
             map->odom correction, since AMCL nudges every 0.27 s and the
             error never integrates far.
@@ -69,6 +76,7 @@ class HardwareModel:
     spike_probability: float = 5e-4
     spike_magnitude: tuple[float, float] = (2.0, 21.0)
     spike_decay: float = 0.79
+    pose_correction_period: float = 0.27
     pose_jitter_sd: float = 0.012
     pose_jump_probability: float = 2e-4
     pose_jump_magnitude: tuple[float, float] = (0.20, 6.14)
@@ -222,6 +230,8 @@ class PoseEstimator:
         self._rng = rng
         self._offset = np.zeros(2)
         self._jump_left = 0.0
+        self._jitter = np.zeros(2)
+        self._since_correction = float("inf")
 
     @property
     def lost(self) -> bool:
@@ -234,9 +244,11 @@ class PoseEstimator:
         return self._offset.copy()
 
     def reset(self) -> None:
-        """Clear any active jump."""
+        """Clear any active jump and force a fresh correction."""
         self._offset = np.zeros(2)
         self._jump_left = 0.0
+        self._jitter = np.zeros(2)
+        self._since_correction = float("inf")
 
     def estimate(self, true_pose: np.ndarray) -> np.ndarray:
         """Report the pose for this control step.
@@ -259,7 +271,15 @@ class PoseEstimator:
             self._offset = size * np.array([np.cos(bearing), np.sin(bearing)])
             self._jump_left = self._rng.uniform(*m.pose_jump_duration)
 
-        jitter = self._rng.normal(0.0, m.pose_jitter_sd, 2)
+        # One jitter sample per localisation correction, held in between:
+        # the real map->odom error is a step function at the correction
+        # cadence, and per-step redraws made it white noise the steering
+        # loop then chased.
+        if self._since_correction >= m.pose_correction_period:
+            self._jitter = self._rng.normal(0.0, m.pose_jitter_sd, 2)
+            self._since_correction = 0.0
+        self._since_correction += self._dt
+
         reported = np.asarray(true_pose, dtype=np.float64).copy()
-        reported[:2] += self._offset + jitter
+        reported[:2] += self._offset + self._jitter
         return reported

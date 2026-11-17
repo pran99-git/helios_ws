@@ -60,6 +60,34 @@ def score(policy, scenario: scenarios.Scenario, episodes: int) -> tuple[float, f
     return wins / episodes, float(np.mean(offsets))
 
 
+#: Largest acceptable wz sign-reversal rate on an empty room, 1/s. The
+#: dither that per-step pose jitter taught reached 3.8; a clean controller
+#: under held jitter sits near 1.0. Above this the rover visibly weaves.
+WEAVE_LIMIT: float = 1.5
+
+
+def weave(policy, episodes: int = 12) -> float:
+    """Yaw-reversal rate on open_room, start transient excluded."""
+    env = RoverEnv(
+        scenario=next(s for s in scenarios.SUITE if s.name == "open_room"), seed=0
+    )
+    rates = []
+    for episode in range(episodes):
+        obs, _info = env.reset(seed=9000 + episode)
+        step = 0
+        while True:
+            action = policy.predict(obs, deterministic=True)[0]
+            obs, _reward, terminated, truncated, _i = env.step(action)
+            step += 1
+            if step > 60:
+                rates.append(env._true_twist()[2])
+            if terminated or truncated:
+                break
+    wz = np.array(rates)
+    sign = np.sign(wz[np.abs(wz) > 0.02])
+    return float(np.sum(np.diff(sign) != 0) / (len(wz) * env.dt))
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("policy", type=Path)
@@ -105,6 +133,14 @@ def main() -> int:
             f"  {name:16s} {100 * rate:8.0f}% {100 * BASELINE[name]:6.0f}% "
             f"{offset:8.3f}   {'ok' if ok else 'REGRESSED'}"
         )
+    reversals = weave(model)
+    ok = reversals <= WEAVE_LIMIT
+    failed += [] if ok else ["weave"]
+    print(
+        f"  {'weave (open)':16s} {reversals:7.2f}/s {WEAVE_LIMIT:5.1f}/s"
+        f" {'':>9s}  {'ok' if ok else 'WEAVING'}"
+    )
+
     if failed:
         print(f"\n  below the banked result on: {', '.join(failed)}")
         print("  policies/tracker_v1.zip is still the better policy.")
