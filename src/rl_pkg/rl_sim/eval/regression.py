@@ -4,6 +4,11 @@ Four reward changes once cost 68 points of lab-map success before anyone
 noticed, because every run was judged on the scenario it trained on. This
 runs the checks that matter and says plainly whether a policy is worse than
 what `policies/` already holds.
+
+A scenario fails only when its floor sits above the WHOLE 95% interval, not
+merely above the measured rate. At the episode counts that run in minutes
+the point estimate wobbles by several points, and a gate that false-alarms
+on that is a gate nobody reads.
 """
 
 from __future__ import annotations
@@ -24,7 +29,8 @@ from envs.rover_env import RoverEnv
 #: staleness 0.5/0.3 after tracker_v1 was measured at 100% there, which
 #: silently changed what the name meant. Each floor's provenance:
 #:
-#:   lab              tracker_v1 scored 94%; the achievable ceiling is 94%
+#:   lab              tracker_v1 scores 93.6% over 500 episodes, 95% interval
+#:                    91.1 to 95.4; the achievable ceiling is 94%
 #:   cluttered-clean  tracker_v1 scored 100% with staleness off
 #:   cluttered-stale  tracker_v1 scores ~63%; a blind carrot-follower 70%.
 #:                    The floor only says "no worse than the tracker" - the
@@ -37,6 +43,10 @@ BASELINE: dict[str, float] = {
     "corridor": 0.85,
 }
 
+#: The policy every floor above was measured from, and the one a new run has
+#: to beat before it may be deployed.
+CHAMPION: str = "tracker_v1.zip"
+
 LAB_MAP = (
     Path(__file__).resolve().parents[3]
     / "mapping_localization_pkg/slam_toolbox/maps"
@@ -44,8 +54,8 @@ LAB_MAP = (
 )
 
 
-def score(policy, scenario: scenarios.Scenario, episodes: int) -> tuple[float, float]:
-    """Run a policy and report its success rate and mean cross-track."""
+def score(policy, scenario: scenarios.Scenario, episodes: int) -> tuple[int, float]:
+    """Run a policy and report its wins and mean cross-track."""
     env = RoverEnv(scenario=scenario, seed=0)
     wins, offsets = 0, []
     for episode in range(episodes):
@@ -57,7 +67,38 @@ def score(policy, scenario: scenarios.Scenario, episodes: int) -> tuple[float, f
             if terminated or truncated:
                 break
         wins += info["is_success"]
-    return wins / episodes, float(np.mean(offsets))
+    return wins, float(np.mean(offsets))
+
+
+def wilson(wins: int, trials: int, z: float = 1.96) -> tuple[float, float]:
+    """A 95% interval for a success rate, by Wilson's score method.
+
+    Used instead of comparing the point estimate to the floor, because the
+    point estimate is noisy enough to cry wolf on its own. A policy truly at
+    94% fails a 90% floor about one run in ten at forty episodes, purely by
+    sampling, and a gate that false-alarms that often stops being read.
+
+    Wilson rather than the normal approximation: near a rate of 1.0 the
+    normal interval runs past 100% and goes to zero width, which is exactly
+    the region every one of these floors sits in.
+
+    Args:
+        wins: Successes observed.
+        trials: Episodes run.
+        z: Standard deviations for the interval, 1.96 being 95%.
+
+    Returns:
+        The lower and upper bounds, each in 0..1.
+    """
+    if trials <= 0:
+        return (0.0, 1.0)
+    rate = wins / trials
+    denominator = 1.0 + z**2 / trials
+    centre = (rate + z**2 / (2 * trials)) / denominator
+    spread = (
+        z * np.sqrt(rate * (1.0 - rate) / trials + z**2 / (4 * trials**2)) / denominator
+    )
+    return (max(0.0, centre - spread), min(1.0, centre + spread))
 
 
 #: Largest acceptable wz sign-reversal rate on an empty room, 1/s. The
@@ -123,27 +164,42 @@ def main() -> int:
     }
 
     print(f"{args.policy}   {args.episodes} episodes each\n")
-    print(f"  {'scenario':16s} {'success':>9s} {'floor':>7s} {'xtrack':>8s}   verdict")
+    print(
+        f"  {'scenario':16s} {'success':>9s} {'95% interval':>16s} "
+        f"{'floor':>7s} {'xtrack':>8s}   verdict"
+    )
     failed = []
     for name, scenario in cases.items():
-        rate, offset = score(model, scenario, args.episodes)
-        ok = rate >= BASELINE[name]
+        wins, offset = score(model, scenario, args.episodes)
+        rate = wins / args.episodes
+        low, high = wilson(wins, args.episodes)
+        # Fails only on a shortfall the episode count can actually support:
+        # the floor has to sit above the whole interval, not just above the
+        # point estimate.
+        ok = high >= BASELINE[name]
         failed += [] if ok else [name]
         print(
-            f"  {name:16s} {100 * rate:8.0f}% {100 * BASELINE[name]:6.0f}% "
+            f"  {name:16s} {100 * rate:8.0f}% "
+            f"{100 * low:7.0f}% to {100 * high:3.0f}% "
+            f"{100 * BASELINE[name]:6.0f}% "
             f"{offset:8.3f}   {'ok' if ok else 'REGRESSED'}"
         )
     reversals = weave(model)
     ok = reversals <= WEAVE_LIMIT
     failed += [] if ok else ["weave"]
+    # No interval on this one: it is a mean over thousands of control steps,
+    # and every policy measured so far misses the limit by more than twice.
     print(
-        f"  {'weave (open)':16s} {reversals:7.2f}/s {WEAVE_LIMIT:5.1f}/s"
-        f" {'':>9s}  {'ok' if ok else 'WEAVING'}"
+        f"  {'weave (open)':16s} {reversals:7.2f}/s {'':>16s} "
+        f"{WEAVE_LIMIT:6.1f}/s {'':>8s}   {'ok' if ok else 'WEAVING'}"
     )
 
     if failed:
         print(f"\n  below the banked result on: {', '.join(failed)}")
-        print("  policies/tracker_v1.zip is still the better policy.")
+        # The champion cannot be told to defer to itself, and it misses the
+        # weave limit too, so running it through here must not print that.
+        if args.policy.name != CHAMPION:
+            print(f"  policies/{CHAMPION} is still the better policy.")
         return 1
     print("\n  clears every banked result.")
     return 0
