@@ -119,6 +119,19 @@ of the stack untouched.
 | Goal reached | one zero, then nothing |
 | Driving | the policy's twist |
 
+Every number entering the observation is checked for finiteness, because this
+input outranks Nav2 in twist_mux and only the joystick and the e-stop sit above
+it. `clean` guards the scan; `finite` guards the pose, the measured twist, the
+route and the command itself.
+
+| Non-finite input | Effect |
+|---|---|
+| Odometry twist | left to go stale, so the staleness check holds the rover |
+| TF pose | treated as no TF, so the rover holds |
+| Any route pose | the route is refused |
+| Goal position | the stand-down sentinel, so the node drops the goal |
+| The policy's own command | logged as an error and the rover holds |
+
 ## Deployment pipeline
 
 ```

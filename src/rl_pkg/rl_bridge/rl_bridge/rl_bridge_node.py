@@ -56,6 +56,17 @@ from rl_bridge.limits import RateLimiter, VelocityLimits
 from rl_bridge.policy import OnnxPolicy
 
 
+def finite(*values: float) -> bool:
+    """Whether every value is a usable number.
+
+    One NaN anywhere in the observation reaches the command through the
+    network, and this input outranks Nav2 in twist_mux, so an unchecked one
+    would hand the wheels something only the joystick and the e-stop could
+    override. `clean` already guards the scan; this guards everything else.
+    """
+    return all(math.isfinite(value) for value in values)
+
+
 class RlBridgeNode(Node):
     """Runs the RL policy as the rover's controller."""
 
@@ -246,13 +257,14 @@ class RlBridgeNode(Node):
     def _on_odom(self, msg: Odometry) -> None:
         # Odometry carries its twist in child_frame_id, which is base_link:
         # already the body frame the observation and /cmd_vel use.
-        self._measured = np.array(
-            [
-                msg.twist.twist.linear.x,
-                msg.twist.twist.linear.y,
-                msg.twist.twist.angular.z,
-            ]
-        )
+        twist = msg.twist.twist
+        if not finite(twist.linear.x, twist.linear.y, twist.angular.z):
+            # Left to go stale rather than zeroed: the staleness check
+            # already holds the rover, while a fabricated zero would enter
+            # the measured-twist channel as if it were a measurement.
+            self._note = "non-finite odometry twist"
+            return
+        self._measured = np.array([twist.linear.x, twist.linear.y, twist.angular.z])
         self._odom_at = self._now()
 
     def _on_map(self, msg: OccupancyGrid) -> None:
@@ -297,11 +309,15 @@ class RlBridgeNode(Node):
             self._note = f"no {self._map_frame} -> {self._base_frame}: {error}"
             return None
         t = tf.transform
-        return Pose2D(
+        pose = Pose2D(
             t.translation.x,
             t.translation.y,
             yaw_from_quaternion(t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w),
         )
+        if not finite(pose.x, pose.y, pose.yaw):
+            self._note = "non-finite pose from TF"
+            return None
+        return pose
 
     # ----------------------------------------------------------- the goals ---
 
@@ -369,7 +385,7 @@ class RlBridgeNode(Node):
         if len(poses) < 2:
             self._note = "route too short to follow"
             return
-        self._route = [
+        route = [
             Pose2D(
                 p.pose.position.x,
                 p.pose.position.y,
@@ -382,6 +398,10 @@ class RlBridgeNode(Node):
             )
             for p in poses
         ]
+        if not all(finite(p.x, p.y, p.yaw) for p in route):
+            self._note = "non-finite pose in the route"
+            return
+        self._route = route
         self._route_length = route_length(self._route)
         self._route_at = self._now()
         self._note = ""
@@ -466,6 +486,15 @@ class RlBridgeNode(Node):
 
         action = self._policy.act(observation.vector)
         twist = self._rate.step(scale_action(action, self._limits))
+
+        if not finite(*twist.tolist()):
+            # The guarded inputs make this unreachable short of corrupt
+            # weights, which is exactly why it is checked here: there is
+            # nothing below this input to catch it.
+            self._status = "non-finite command, holding"
+            self.get_logger().error(self._status)
+            self._halt()
+            return
 
         command = Twist()
         command.linear.x = float(twist[0] * self._speed_scale)
