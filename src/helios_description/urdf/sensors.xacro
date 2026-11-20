@@ -59,7 +59,7 @@
          where it would corrupt how the EKF rotates ZED velocity into base_link.
          z of 0.050 sits 11 mm above the top plate (surface at ~0.039); that is
          the mount standoff, not an error. -->
-    <origin xyz="0.106 0.0 0.050" rpy="0 0 0"/>
+    <origin xyz="0.106 0.0 0.070" rpy="0 0 0"/>
   </joint>
 
   <!-- ===================== Hokuyo UST-10LX ===================== -->
@@ -91,7 +91,7 @@
          i.e. the cable and the 90 deg dead zone face AFT. Remounting it
          cable-forward makes this 0 0 ${pi}; nothing would report an error, the
          map would just be built backwards. -->
-    <origin xyz="0.05 0 0.100" rpy="0 0 0"/>
+    <origin xyz="0.05 0 0.120" rpy="0 0 0"/>
   </joint>
 
 </robot>
