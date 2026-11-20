@@ -103,6 +103,8 @@ Full list with units in `config/rl_bridge.yaml`.
 | `speed_scale` | 1.0 | Leash on the published twist. Scales output only, so the difference appears as slip in the measured channel. |
 | `blind_yaw_feedback` | true | See above. |
 | `sensor_timeout` | 0.30 s | Older than this holds the rover instead of driving on it. |
+| `planner_retry_min` | 0.2 s | Wait after a refused route, doubling each failure. Zero disables the backoff. |
+| `planner_retry_max` | 2.0 s | Ceiling on that wait, matching nav2's `max_planning_time`. |
 | `depth_scan_topic` | empty | See the gap below. |
 
 ### When it holds the rover
@@ -128,9 +130,23 @@ route and the command itself.
 |---|---|
 | Odometry twist | left to go stale, so the staleness check holds the rover |
 | TF pose | treated as no TF, so the rover holds |
-| Any route pose | the route is refused |
+| Any route pose | route refused, and the planner backoff applies |
 | Goal position | the stand-down sentinel, so the node drops the goal |
 | The policy's own command | logged as an error and the rover holds |
+
+### Asking the planner again
+
+A refused route is retried on a doubling wait rather than on every tick. One
+unreachable goal in the first live run drew 966 requests in 46.3 s at the
+control rate; the schedule below settles at one request every 2 s.
+
+```
+failure   1     2     3     4     5+
+wait    0.2s  0.4s  0.8s  1.6s  2.0s   (capped at planner_retry_max)
+```
+
+A success clears the wait, so an ordinary `replan_period` replan is never
+gated. The arithmetic lives in `retry.py`, which imports no ROS.
 
 ## Deployment pipeline
 

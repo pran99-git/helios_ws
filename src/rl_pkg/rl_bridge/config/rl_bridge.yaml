@@ -48,6 +48,14 @@ rl_bridge:
     route_deviation: 1.0              # m off route before replanning early
     planner_timeout: 5.0              # s to wait for planner_server at startup
 
+    # After a refused route, wait before asking again, doubling each failure.
+    # The tick runs at control_rate, so retrying every tick asks the planner
+    # 21 times a second for a route it has already refused. The ceiling is
+    # nav2's own max_planning_time: asking sooner than it can compute cannot
+    # succeed.
+    planner_retry_min: 0.2            # s, the wait after the first failure
+    planner_retry_max: 2.0            # s, the longest wait between attempts
+
     # Older than this and an input is further out of date than the rover's
     # braking distance, so the policy is held rather than driven on it.
     sensor_timeout: 0.30              # s

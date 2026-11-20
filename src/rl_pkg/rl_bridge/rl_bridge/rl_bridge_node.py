@@ -54,6 +54,7 @@ from rl_bridge.contract import (
 )
 from rl_bridge.limits import RateLimiter, VelocityLimits
 from rl_bridge.policy import OnnxPolicy
+from rl_bridge.retry import Backoff
 
 
 def finite(*values: float) -> bool:
@@ -99,6 +100,11 @@ class RlBridgeNode(Node):
         self.declare_parameter("replan_period", 1.0)  # s
         self.declare_parameter("route_deviation", 1.0)  # m before replanning early
         self.declare_parameter("planner_timeout", 5.0)  # s to wait for the server
+        # Wait after a refused route before asking again, doubling each time.
+        # The tick runs at the control rate, so retrying on every tick asks
+        # the planner 21 times a second for a route it has already refused.
+        self.declare_parameter("planner_retry_min", 0.2)  # s, the first wait
+        self.declare_parameter("planner_retry_max", 2.0)  # s, nav2's own ceiling
         # Stale inputs hold the rover rather than driving on them: a scan
         # this old is further out of date than the braking distance.
         self.declare_parameter("sensor_timeout", 0.30)  # s
@@ -159,6 +165,9 @@ class RlBridgeNode(Node):
         self._route_length = 0.0
         self._route_at: float | None = None
         self._planning = False
+        # Cleared whenever the planner answers, so a healthy replan is gated
+        # only by replan_period and never by a backoff.
+        self._backoff = Backoff(flt("planner_retry_min"), flt("planner_retry_max"))
         self._driving = False
         self._status = "idle"
         self._note = ""
@@ -332,6 +341,7 @@ class RlBridgeNode(Node):
         self._goal = msg
         self._route = []
         self._route_at = None
+        self._backoff.succeeded()
         self._note = ""
         self.get_logger().info(
             f"goal ({msg.pose.position.x:.2f}, {msg.pose.position.y:.2f}) "
@@ -351,8 +361,24 @@ class RlBridgeNode(Node):
 
     # ----------------------------------------------------------- the route ---
 
+    def _planner_failed(self, note: str) -> None:
+        """Record a refused route and wait longer before asking again.
+
+        The wait doubles to a ceiling matching nav2's own max_planning_time:
+        asking again sooner than the planner can compute cannot succeed, and
+        at the tick rate it costs 21 requests a second.
+        """
+        self._planning = False
+        self._note = note
+        self._backoff.failed(self._now())
+        self.get_logger().warn(f"{note}; asking again in {self._backoff.wait:.1f} s")
+
     def _request_route(self) -> None:
         if self._goal is None or self._planning:
+            return
+        now = self._now()
+        if not self._backoff.ready(now):
+            self._note = f"planner backoff, {self._backoff.remaining(now):.1f} s left"
             return
         if not self._planner.server_is_ready():
             self._status = "planner unavailable"
@@ -369,21 +395,20 @@ class RlBridgeNode(Node):
     def _on_route_response(self, future) -> None:
         handle = future.result()
         if handle is None or not handle.accepted:
-            self._planning = False
-            self._note = "route rejected by planner"
+            self._planner_failed("route rejected by planner")
             return
         handle.get_result_async().add_done_callback(self._on_route_result)
 
     def _on_route_result(self, future) -> None:
-        self._planning = False
         result = future.result().result
         if result.error_code != ComputePathToPose.Result.NONE:
-            self._note = f"planner error {result.error_code}: {result.error_msg}"
-            self.get_logger().warn(self._note)
+            self._planner_failed(
+                f"planner error {result.error_code}: {result.error_msg}"
+            )
             return
         poses = result.path.poses
         if len(poses) < 2:
-            self._note = "route too short to follow"
+            self._planner_failed("route too short to follow")
             return
         route = [
             Pose2D(
@@ -399,8 +424,10 @@ class RlBridgeNode(Node):
             for p in poses
         ]
         if not all(finite(p.x, p.y, p.yaw) for p in route):
-            self._note = "non-finite pose in the route"
+            self._planner_failed("non-finite pose in the route")
             return
+        self._planning = False
+        self._backoff.succeeded()
         self._route = route
         self._route_length = route_length(self._route)
         self._route_at = self._now()
